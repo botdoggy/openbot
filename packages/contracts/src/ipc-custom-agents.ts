@@ -5,11 +5,12 @@
 // The environment values are the secret half. They travel renderer-to-main on `save` and `check`,
 // and never come back: the summary has the names only, and its guard refuses a row that has more.
 
-import { isCustomAgentId, isNewCustomAgentId } from "./agent-providers";
+import type { AgentProviderId } from "./agent-providers";
+import { agentProviderDescriptor, customAgentIdOfModel, isCustomAgentId, isNewCustomAgentId } from "./agent-providers";
 import { INPUT_LIMITS } from "./input-limits";
 import { isBoundedString, isNullableBoundedString } from "./ipc-bounded-values";
 import { CUSTOM_PROVIDER_RESTARTS, type CustomProviderRestart } from "./ipc-custom-providers";
-import { isDynamicRecord, isOneOf, isString } from "./runtime-values";
+import { isBoolean, isDynamicRecord, isOneOf, isString } from "./runtime-values";
 
 export const CUSTOM_AGENT_LIMITS = {
   agents: 16,
@@ -49,6 +50,13 @@ export interface SaveCustomAgentInput {
    * `/usage`. Null for none. One line.
    */
   usagePrompt: string | null;
+  /**
+   * Whether the agent's last check found `"concurrentTurns": true` in the `_meta` of its
+   * `initialize` answer: the command runs turns of two sessions of one working folder at the same
+   * time. Absent keeps the saved flag, so a registry install or a sender that does not know the
+   * field does not reset it.
+   */
+  concurrentTurns?: boolean;
 }
 
 export interface DeleteCustomAgentInput {
@@ -67,6 +75,12 @@ export interface CustomAgentSummary {
    * keeps only the fields it knew, and the next list carries the value.
    */
   usagePrompt?: string | null | undefined;
+  /**
+   * What the agent's last check saved: the command runs turns of two sessions at the same time, so
+   * the agent is not held to one turn at a time. Absent in the result of a registry install from a
+   * server, like `usagePrompt`.
+   */
+  concurrentTurns?: boolean | undefined;
   /** The file that the command starts, or null when it cannot be found now. */
   resolvedCommand: string | null;
 }
@@ -103,6 +117,8 @@ export interface CustomAgentCheckResult {
   capabilities: string[];
   /** The names of the models that a new session lists. Empty when the agent lists none before sign-in. */
   models: string[];
+  /** `true` when the agent's `initialize` answer had `"_meta": { "concurrentTurns": true }`. */
+  concurrentTurns: boolean;
 }
 
 /** A known agent command that the scan found on this computer. It was not started. */
@@ -148,6 +164,7 @@ export function isCustomAgentSummary(value: unknown): value is CustomAgentSummar
     value.envNames.length <= CUSTOM_AGENT_LIMITS.env &&
     value.envNames.every(isCustomAgentEnvName) &&
     (value.usagePrompt === undefined || value.usagePrompt === null || isCustomAgentUsagePrompt(value.usagePrompt)) &&
+    (value.concurrentTurns === undefined || isBoolean(value.concurrentTurns)) &&
     isNullableBoundedString(value.resolvedCommand, CUSTOM_AGENT_LIMITS.command)
   );
 }
@@ -183,8 +200,27 @@ export function isCustomAgentCheckResult(value: unknown): value is CustomAgentCh
     value.capabilities.every((name) => isBoundedString(name, INPUT_LIMITS.identifier)) &&
     Array.isArray(value.models) &&
     value.models.length <= CUSTOM_AGENT_LIMITS.checkModels &&
-    value.models.every((name) => isBoundedString(name, INPUT_LIMITS.modelName))
+    value.models.every((name) => isBoundedString(name, INPUT_LIMITS.modelName)) &&
+    isBoolean(value.concurrentTurns)
   );
+}
+
+/**
+ * Whether two sessions of one agent can run a turn at the same time. Every provider answers with
+ * its descriptor; only `acp` can differ from it: a custom agent that advertised
+ * `"_meta": { "concurrentTurns": true }` at its check runs parallel lanes up to the agent's task
+ * limit, and any other custom agent stays at one turn at a time. `customAgents` is the saved list
+ * (`CustomAgentSummary` in the renderer, `CustomAgentConfig` in the backend).
+ */
+export function agentConcurrentTurns(
+  agent: { provider: AgentProviderId; model: string },
+  customAgents: readonly { id: string; concurrentTurns?: boolean | undefined }[],
+): boolean {
+  if (agent.provider === "acp") {
+    const id = customAgentIdOfModel(agent.model);
+    return (id !== null && customAgents.find((custom) => custom.id === id)?.concurrentTurns) === true;
+  }
+  return agentProviderDescriptor(agent.provider).concurrentTurns;
 }
 
 export function isDetectedAcpAgent(value: unknown): value is DetectedAcpAgent {

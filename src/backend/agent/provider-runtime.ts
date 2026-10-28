@@ -45,6 +45,7 @@ import {
   resolveInstalledFirst,
 } from "./../cli";
 import { readCursorUsage } from "./../cursor-usage";
+import type { CustomAgentConfig } from "../custom-acp-agents-client";
 import { causeHelpers } from "../effect-boundary";
 import { McpHandoffLog } from "./../mcp-handoff-log";
 import { providerMcpServerName } from "./../mcp-provider-shapes";
@@ -739,6 +740,14 @@ export class ProviderRuntime implements ProviderPort {
     }
     return this.status();
   }, Effect.uninterruptible).bind(this);
+
+  /**
+   * The saved custom agents, for a resolvable look at their stored flags (such as
+   * `concurrentTurns`) outside a spawn.
+   */
+  savedCustomAgents(): readonly CustomAgentConfig[] {
+    return savedCustomAgents(this.#credentials);
+  }
 
   /**
    * Resolve a provider's binary and keep who owns it, whether or not the provider is signed in. The

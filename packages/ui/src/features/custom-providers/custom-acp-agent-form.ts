@@ -59,6 +59,8 @@ export type AcpAgentCheck =
       capabilities: readonly string[];
       /** The names of the models that a new session lists. */
       models: readonly string[];
+      /** The agent opted into parallel turns in its `initialize` answer (`_meta.concurrentTurns`). */
+      concurrentTurns: boolean;
     }
   | { status: "failed"; message: string };
 
@@ -206,7 +208,7 @@ function draftEnv(draft: CustomAcpAgentDraft): SaveCustomAgentInput["env"] {
   return customAcpAgentValue(draft).env.map((row) => ({ name: row.name, value: keepsValue(row) ? null : row.value }));
 }
 
-export function customAgentInput(draft: CustomAcpAgentDraft): SaveCustomAgentInput {
+export function customAgentInput(draft: CustomAcpAgentDraft, check?: AcpAgentCheck): SaveCustomAgentInput {
   const value = customAcpAgentValue(draft);
   return {
     id: value.agentId,
@@ -215,6 +217,8 @@ export function customAgentInput(draft: CustomAcpAgentDraft): SaveCustomAgentInp
     args: draftArgs(value.args),
     env: draftEnv(value),
     usagePrompt: value.usagePrompt || null,
+    // Only a fresh check updates the flag: a save with no check keeps what the last check found.
+    ...(check?.status === "ok" ? { concurrentTurns: check.concurrentTurns } : {}),
   };
 }
 

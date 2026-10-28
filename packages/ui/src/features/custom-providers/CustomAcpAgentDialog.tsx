@@ -403,6 +403,9 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
                                     {` · ${passed().capabilities.join(", ")}`}
                                   </Show>
                                 </AlertDescription>
+                                <Show when={passed().concurrentTurns}>
+                                  <AlertDescription>{t("customProvider.acp.checkConcurrentTurns")}</AlertDescription>
+                                </Show>
                                 <Show when={passed().models.length > 0}>
                                   <AlertDescription>
                                     {t("customProvider.acp.checkModels", {

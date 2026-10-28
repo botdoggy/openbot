@@ -45,6 +45,14 @@ const entrySchema = z.object({
     .string()
     .nullish()
     .transform((value) => (value && isCustomAgentUsagePrompt(value.trim()) ? value.trim() : null)),
+  /**
+   * Added in version 1 with no bump, as for `usagePrompt`: a build that does not know it drops it.
+   * What the last agent check read from the `initialize` answer's `_meta.concurrentTurns`.
+   */
+  concurrentTurns: z
+    .boolean()
+    .nullish()
+    .transform((value) => value === true),
   /** One ciphertext for every environment value, or absent for an agent with no variables. */
   secret: z.string().nullish(),
 });
@@ -126,6 +134,7 @@ export class CustomAgentStore {
               args: [...stored.args],
               envNames: [...stored.envNames],
               usagePrompt: stored.usagePrompt,
+              concurrentTurns: stored.concurrentTurns,
               resolvedCommand,
             })),
           ),
@@ -142,6 +151,7 @@ export class CustomAgentStore {
       command: stored.command,
       args: stored.args,
       usagePrompt: stored.usagePrompt,
+      concurrentTurns: stored.concurrentTurns,
       // A value this computer cannot open is left out, and the agent starts without it.
       env: stored.envNames.flatMap((name) => {
         const value = values?.[name];
@@ -194,6 +204,8 @@ export class CustomAgentStore {
           args: [...input.args],
           envNames,
           usagePrompt: input.usagePrompt,
+          // A sender that does not know the field must not reset what a check saved.
+          concurrentTurns: input.concurrentTurns ?? current?.stored.concurrentTurns ?? false,
           secret: sealed,
         },
         values,

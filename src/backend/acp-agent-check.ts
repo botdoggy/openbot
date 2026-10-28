@@ -170,7 +170,17 @@ function checkResult(initialization: InitializeResponse, executable: string, mod
     protocolVersion: initialization.protocolVersion,
     capabilities: capabilityNames(initialization.agentCapabilities).slice(0, CUSTOM_AGENT_LIMITS.capabilities),
     models,
+    concurrentTurns: concurrentTurnsAdvertised(initialization),
   };
+}
+
+/**
+ * The `_meta` extension with which an agent opts into parallel turns: `"concurrentTurns": true` in
+ * the `initialize` answer says the command runs turns of two sessions of one working folder at the
+ * same time. Absent, or anything but the literal true, keeps the guarded default.
+ */
+function concurrentTurnsAdvertised(initialization: InitializeResponse): boolean {
+  return initialization._meta?.concurrentTurns === true;
 }
 
 /** One name per model, in the agent's order, within the IPC limits. */
