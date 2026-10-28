@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { agentProviderDescriptor } from "@openbot/contracts/agent-providers";
 import { expandAttachmentReferences } from "@openbot/contracts/attachment-references";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import {
@@ -9,6 +8,7 @@ import {
   type AgentTask,
   type AgentTaskHold,
   type AgentTasksSnapshot,
+  agentConcurrentTurns,
   agentTaskLimit,
   type ConversationSnapshot,
 } from "@openbot/contracts/ipc";
@@ -40,6 +40,12 @@ export interface AgentTasksHooks {
   emit(event: AgentEvent): void;
   /** The agent, for its provider and its task limit. */
   agent(agentId: string): AgentSummary | undefined;
+  /**
+   * The saved custom agents, read late when one of them owns the agent's provider `acp`: only a
+   * custom agent whose last check saved `concurrentTurns` runs the turns of two sessions at the
+   * same time. Absent in tests: every custom agent runs one turn at a time then.
+   */
+  customAgents?(): readonly { id: string; concurrentTurns?: boolean | undefined }[];
   /** Why the drain holds the next message of this task, as the drain names it, or null. Read late. */
   hold(agentId: string, taskId: string): string | null;
   /** A message is queued in a task: the queue and the drain take it. */
@@ -100,10 +106,12 @@ export class AgentTasks implements TaskLanes {
     return agent ? agentTaskLimit(agent) : 1;
   }
 
-  /** Whether the agent's provider runs one turn at a time, across its own chat and its tasks. */
+  /**
+   * Whether the agent runs one turn at a time, across its own chat and its tasks: the provider's
+   * answer, except for a custom ACP agent whose last check saved `concurrentTurns`. */
   oneTurnAtATime(agentId: string): boolean {
     const agent = this.#hooks.agent(agentId);
-    return agent !== undefined && !agentProviderDescriptor(agent.provider).concurrentTurns;
+    return agent !== undefined && !agentConcurrentTurns(agent, this.#hooks.customAgents?.() ?? []);
   }
 
   /** The error of a task turn, redacted by the caller. The panel shows it until the next turn starts. */

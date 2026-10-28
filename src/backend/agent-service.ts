@@ -549,6 +549,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       hooks: {
         emit: (event) => this.#emit(event),
         agent: (agentId) => store.list().find((agent) => agent.id === agentId),
+        // Read late: the provider runtime is built further down this constructor.
+        customAgents: () => this.#providers.savedCustomAgents(),
         // Read late: the drain is built further down this constructor.
         hold: (agentId, taskId) => this.#drain.taskHold(agentId, taskId),
         queued: (agentId) => {

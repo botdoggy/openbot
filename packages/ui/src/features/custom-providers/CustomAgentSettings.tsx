@@ -92,6 +92,7 @@ export function checkResult(result: CustomAgentCheckResult): AcpAgentCheck {
     protocolVersion: result.protocolVersion,
     capabilities: result.capabilities,
     models: result.models,
+    concurrentTurns: result.concurrentTurns,
   };
 }
 
@@ -117,7 +118,7 @@ export function CustomAgentSettings(props: { api: CustomAgentSettingsApi }) {
     setSaving(true);
     setSubmitError(null);
     try {
-      const restart = await props.api.save(customAgentInput(draft));
+      const restart = await props.api.save(customAgentInput(draft, check()));
       setForm(null);
       setNote(t(RESTART_NOTE.saved[restart]));
     } catch (error) {

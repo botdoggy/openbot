@@ -152,7 +152,9 @@ export interface AgentProviderDescriptor {
   /**
    * Whether the CLI runs turns of two sessions of one agent at the same time. `false`: the agent runs
    * one turn at a time, so its tasks and its own chat wait for each other. A custom ACP agent is
-   * `false`, because OpenBot cannot know what the command does with a second prompt.
+   * `false`, because OpenBot cannot know what the command does with a second prompt — unless the agent
+   * advertises it in its `initialize` answer and its saved config carries the flag; see
+   * `agentConcurrentTurns`.
    */
   readonly concurrentTurns: boolean;
   /**

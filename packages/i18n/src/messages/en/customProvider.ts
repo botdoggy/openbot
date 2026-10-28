@@ -178,6 +178,7 @@ export const messages = defineMessages("customProvider", {
   "customProvider.acp.checkOk": "{name} answered",
   "customProvider.acp.checkOkVersion": "{name} {version} answered",
   "customProvider.acp.checkProtocol": "ACP version {version}",
+  "customProvider.acp.checkConcurrentTurns": "runs parallel turns: its tasks and chat do not wait for each other",
   "customProvider.acp.checkModels": {
     one: "{count} model: {models}",
     other: "{count} models: {models}",

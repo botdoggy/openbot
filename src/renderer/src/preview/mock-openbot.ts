@@ -1427,6 +1427,7 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
         protocolVersion: 1,
         capabilities: ["loadSession"],
         models: ["Default", "Fast"],
+        concurrentTurns: false,
       }),
       // Preview starts no agent, so each usage prompt gets an answer that names it.
       usage: async () =>
