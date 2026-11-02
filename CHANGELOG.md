@@ -6,6 +6,17 @@ All notable changes to OpenBot will be documented here. The project follows
 
 ## [Unreleased]
 
+## [0.58.0-bd.2] - 2026-11-02
+
+### Changed
+
+- Fork: the custom-ACP concurrent-turns opt-in becomes one user-owned
+  "Runs parallel turns" switch in the ACP agent dialog, replacing the
+  auto/on/off tri-state over a check-owned flag. A successful check seeds the
+  switch from the agent's advertised `_meta.concurrentTurns` until the user
+  touches it; saves without the field (registry install) keep the saved
+  choice, and the task limit locks to one turn when it is off.
+
 ## [0.58.0-bd.1] - 2026-11-02
 
 ### Added
