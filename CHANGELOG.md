@@ -6,6 +6,29 @@ All notable changes to OpenBot will be documented here. The project follows
 
 ## [Unreleased]
 
+## [0.58.0-bd.3] - 2026-11-02
+
+### Added
+
+- Fork: a custom ACP agent can opt into steering with
+  `"_meta": { "steer": true }` at its check, seeded into a user-owned
+  "Steers a running turn" switch; a steered message joins the running turn.
+- Fork: ACP clients advertise the `session.compaction` capability so agents
+  send compaction updates that OpenBot can act on and show.
+- Fork: the default task limit is four threads while upstream's ACP
+  opt-in (#3763) is unmerged; agents with their own saved limit keep it.
+
+### Changed
+
+- Fork: when a custom ACP agent's session outgrows the model's context and
+  every later prompt fails, the turn is queued again once and the next run
+  opens a new session with the OpenBot transcript.
+
+### Fixed
+
+- Fork: the hosted updater and staging script check and accept this repo's
+  `-bd.N` pre-release versions instead of nightly-labs' plain releases.
+
 ## [0.58.0-bd.2] - 2026-11-02
 
 ### Changed
