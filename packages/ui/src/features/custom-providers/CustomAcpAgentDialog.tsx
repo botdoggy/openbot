@@ -18,6 +18,7 @@ import {
   Plug,
   ShieldCheck,
   Spinner,
+  SwitchField,
   Text,
   TriangleAlert,
   X,
@@ -80,6 +81,8 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
     untrack(() => (props.draft ? cloneDraft(props.draft) : emptyCustomAcpAgentDraft())),
   );
   const [submitted, setSubmitted] = createSignal(untrack(() => Boolean(props.showErrors)));
+  // A saved agent's checkbox is the user's own choice, so only a check on a new agent seeds it.
+  const [concurrentTouched, setConcurrentTouched] = createSignal(untrack(() => Boolean(props.editing)));
 
   // The same reopen rule as the endpoint form: a second open starts from the given draft again.
   createEffect(
@@ -88,6 +91,7 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
       if (!open || previous) return;
       setDraft(() => (props.draft ? cloneDraft(props.draft) : emptyCustomAcpAgentDraft()));
       setSubmitted(Boolean(props.showErrors));
+      setConcurrentTouched(Boolean(props.editing));
     },
   );
 
@@ -103,6 +107,18 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
     const state = check();
     return state.status === "failed" ? state.message : undefined;
   };
+
+  // A successful check seeds the checkbox from what the agent advertised, until the user touches it.
+  createEffect(
+    () => check(),
+    (state) => {
+      if (state.status === "ok" && !concurrentTouched()) {
+        setDraft((draft) => {
+          draft.concurrentTurns = state.concurrentTurns;
+        });
+      }
+    },
+  );
 
   const fades = createScrollFades();
   onSettled(() => fades.stop);
@@ -349,6 +365,19 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
                     disabled={busy()}
                   />
                 </Field>
+
+                <SwitchField
+                  label={t("customProvider.acp.concurrentTurns")}
+                  description={t("customProvider.acp.concurrentTurnsHint")}
+                  checked={draft.concurrentTurns}
+                  disabled={busy()}
+                  onChange={(next) => {
+                    setConcurrentTouched(true);
+                    setDraft((state) => {
+                      state.concurrentTurns = next;
+                    });
+                  }}
+                />
 
                 <Show when={props.onCheck}>
                   {(runCheck) => (

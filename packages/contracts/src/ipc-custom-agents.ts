@@ -51,10 +51,10 @@ export interface SaveCustomAgentInput {
    */
   usagePrompt: string | null;
   /**
-   * Whether the agent's last check found `"concurrentTurns": true` in the `_meta` of its
-   * `initialize` answer: the command runs turns of two sessions of one working folder at the same
-   * time. Absent keeps the saved flag, so a registry install or a sender that does not know the
-   * field does not reset it.
+   * Whether the command runs turns of two sessions of one working folder at the same time, as the
+   * user sets it in the agent's dialog (a check seeds the dialog's choice from what the agent's
+   * `initialize` answer advertised). Absent keeps the saved flag, so a registry install or a sender
+   * that does not know the field does not reset it.
    */
   concurrentTurns?: boolean;
 }
@@ -76,9 +76,9 @@ export interface CustomAgentSummary {
    */
   usagePrompt?: string | null | undefined;
   /**
-   * What the agent's last check saved: the command runs turns of two sessions at the same time, so
-   * the agent is not held to one turn at a time. Absent in the result of a registry install from a
-   * server, like `usagePrompt`.
+   * The user's saved choice: the command runs turns of two sessions at the same time, so the agent
+   * is not held to one turn at a time. Absent in the result of a registry install from a server,
+   * like `usagePrompt`; the resolution reads it as false.
    */
   concurrentTurns?: boolean | undefined;
   /** The file that the command starts, or null when it cannot be found now. */
@@ -207,9 +207,10 @@ export function isCustomAgentCheckResult(value: unknown): value is CustomAgentCh
 
 /**
  * Whether two sessions of one agent can run a turn at the same time. Every provider answers with
- * its descriptor; only `acp` can differ from it: a custom agent that advertised
- * `"_meta": { "concurrentTurns": true }` at its check runs parallel lanes up to the agent's task
- * limit, and any other custom agent stays at one turn at a time. `customAgents` is the saved list
+ * its descriptor; only `acp` can differ from it: a custom agent with a saved `concurrentTurns`
+ * choice — the user sets it in the dialog, and a check seeds it from the agent's advertised
+ * `"_meta": { "concurrentTurns": true }` — runs parallel lanes up to the agent's task limit, and any
+ * other custom agent stays at one turn at a time. `customAgents` is the saved list
  * (`CustomAgentSummary` in the renderer, `CustomAgentConfig` in the backend).
  */
 export function agentConcurrentTurns(

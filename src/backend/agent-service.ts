@@ -2956,8 +2956,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     if (previous && workspaceAccessEnforced(previous) && !workspaceAccessEnforced(agent))
       this.#attention.answerGrantedRequests();
     this.#emit({ type: "agents-changed", agents: this.listAgents() });
-    // The task limit follows the agent's own setting and its provider. A higher one can start a task now.
-    if (providerChanged || (previous && agentTaskLimit(previous) !== agentTaskLimit(agent))) {
+    // The task limit follows the agent's own setting, its provider, and — for a custom ACP agent —
+    // the saved concurrency flag. A higher one can start a task now.
+    const customAgents = this.#providers.savedCustomAgents();
+    if (
+      providerChanged ||
+      (previous && agentTaskLimit(previous, customAgents) !== agentTaskLimit(agent, customAgents))
+    ) {
       this.#tasks.changed(agent.id);
       this.#drain.scheduleDrain(agent.id);
     }

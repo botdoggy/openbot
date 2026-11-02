@@ -118,7 +118,7 @@ export function CustomAgentSettings(props: { api: CustomAgentSettingsApi }) {
     setSaving(true);
     setSubmitError(null);
     try {
-      const restart = await props.api.save(customAgentInput(draft, check()));
+      const restart = await props.api.save(customAgentInput(draft));
       setForm(null);
       setNote(t(RESTART_NOTE.saved[restart]));
     } catch (error) {

@@ -49,6 +49,8 @@ export type DetectedProvider =
       envNames?: readonly string[] | undefined;
       /** For a saved agent: its usage prompt, which Edit keeps. */
       usagePrompt?: string | null | undefined;
+      /** For a saved agent: its parallel-turns choice, which Edit keeps. */
+      concurrentTurns?: boolean | undefined;
     });
 
 /** `found` can grow while `scanning` is true. */
@@ -119,5 +121,6 @@ export function detectedAgentDraft(provider: Extract<DetectedProvider, { kind: "
     args: provider.args,
     env: names.length > 0 ? names.map((name) => ({ name, value: "", savedName: name })) : [{ name: "", value: "" }],
     usagePrompt: (provider.added && provider.usagePrompt) || "",
+    concurrentTurns: (provider.added && provider.concurrentTurns) === true,
   };
 }

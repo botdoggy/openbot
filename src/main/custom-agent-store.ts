@@ -47,7 +47,8 @@ const entrySchema = z.object({
     .transform((value) => (value && isCustomAgentUsagePrompt(value.trim()) ? value.trim() : null)),
   /**
    * Added in version 1 with no bump, as for `usagePrompt`: a build that does not know it drops it.
-   * What the last agent check read from the `initialize` answer's `_meta.concurrentTurns`.
+   * The user's saved choice, seeded in the dialog by what the check read from the `initialize`
+   * answer's `_meta.concurrentTurns`.
    */
   concurrentTurns: z
     .boolean()
@@ -204,7 +205,8 @@ export class CustomAgentStore {
           args: [...input.args],
           envNames,
           usagePrompt: input.usagePrompt,
-          // A sender that does not know the field must not reset what a check saved.
+          // A sender that does not know the field, such as a registry install, must not reset the
+          // saved choice.
           concurrentTurns: input.concurrentTurns ?? current?.stored.concurrentTurns ?? false,
           secret: sealed,
         },

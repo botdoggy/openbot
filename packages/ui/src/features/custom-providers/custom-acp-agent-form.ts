@@ -36,6 +36,11 @@ export interface CustomAcpAgentDraft {
   env: CustomAcpEnvDraft[];
   /** The command that asks the agent for its plan usage, such as `/usage`. Empty for none. */
   usagePrompt: string;
+  /**
+   * Whether the agent runs the turns of two sessions at the same time, as the user sets it. A
+   * successful check seeds it from the flag the agent advertised, until the user touches it.
+   */
+  concurrentTurns: boolean;
 }
 
 export interface CustomAcpAgentErrors {
@@ -65,7 +70,15 @@ export type AcpAgentCheck =
   | { status: "failed"; message: string };
 
 export function emptyCustomAcpAgentDraft(): CustomAcpAgentDraft {
-  return { agentId: "", displayName: "", command: "", args: "", env: [{ name: "", value: "" }], usagePrompt: "" };
+  return {
+    agentId: "",
+    displayName: "",
+    command: "",
+    args: "",
+    env: [{ name: "", value: "" }],
+    usagePrompt: "",
+    concurrentTurns: false,
+  };
 }
 
 export function presetAcpAgentDraft(preset: AcpAgentPreset): CustomAcpAgentDraft {
@@ -76,6 +89,7 @@ export function presetAcpAgentDraft(preset: AcpAgentPreset): CustomAcpAgentDraft
     args: formatAgentArgs(preset.args),
     env: [{ name: "", value: "" }],
     usagePrompt: "",
+    concurrentTurns: false,
   };
 }
 
@@ -91,6 +105,7 @@ export function savedAcpAgentDraft(agent: CustomAgentSummary): CustomAcpAgentDra
         ? agent.envNames.map((name) => ({ name, value: "", savedName: name }))
         : [{ name: "", value: "" }],
     usagePrompt: agent.usagePrompt ?? "",
+    concurrentTurns: agent.concurrentTurns ?? false,
   };
 }
 
@@ -166,6 +181,7 @@ export function customAcpAgentValue(draft: CustomAcpAgentDraft): CustomAcpAgentD
         ...(row.savedName === undefined ? {} : { savedName: row.savedName }),
       })),
     usagePrompt: draft.usagePrompt.trim(),
+    concurrentTurns: draft.concurrentTurns,
   };
 }
 
@@ -208,7 +224,7 @@ function draftEnv(draft: CustomAcpAgentDraft): SaveCustomAgentInput["env"] {
   return customAcpAgentValue(draft).env.map((row) => ({ name: row.name, value: keepsValue(row) ? null : row.value }));
 }
 
-export function customAgentInput(draft: CustomAcpAgentDraft, check?: AcpAgentCheck): SaveCustomAgentInput {
+export function customAgentInput(draft: CustomAcpAgentDraft): SaveCustomAgentInput {
   const value = customAcpAgentValue(draft);
   return {
     id: value.agentId,
@@ -217,8 +233,8 @@ export function customAgentInput(draft: CustomAcpAgentDraft, check?: AcpAgentChe
     args: draftArgs(value.args),
     env: draftEnv(value),
     usagePrompt: value.usagePrompt || null,
-    // Only a fresh check updates the flag: a save with no check keeps what the last check found.
-    ...(check?.status === "ok" ? { concurrentTurns: check.concurrentTurns } : {}),
+    // The user's choice travels with every save; a check only seeds the draft's checkbox.
+    concurrentTurns: value.concurrentTurns,
   };
 }
 

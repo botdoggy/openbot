@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { agentConcurrentTurns, agentTaskLimit } from "@openbot/contracts/ipc";
 import { checkAcpAgent } from "../src/backend/acp-agent-check";
 import type { AgentClient } from "../src/backend/agent-client";
 import { runCauseEffect } from "../src/backend/effect-boundary";
@@ -31,6 +32,7 @@ interface LogEntry {
 interface Report {
   checks?: { flagged: boolean; plain: boolean };
   store?: { savedWithFlag: boolean; keptOverFlaglessSave: boolean; plain: boolean };
+  choice?: { onRuns: boolean; offHolds: boolean; restored: boolean };
   turns?: { fastBeatSlow: boolean; slowReply: string; fastReply: string };
   passed: boolean;
 }
@@ -81,6 +83,31 @@ try {
   assert.equal(savedWithFlag, true);
   assert.equal(keptOverFlaglessSave, true, "A save without the field reset the flag.");
   assert.equal(report.store.plain, false, "The plain fake gained a flag.");
+
+  // 2b. The saved value is the user's choice itself: setting it on the plain fake runs its lanes in
+  // parallel, clearing it on the flagged fake holds it to one turn, and the task limit follows.
+  const resolves = (id: string) => agentConcurrentTurns({ provider: "acp", model: `${id}/default` }, store.configs());
+  const limitFor = (id: string) =>
+    agentTaskLimit({ provider: "acp", model: `${id}/default`, taskLimit: 3 }, store.configs());
+  await runCauseEffect(
+    store.save({ ...saveBase, id: PLAIN, command: binPlain, usagePrompt: null, concurrentTurns: true }),
+  );
+  const onRuns = resolves(PLAIN) === true && limitFor(PLAIN) === 3;
+  await runCauseEffect(
+    store.save({ ...saveBase, id: FLAGGED, command: binFlagged, usagePrompt: null, concurrentTurns: false }),
+  );
+  const offHolds = resolves(FLAGGED) === false && limitFor(FLAGGED) === 1;
+  // Restore the flagged fake for the parallel lanes of part 3.
+  await runCauseEffect(
+    store.save({ ...saveBase, id: FLAGGED, command: binFlagged, usagePrompt: null, concurrentTurns: true }),
+  );
+  const restored = resolves(FLAGGED) === true && limitFor(FLAGGED) === 3;
+  // The parallel lanes of part 3 run on the driver, which the scheduler's limit does not gate; the
+  // plain fake keeps its saved choice with no effect here.
+  report.choice = { onRuns, offHolds, restored };
+  assert.equal(onRuns, true, "The saved choice did not turn parallel turns on for the plain fake.");
+  assert.equal(offHolds, true, "The saved choice did not hold the flagged fake to one turn.");
+  assert.equal(restored, true, "Restoring the choice did not return the flagged fake's lanes.");
 
   // 3. The driver: two sessions of the flagged agent's one process turn at the same time.
   const context = {

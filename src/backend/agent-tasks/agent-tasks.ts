@@ -50,9 +50,9 @@ export interface AgentTasksHooks {
   /** The agent, for its provider and its task limit. */
   agent(agentId: string): AgentSummary | undefined;
   /**
-   * The saved custom agents, read late when one of them owns the agent's provider `acp`: only a
-   * custom agent whose last check saved `concurrentTurns` runs the turns of two sessions at the
-   * same time. Absent in tests: every custom agent runs one turn at a time then.
+   * The saved custom agents, read late when one of them owns the agent's provider `acp`: whether an
+   * agent runs the turns of two sessions at the same time follows its saved `concurrentTurns`
+   * choice. Absent in tests: every custom agent runs one turn at a time then.
    */
   customAgents?(): readonly { id: string; concurrentTurns?: boolean | undefined }[];
   /** Why the drain holds the next message of this task, as the drain names it, or null. Read late. */
@@ -126,12 +126,12 @@ export class AgentTasks implements TaskLanes {
 
   limit(agentId: string): number {
     const agent = this.#hooks.agent(agentId);
-    return agent ? agentTaskLimit(agent) : 1;
+    return agent ? agentTaskLimit(agent, this.#hooks.customAgents?.() ?? []) : 1;
   }
 
   /**
    * Whether the agent runs one turn at a time, across its own chat and its tasks: the provider's
-   * answer, except for a custom ACP agent whose last check saved `concurrentTurns`. */
+   * answer, except for a custom ACP agent whose saved choice sets `concurrentTurns`. */
   oneTurnAtATime(agentId: string): boolean {
     const agent = this.#hooks.agent(agentId);
     return agent !== undefined && !agentConcurrentTurns(agent, this.#hooks.customAgents?.() ?? []);

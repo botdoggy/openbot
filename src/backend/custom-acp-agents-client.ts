@@ -55,9 +55,9 @@ export interface CustomAgentConfig {
   /** Sent in a private session to read the plan usage, or null for none. */
   readonly usagePrompt: string | null;
   /**
-   * What the last check saved from the `initialize` answer's `_meta.concurrentTurns`. Absent or
-   * `false`: the agent is held to one turn at a time, as an ACP command that is not known to run
-   * the turns of two sessions at the same time.
+   * The user's saved choice (`true` runs the turns of two sessions at the same time); a check seeds
+   * it from the `initialize` answer's `_meta.concurrentTurns`. Absent or `false`: the agent is held
+   * to one turn at a time, as an ACP command that is not known to run the turns of two sessions.
    */
   readonly concurrentTurns?: boolean;
 }
