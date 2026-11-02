@@ -6,6 +6,18 @@ All notable changes to OpenBot will be documented here. The project follows
 
 ## [Unreleased]
 
+## [0.58.0-bd.1] - 2026-11-02
+
+### Added
+
+- Fork of upstream v0.58.0: a custom ACP agent can opt into concurrent turns with
+  `"_meta": { "concurrentTurns": true }` at its check.
+
+### Changed
+
+- Auto-updates and the hosted-server updater read the botdoggy release channel.
+- The release workflow builds unsigned macOS and no Windows, Android or iOS artifacts.
+
 ## [0.58.0] - 2026-11-01
 
 ### Added
