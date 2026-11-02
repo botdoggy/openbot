@@ -6,7 +6,7 @@ import { agentConcurrentTurns } from "./ipc-custom-agents";
 import { isDynamicRecord, isOneOf } from "./runtime-values";
 
 /** The most tasks of one agent that run a turn at the same time, next to the agent's own chat. */
-export const AGENT_TASK_LIMIT_MAX = 10;
+export const AGENT_TASK_LIMIT_MAX = 4;
 /** The task limit of an agent that has no limit of its own. */
 export const AGENT_TASK_LIMIT_DEFAULT = 4;
 
