@@ -322,8 +322,7 @@ jobs:
           bun run build
           log="$RUNNER_TEMP/electron-builder-mac.log"
           for attempt in 1 2 3; do
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-            if bun x electron-builder --mac --${{ matrix.arch }} --publish never 2>&1 | tee "$log"; then
+            if bun x electron-builder --mac --${{ matrix.arch }} --publish never --config.mac.identity=null 2>&1 | tee "$log"; then
               exit 0
             fi
             if grep -Eq 'hdiutil: create failed - (Device not configured|Resource busy)' "$log"; then
