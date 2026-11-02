@@ -1,4 +1,3 @@
-import { agentProviderDescriptor } from "@openbot/contracts/agent-providers";
 import type {
   ConversationMessageSender,
   QueueSnapshot,
@@ -6,6 +5,7 @@ import type {
   SteerQueuedMessageInput,
   UpdateQueuedMessageInput,
 } from "@openbot/contracts/ipc";
+import { agentSteers } from "@openbot/contracts/ipc";
 import { QueueEditRejectedError, type QueueEditRequest } from "@openbot/contracts/team-protocol/queue-edit-v1";
 import { sourceText } from "@openbot/i18n/source";
 import { Effect, Schema } from "effect";
@@ -21,7 +21,6 @@ import { type DrainScheduler, REMOVED_ENDPOINT_MESSAGE } from "./drain-scheduler
 import type { MailboxSync } from "./mailbox-sync";
 import type { ProviderRuntime } from "./provider-runtime";
 import type { RoutineScheduler } from "./routine-scheduler";
-import { providerForAgent } from "./thread-items";
 
 export interface QueueControlsHooks {
   /** The channel task that owns a delivery. Read late: the channel service is built after this. */
@@ -249,7 +248,9 @@ export class QueueControls {
         cause: new SteerUnsupportedError(sourceText("error.backend.steerRoutineRun")),
       });
     }
-    if (agentProviderDescriptor(providerForAgent(agent)).steer !== "native") {
+    // A custom ACP agent steers only when its saved, check-seeded flag says it answers
+    // `_openbot/steer`; every other non-native provider keeps the message queued.
+    if (!agentSteers(agent, this.#providers.savedCustomAgents())) {
       yield* this.#mailbox.markSteerFallback(input.deliveryId, "provider-unsupported").pipe(toQueueOperationFailed);
       this.#mailboxSync.emitQueue(agent.id);
       return yield* new QueueOperationFailed({ cause: new SteerUnsupportedError() });

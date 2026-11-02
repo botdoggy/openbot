@@ -18,6 +18,8 @@ export interface AcpParams {
   /** `_x.ai/interject` of Grok. */
   text?: string;
   interjectionId?: string;
+  /** `_openbot/steer` of a custom agent. */
+  messageId?: string;
   content?: { type: string; text?: string; mimeType?: string }[];
 }
 

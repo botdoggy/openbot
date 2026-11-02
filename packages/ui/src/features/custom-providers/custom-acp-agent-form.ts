@@ -41,6 +41,11 @@ export interface CustomAcpAgentDraft {
    * successful check seeds it from the flag the agent advertised, until the user touches it.
    */
   concurrentTurns: boolean;
+  /**
+   * Whether the agent takes a message into its running turn, as the user sets it. A successful
+   * check seeds it from the flag the agent advertised, until the user touches it.
+   */
+  steer: boolean;
 }
 
 export interface CustomAcpAgentErrors {
@@ -66,6 +71,8 @@ export type AcpAgentCheck =
       models: readonly string[];
       /** The agent opted into parallel turns in its `initialize` answer (`_meta.concurrentTurns`). */
       concurrentTurns: boolean;
+      /** The agent opted into mid-turn messages in its `initialize` answer (`_meta.steer`). */
+      steer: boolean;
     }
   | { status: "failed"; message: string };
 
@@ -78,6 +85,7 @@ export function emptyCustomAcpAgentDraft(): CustomAcpAgentDraft {
     env: [{ name: "", value: "" }],
     usagePrompt: "",
     concurrentTurns: false,
+    steer: false,
   };
 }
 
@@ -90,6 +98,7 @@ export function presetAcpAgentDraft(preset: AcpAgentPreset): CustomAcpAgentDraft
     env: [{ name: "", value: "" }],
     usagePrompt: "",
     concurrentTurns: false,
+    steer: false,
   };
 }
 
@@ -106,6 +115,7 @@ export function savedAcpAgentDraft(agent: CustomAgentSummary): CustomAcpAgentDra
         : [{ name: "", value: "" }],
     usagePrompt: agent.usagePrompt ?? "",
     concurrentTurns: agent.concurrentTurns ?? false,
+    steer: agent.steer ?? false,
   };
 }
 
@@ -182,6 +192,7 @@ export function customAcpAgentValue(draft: CustomAcpAgentDraft): CustomAcpAgentD
       })),
     usagePrompt: draft.usagePrompt.trim(),
     concurrentTurns: draft.concurrentTurns,
+    steer: draft.steer,
   };
 }
 
@@ -235,6 +246,7 @@ export function customAgentInput(draft: CustomAcpAgentDraft): SaveCustomAgentInp
     usagePrompt: value.usagePrompt || null,
     // The user's choice travels with every save; a check only seeds the draft's checkbox.
     concurrentTurns: value.concurrentTurns,
+    steer: value.steer,
   };
 }
 

@@ -60,6 +60,12 @@ export interface CustomAgentConfig {
    * to one turn at a time, as an ACP command that is not known to run the turns of two sessions.
    */
   readonly concurrentTurns?: boolean;
+  /**
+   * The user's saved choice (`true` takes a message into the running turn); a check seeds it from
+   * the `initialize` answer's `_meta.steer`. Absent or `false`: messages wait in the queue until the
+   * turn ends, as ACP has no steer request the agent is known to answer.
+   */
+  readonly steer?: boolean;
 }
 
 /** The saved custom agents, read when a process starts. */

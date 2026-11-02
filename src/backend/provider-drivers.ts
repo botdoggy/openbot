@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import type { ClientSideConnection, InitializeResponse } from "@agentclientprotocol/sdk";
+import type { ClientSideConnection, ContentBlock, InitializeResponse } from "@agentclientprotocol/sdk";
 import {
   type AgentAuthState,
   type AgentModelOption,
@@ -1068,6 +1068,9 @@ function customAgentChild(
     ...(confinement ? { confine: (target) => confineSpawnTarget(target, confinement, customAgentStatePaths()) } : {}),
     signInMessage: sourceText("error.provider.customAgentSignIn"),
     servesModel: () => savedCustomAgents(context).some((saved) => saved.id === config.id),
+    // Only an agent whose saved config carries the check-seeded flag is asked: it answered
+    // `_meta.steer: true` at `initialize`, which says it implements this request.
+    ...(config.steer === true ? { steer: customAgentSteer } : {}),
     ...(profileGeneration
       ? {}
       : {
@@ -1090,6 +1093,25 @@ function customAgentChild(
 export function savedCustomAgents(context: ProviderClientContext): readonly CustomAgentConfig[] {
   return context.customAgents?.() ?? [];
 }
+
+/**
+ * The `_openbot/steer` extension gives the running turn a message that the agent reads at its next
+ * step. A resolved answer means the agent kept the message; a request error or a timeout refuses,
+ * and the caller restores the message to the queue. Only an agent that advertised
+ * `_meta.steer: true` in its `initialize` answer is sent this.
+ */
+const customAgentSteer = Effect.fn("CustomAcp.steer")(function* (
+  connection: ClientSideConnection,
+  message: { sessionId: string; messageId: string | null; blocks: ContentBlock[] },
+) {
+  yield* providerCall(() =>
+    connection.extMethod("_openbot/steer", {
+      sessionId: message.sessionId,
+      ...(message.messageId ? { messageId: message.messageId } : {}),
+      content: message.blocks,
+    }),
+  );
+});
 
 let customAgentDiscoveryRoot: string | undefined;
 
