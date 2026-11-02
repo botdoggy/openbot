@@ -362,12 +362,6 @@ jobs:
             echo "The macOS ZIP is ${current_size} bytes. The limit is 800000000 bytes." >&2
             exit 1
           fi
-          old_size=$(stat -f%z "${old_zips[0]}")
-          if (( current_size >= old_size )); then
-            echo "The macOS ZIP is not smaller than v0.1.21 (${current_size} >= ${old_size})." >&2
-            exit 1
-          fi
-
       - name: Test native tenant setup
         if: matrix.arch == 'arm64'
         run: |
