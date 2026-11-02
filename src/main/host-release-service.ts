@@ -7,7 +7,8 @@ import { isValidSemver } from "./update-service";
 class ReleaseCheckFailed extends Schema.TaggedError<ReleaseCheckFailed>()("ReleaseCheckFailed", {}) {}
 
 const ReleaseManifest = Schema.Struct({
-  version: Schema.String.check(Schema.isMaxLength(64), Schema.isPattern(/^\d+\.\d+\.\d+$/u)),
+  // Fork build: this repo's releases carry a prerelease suffix (0.58.0-bd.2), upstream's do not.
+  version: Schema.String.check(Schema.isMaxLength(64), Schema.isPattern(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/u)),
   files: Schema.Array(Schema.Struct({ url: Schema.String })),
 });
 
@@ -128,7 +129,8 @@ export class HostReleaseService {
 
 /** The version of the latest published release for `target`. Rejects on any fault of the feed. */
 async function fetchLatestRelease(target: ReleaseTarget, request: typeof fetch, signal: AbortSignal): Promise<string> {
-  const response = await request(`https://github.com/nightly-labs/openbot/releases/latest/download/${target.feed}`, {
+  // Fork build: releases publish to botdoggy/openbot (upstream: nightly-labs/openbot).
+  const response = await request(`https://github.com/botdoggy/openbot/releases/latest/download/${target.feed}`, {
     signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
   });
   if (!response.ok || !response.body) {
@@ -164,11 +166,44 @@ export function fetchLatestLinuxRelease(arch: string, request: typeof fetch, sig
 }
 
 export function newerRelease(candidate: string, current: string): boolean {
-  const left = candidate.split(".").map(Number);
-  const right = current.split(/[.+-]/u).slice(0, 3).map(Number);
+  // Parse both sides alike: the fork publishes equal numbers with a prerelease suffix (0.58.0-bd.N).
+  const parse = (version: string) => version.split(/[.+-]/u).slice(0, 3).map(Number);
+  const left = parse(candidate);
+  const right = parse(current);
   for (let index = 0; index < 3; index += 1) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);
     if (difference !== 0) return difference > 0;
   }
-  return current.split("+", 1)[0]?.includes("-") ?? false;
+  // Equal numbers: a plain release supersedes its prereleases, and between two prereleases the
+  // later suffix wins (semver identifier order: numeric before alphanumeric, then numerically or
+  // lexically per identifier). Fork builds update 0.58.0-bd.2 to 0.58.0-bd.3, neither to itself.
+  const suffix = (version: string) => version.split("+", 1)[0]?.split("-", 2)[1];
+  const candidateSuffix = suffix(candidate);
+  const currentSuffix = suffix(current);
+  if (candidateSuffix === currentSuffix) return false;
+  if (candidateSuffix === undefined) return true;
+  if (currentSuffix === undefined) return false;
+  return comparePrereleaseSuffixes(candidateSuffix, currentSuffix) > 0;
+}
+
+/** Semver prerelease identifier order, for two suffixes of releases with equal version numbers. */
+function comparePrereleaseSuffixes(left: string, right: string): number {
+  const leftParts = left.split(".");
+  const rightParts = right.split(".");
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const leftPart = leftParts[index];
+    const rightPart = rightParts[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    const leftNumber = /^\d+$/u.test(leftPart) ? Number(leftPart) : null;
+    const rightNumber = /^\d+$/u.test(rightPart) ? Number(rightPart) : null;
+    if (leftNumber !== null && rightNumber !== null) {
+      if (leftNumber !== rightNumber) return leftNumber < rightNumber ? -1 : 1;
+      continue;
+    }
+    if (leftNumber !== null) return -1;
+    if (rightNumber !== null) return 1;
+    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
+  }
+  return 0;
 }
