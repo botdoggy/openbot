@@ -6,6 +6,16 @@ All notable changes to OpenBot will be documented here. The project follows
 
 ## [Unreleased]
 
+## [0.59.0-bd.2] - 2026-11-03
+
+### Changed
+
+- Fork: custom ACP steering now speaks the agreed `_session/steering` wire
+  protocol; agents advertise `_meta.steering.supported` and answer
+  `_session/steering`, as claude-code-acp does. This replaces the private
+  `_meta.steer` / `_openbot/steer` extension from `0.59.0-bd.1` — agents on
+  the old private protocol stop steering after this upgrade.
+
 ## [0.59.0-bd.1] - 2026-11-02
 
 ### Added
