@@ -4808,7 +4808,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         : null;
     if (!steerTurnId) return;
     // A custom ACP agent steers only when its saved, check-seeded flag says it answers
-    // `_openbot/steer`; every other non-native provider keeps the message queued.
+    // `_session/steering`; every other non-native provider keeps the message queued.
     if (!agentSteers(agent, this.#providers.savedCustomAgents())) {
       if (explain) yield* this.#markSteerFallback(agent.id, deliveryId, "provider-unsupported");
     }

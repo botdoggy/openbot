@@ -71,7 +71,7 @@ export type AcpAgentCheck =
       models: readonly string[];
       /** The agent opted into parallel turns in its `initialize` answer (`_meta.concurrentTurns`). */
       concurrentTurns: boolean;
-      /** The agent opted into mid-turn messages in its `initialize` answer (`_meta.steer`). */
+      /** The agent opted into mid-turn messages in its `initialize` answer (`_meta.steering.supported`). */
       steer: boolean;
     }
   | { status: "failed"; message: string };

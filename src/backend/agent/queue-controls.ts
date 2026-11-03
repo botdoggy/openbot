@@ -249,7 +249,7 @@ export class QueueControls {
       });
     }
     // A custom ACP agent steers only when its saved, check-seeded flag says it answers
-    // `_openbot/steer`; every other non-native provider keeps the message queued.
+    // `_session/steering`; every other non-native provider keeps the message queued.
     if (!agentSteers(agent, this.#providers.savedCustomAgents())) {
       yield* this.#mailbox.markSteerFallback(input.deliveryId, "provider-unsupported").pipe(toQueueOperationFailed);
       this.#mailboxSync.emitQueue(agent.id);

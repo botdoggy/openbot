@@ -1255,7 +1255,7 @@ function customAgentChild(
     signInMessage: sourceText("error.provider.customAgentSignIn"),
     servesModel: () => savedCustomAgents(context).some((saved) => saved.id === config.id),
     // Only an agent whose saved config carries the check-seeded flag is asked: it answered
-    // `_meta.steer: true` at `initialize`, which says it implements this request.
+    // `_meta.steering.supported: true` at `initialize`, which says it implements this request.
     ...(config.steer === true ? { steer: customAgentSteer } : {}),
     ...(profileGeneration
       ? {}
@@ -1281,20 +1281,21 @@ export function savedCustomAgents(context: ProviderClientContext): readonly Cust
 }
 
 /**
- * The `_openbot/steer` extension gives the running turn a message that the agent reads at its next
- * step. A resolved answer means the agent kept the message; a request error or a timeout refuses,
- * and the caller restores the message to the queue. Only an agent that advertised
- * `_meta.steer: true` in its `initialize` answer is sent this.
+ * The `_session/steering` request of the agreed ACP steering wire protocol gives the running turn a
+ * message that the agent reads at its next step. A resolved answer means the agent kept the
+ * message: `injected` joined the running turn, and the idle fallback `startedNewTurn` ran the text
+ * as a turn of its own, so neither restores the message to the queue. A request error or a timeout
+ * refuses, and the caller restores the message to the queue. Only an agent that advertised
+ * `_meta.steering.supported: true` in its `initialize` answer is sent this.
  */
 const customAgentSteer = Effect.fn("CustomAcp.steer")(function* (
   connection: ClientSideConnection,
   message: { sessionId: string; messageId: string | null; blocks: ContentBlock[] },
 ) {
   yield* providerCall(() =>
-    connection.extMethod("_openbot/steer", {
+    connection.extMethod("_session/steering", {
       sessionId: message.sessionId,
-      ...(message.messageId ? { messageId: message.messageId } : {}),
-      content: message.blocks,
+      prompt: message.blocks,
     }),
   );
 });

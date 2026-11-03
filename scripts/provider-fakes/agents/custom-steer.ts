@@ -1,6 +1,7 @@
 // The custom ACP agent of `acp-steer-e2e.ts`. `FAKE_STEER=1` makes it advertise
-// `"_meta": { "steer": true }` in its `initialize` answer — the opt-in of custom agents that take a
-// message into the running turn — and answer `_openbot/steer`. A `work` prompt stays open until a
+// `"_meta": { "steering": { "supported": true } }` in its `initialize` answer — the opt-in of the
+// agreed ACP steering wire protocol — and answer `_session/steering` with `injected`. A `work`
+// prompt stays open until a
 // steer arrives (the agent reads it at its next step and answers with its text) or FAKE_HOLD_MS
 // passes, whichever comes first: an agent without the extension ends the open turn on its own.
 // Each other prompt answers at once.
@@ -28,7 +29,7 @@ const handlers: Record<string, (request: AcpRequest, peer: AcpPeer) => void> = {
       agentInfo: { name: "steer-fake", version: "1.0.0" },
       agentCapabilities: {},
       authMethods: [],
-      ...(steerable ? { _meta: { steer: true } } : {}),
+      ...(steerable ? { _meta: { steering: { supported: true } } } : {}),
     }),
   "session/new": (request, peer) => {
     count += 1;
@@ -52,28 +53,27 @@ const handlers: Record<string, (request: AcpRequest, peer: AcpPeer) => void> = {
 };
 
 if (steerable) {
-  handlers["_openbot/steer"] = (request, peer) => {
+  handlers["_session/steering"] = (request, peer) => {
     const sessionId = request.params.sessionId ?? "";
-    const text = (request.params.content ?? [])
+    const text = (request.params.prompt ?? [])
       .filter((block) => block.type === "text")
       .map((block) => block.text ?? "")
       .join("\n\n");
     logEntry({
       event: "steer",
       sessionId,
-      messageId: request.params.messageId ?? null,
       text,
-      content: (request.params.content ?? []).map((block) => block.type),
+      content: (request.params.prompt ?? []).map((block) => block.type),
     });
     // The steer is accepted: resolve first, then answer the held turn with its text.
-    peer.reply(request, {});
+    peer.reply(request, { outcome: "injected" });
     finish(peer, sessionId, `steered: ${text}`);
   };
 }
 
 serveFakeAcpAgent(handlers, {
   onRequest: (request) => {
-    if (request.method === "_openbot/steer" && !steerable)
+    if (request.method === "_session/steering" && !steerable)
       logEntry({ event: "unexpected-steer", sessionId: request.params.sessionId ?? null });
   },
 });

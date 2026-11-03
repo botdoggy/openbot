@@ -12,6 +12,7 @@ export interface AcpParams {
   cwd?: string;
   additionalDirectories?: string[];
   mcpServers?: { name: string }[];
+  /** `session/prompt`, and `_session/steering` of a custom agent. */
   prompt?: { type: string; text?: string }[];
   configId?: string;
   value?: string;
@@ -20,8 +21,6 @@ export interface AcpParams {
   /** `_x.ai/interject` of Grok. */
   text?: string;
   interjectionId?: string;
-  /** `_openbot/steer` of a custom agent. */
-  messageId?: string;
   content?: { type: string; text?: string; mimeType?: string }[];
 }
 

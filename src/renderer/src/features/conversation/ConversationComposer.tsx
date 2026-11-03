@@ -218,7 +218,7 @@ export function ConversationComposer() {
   };
   /**
    * An ACP provider has no steer request, so its queued messages wait for the turn to end (#3689) —
-   * except a custom agent whose saved, check-seeded flag says it answers `_openbot/steer`.
+   * except a custom agent whose saved, check-seeded flag says it answers `_session/steering`.
    */
   const steers = () =>
     !props.agent || agentSteers({ provider: props.agent.provider, model: props.agent.model }, props.customAgents ?? []);

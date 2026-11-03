@@ -1,9 +1,10 @@
 // The custom-ACP steer opt-in, end to end on the real modules — no Electron, no network:
-// `provider-fakes/agents/custom-steer.ts` (FAKE_STEER=1) advertises `"_meta": { "steer": true }` in
-// its initialize answer and answers `_openbot/steer`. Check agent reads the extension, the store
+// `provider-fakes/agents/custom-steer.ts` (FAKE_STEER=1) advertises `"_meta": { "steering": {
+// "supported": true } }` in
+// its initialize answer and answers `_session/steering`. Check agent reads the extension, the store
 // persists the user's choice, and the `acp` driver's router steers a message into the running turn
-// of the flagged agent: the fake's log shows `_openbot/steer` before the turn ends, and the turn's
-// answer carries the steered text. The unflagged agent is refused before anything is sent.
+// of the flagged agent: the fake's log shows `_session/steering` before the turn ends, and the
+// turn's answer carries the steered text. The unflagged agent is refused before anything is sent.
 // `bun run test:acp:steer`. Writes .openbot-build/acp-steer-e2e/report.json.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -54,7 +55,7 @@ try {
   const checkFlagged = await runCauseEffect(checkAcpAgent({ executable: binFlagged, args: [], env: {} }));
   const checkPlain = await runCauseEffect(checkAcpAgent({ executable: binPlain, args: [], env: {} }));
   report.checks = { flagged: checkFlagged.steer, plain: checkPlain.steer };
-  assert.equal(checkFlagged.steer, true, "Check agent misses _meta.steer.");
+  assert.equal(checkFlagged.steer, true, "Check agent misses _meta.steering.supported.");
   assert.equal(checkPlain.steer, false, "A plain agent is read as steerable.");
 
   // 2. The store: saved with the flag, kept over a save that does not name it, absent by default.
@@ -159,8 +160,7 @@ try {
   const finished = await done;
   const entries = await readJsonl<LogEntry>(log);
   const steer = entries.find((entry) => entry.event === "steer");
-  assert.ok(steer, "The steer must send _openbot/steer.");
-  assert.equal(steer.messageId, "delivery-1");
+  assert.ok(steer, "The steer must send _session/steering.");
   assert.equal(steer.text, "use the other branch");
   assert.deepEqual(steer.content, ["text"]);
   assert.equal(finished.status, "completed");

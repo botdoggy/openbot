@@ -56,7 +56,7 @@ const entrySchema = z.object({
     .transform((value) => value === true),
   /**
    * Added in version 1 with no bump, as for `concurrentTurns`. The user's saved choice, seeded in
-   * the dialog by what the check read from the `initialize` answer's `_meta.steer`.
+   * the dialog by what the check read from the `initialize` answer's `_meta.steering.supported`.
    */
   steer: z
     .boolean()

@@ -62,8 +62,8 @@ export interface CustomAgentConfig {
   readonly concurrentTurns?: boolean;
   /**
    * The user's saved choice (`true` takes a message into the running turn); a check seeds it from
-   * the `initialize` answer's `_meta.steer`. Absent or `false`: messages wait in the queue until the
-   * turn ends, as ACP has no steer request the agent is known to answer.
+   * the `initialize` answer's `_meta.steering.supported`. Absent or `false`: messages wait in the
+   * queue until the turn ends, as ACP has no steer request the agent is known to answer.
    */
   readonly steer?: boolean;
 }

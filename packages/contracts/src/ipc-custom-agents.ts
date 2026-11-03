@@ -64,7 +64,7 @@ export interface SaveCustomAgentInput {
    */
   concurrentTurns?: boolean;
   /**
-   * Whether the command takes a message into its running turn, answering the `_openbot/steer`
+   * Whether the command takes a message into its running turn, answering the `_session/steering`
    * extension request, as the user sets it in the agent's dialog (a check seeds the dialog's choice
    * from what the agent's `initialize` answer advertised). Absent keeps the saved flag, as for
    * `concurrentTurns`.
@@ -138,7 +138,7 @@ export interface CustomAgentCheckResult {
   models: string[];
   /** `true` when the agent's `initialize` answer had `"_meta": { "concurrentTurns": true }`. */
   concurrentTurns: boolean;
-  /** `true` when the agent's `initialize` answer had `"_meta": { "steer": true }`. */
+  /** `true` when the agent's `initialize` answer had `"_meta": { "steering": { "supported": true } }`. */
   steer: boolean;
 }
 
@@ -252,9 +252,9 @@ export function agentConcurrentTurns(
  * not know can: its host decides, and refuses the message when it cannot. Every known provider
  * answers with its descriptor; only `acp` can differ from it: a custom agent with a saved `steer`
  * choice — the user sets it in the dialog, and a check seeds it from the agent's advertised
- * `"_meta": { "steer": true }` — answers the `_openbot/steer` extension request, and any other
- * custom agent keeps its messages queued until the turn ends. `customAgents` is the saved list, as
- * for `agentConcurrentTurns`.
+ * `"_meta": { "steering": { "supported": true } }` — answers the `_session/steering` extension
+ * request, and any other custom agent keeps its messages queued until the turn ends.
+ * `customAgents` is the saved list, as for `agentConcurrentTurns`.
  */
 export function agentSteers(
   agent: { provider: AgentProviderRef; model: string },
