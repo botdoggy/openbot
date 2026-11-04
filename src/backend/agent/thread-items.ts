@@ -114,6 +114,21 @@ function isMuseMcpStartupFault(provider: AgentProvider, message: string): boolea
 }
 
 /**
+ * A custom ACP agent's provider rejected the turn because the session outgrew the model's context.
+ * ACP has no host-triggered compact request, and an agent whose own compact-and-retry failed
+ * leaves the oversized history intact, so each later turn fails the same way. Only a new session,
+ * given the OpenBot transcript, recovers.
+ */
+function isAcpContextOverflow(provider: AgentProvider, message: string): boolean {
+  return (
+    provider === "acp" &&
+    /\bcontext limit exceeded\b|\bcontext_length_exceeded\b|\bmaximum context length\b|\bexceeds? the (model'?s )?context\b|\bprompt is too long\b|\breduce the length of the messages\b/i.test(
+      message,
+    )
+  );
+}
+
+/**
  * The failure to show when the provider refused the session's own history, or null when it did
  * not. Each turn of a refused session fails the same way, so the caller closes the session.
  */
@@ -122,6 +137,7 @@ export function refusedSessionFailure(provider: AgentProvider, message: string):
     return sourceText("error.provider.foreignReasoning", { provider: providerLabel(provider) });
   if (isRejectedOpenCodeRequest(provider, message)) return sourceText("error.provider.opencodeSessionRejected");
   if (isMuseMcpStartupFault(provider, message)) return sourceText("error.provider.museMcpStartupFault");
+  if (isAcpContextOverflow(provider, message)) return sourceText("error.provider.acpContextOverflow");
   return null;
 }
 
