@@ -269,6 +269,8 @@ export const messages = defineMessages("error.provider", {
     "{provider} did not accept the earlier reasoning in this chat, because a different account or API key received it. OpenBot started a new {provider} session with the chat history. Try again.",
   "error.provider.opencodeSessionRejected":
     "OpenCode refused the request and did not give the cause. This can occur in a long chat or after a model change. OpenBot started a new OpenCode session with the chat history. Try again. If the error continues, select a different model or a lower effort.",
+  "error.provider.acpContextOverflow":
+    "The agent's session grew past its context limit, and the agent could not recover by compacting it. OpenBot started a new session with the chat history. Try again. If the error continues, start a new chat.",
   "error.provider.museMcpStartupFault":
     "Muse could not start an MCP server and blocked MCP in this session. OpenBot started a new Muse session with the chat history. Try again. If the error continues, turn off Computer Use or the failed MCP server for this agent.",
   "error.provider.grokSignIn": "Run `grok login` or set XAI_API_KEY to use Grok.",
