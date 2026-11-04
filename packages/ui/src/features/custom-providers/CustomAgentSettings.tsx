@@ -93,6 +93,7 @@ export function checkResult(result: CustomAgentCheckResult): AcpAgentCheck {
     capabilities: result.capabilities,
     models: result.models,
     concurrentTurns: result.concurrentTurns,
+    steer: result.steer,
   };
 }
 

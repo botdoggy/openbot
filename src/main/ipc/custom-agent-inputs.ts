@@ -80,6 +80,7 @@ export function parseSaveCustomAgent(input: unknown): SaveCustomAgentInput {
     usagePrompt: parseUsagePrompt(input.usagePrompt),
     // Absent when the sender does not know it, so the store keeps the saved choice.
     ...(typeof input.concurrentTurns === "boolean" ? { concurrentTurns: input.concurrentTurns } : {}),
+    ...(typeof input.steer === "boolean" ? { steer: input.steer } : {}),
   };
 }
 

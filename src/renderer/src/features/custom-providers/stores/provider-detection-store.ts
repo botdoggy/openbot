@@ -101,6 +101,7 @@ function agentRow(found: DetectedAcpAgent, saved: CustomAgentSummary | undefined
     envNames: saved.envNames,
     usagePrompt: saved.usagePrompt,
     concurrentTurns: saved.concurrentTurns,
+    steer: saved.steer,
   };
 }
 

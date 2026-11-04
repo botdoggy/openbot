@@ -5,8 +5,14 @@
 // The environment values are the secret half. They travel renderer-to-main on `save` and `check`,
 // and never come back: the summary has the names only, and its guard refuses a row that has more.
 
-import type { AgentProviderId } from "./agent-providers";
-import { agentProviderDescriptor, customAgentIdOfModel, isCustomAgentId, isNewCustomAgentId } from "./agent-providers";
+import type { AgentProviderId, AgentProviderRef } from "./agent-providers";
+import {
+  agentProviderDescriptor,
+  customAgentIdOfModel,
+  isCustomAgentId,
+  isKnownAgentProvider,
+  isNewCustomAgentId,
+} from "./agent-providers";
 import { INPUT_LIMITS } from "./input-limits";
 import { isBoundedString, isNullableBoundedString } from "./ipc-bounded-values";
 import { CUSTOM_PROVIDER_RESTARTS, type CustomProviderRestart } from "./ipc-custom-providers";
@@ -57,6 +63,13 @@ export interface SaveCustomAgentInput {
    * that does not know the field does not reset it.
    */
   concurrentTurns?: boolean;
+  /**
+   * Whether the command takes a message into its running turn, answering the `_session/steering`
+   * extension request, as the user sets it in the agent's dialog (a check seeds the dialog's choice
+   * from what the agent's `initialize` answer advertised). Absent keeps the saved flag, as for
+   * `concurrentTurns`.
+   */
+  steer?: boolean;
 }
 
 export interface DeleteCustomAgentInput {
@@ -81,6 +94,12 @@ export interface CustomAgentSummary {
    * like `usagePrompt`; the resolution reads it as false.
    */
   concurrentTurns?: boolean | undefined;
+  /**
+   * The user's saved choice: the command takes a message into its running turn. Absent in the
+   * result of a registry install from a server, like `concurrentTurns`; the resolution reads it as
+   * false.
+   */
+  steer?: boolean | undefined;
   /** The file that the command starts, or null when it cannot be found now. */
   resolvedCommand: string | null;
 }
@@ -119,6 +138,8 @@ export interface CustomAgentCheckResult {
   models: string[];
   /** `true` when the agent's `initialize` answer had `"_meta": { "concurrentTurns": true }`. */
   concurrentTurns: boolean;
+  /** `true` when the agent's `initialize` answer had `"_meta": { "steering": { "supported": true } }`. */
+  steer: boolean;
 }
 
 /** A known agent command that the scan found on this computer. It was not started. */
@@ -165,6 +186,7 @@ export function isCustomAgentSummary(value: unknown): value is CustomAgentSummar
     value.envNames.every(isCustomAgentEnvName) &&
     (value.usagePrompt === undefined || value.usagePrompt === null || isCustomAgentUsagePrompt(value.usagePrompt)) &&
     (value.concurrentTurns === undefined || isBoolean(value.concurrentTurns)) &&
+    (value.steer === undefined || isBoolean(value.steer)) &&
     isNullableBoundedString(value.resolvedCommand, CUSTOM_AGENT_LIMITS.command)
   );
 }
@@ -201,7 +223,8 @@ export function isCustomAgentCheckResult(value: unknown): value is CustomAgentCh
     Array.isArray(value.models) &&
     value.models.length <= CUSTOM_AGENT_LIMITS.checkModels &&
     value.models.every((name) => isBoundedString(name, INPUT_LIMITS.modelName)) &&
-    isBoolean(value.concurrentTurns)
+    isBoolean(value.concurrentTurns) &&
+    isBoolean(value.steer)
   );
 }
 
@@ -222,6 +245,27 @@ export function agentConcurrentTurns(
     return (id !== null && customAgents.find((custom) => custom.id === id)?.concurrentTurns) === true;
   }
   return agentProviderDescriptor(agent.provider).concurrentTurns;
+}
+
+/**
+ * Whether the agent takes a queued message into its running turn. A provider that this build does
+ * not know can: its host decides, and refuses the message when it cannot. Every known provider
+ * answers with its descriptor; only `acp` can differ from it: a custom agent with a saved `steer`
+ * choice — the user sets it in the dialog, and a check seeds it from the agent's advertised
+ * `"_meta": { "steering": { "supported": true } }` — answers the `_session/steering` extension
+ * request, and any other custom agent keeps its messages queued until the turn ends.
+ * `customAgents` is the saved list, as for `agentConcurrentTurns`.
+ */
+export function agentSteers(
+  agent: { provider: AgentProviderRef; model: string },
+  customAgents: readonly { id: string; steer?: boolean | undefined }[],
+): boolean {
+  if (!isKnownAgentProvider(agent.provider)) return true;
+  if (agent.provider === "acp") {
+    const id = customAgentIdOfModel(agent.model);
+    return (id !== null && customAgents.find((custom) => custom.id === id)?.steer) === true;
+  }
+  return agentProviderDescriptor(agent.provider).steer === "native";
 }
 
 export function isDetectedAcpAgent(value: unknown): value is DetectedAcpAgent {

@@ -54,6 +54,14 @@ const entrySchema = z.object({
     .boolean()
     .nullish()
     .transform((value) => value === true),
+  /**
+   * Added in version 1 with no bump, as for `concurrentTurns`. The user's saved choice, seeded in
+   * the dialog by what the check read from the `initialize` answer's `_meta.steering.supported`.
+   */
+  steer: z
+    .boolean()
+    .nullish()
+    .transform((value) => value === true),
   /** One ciphertext for every environment value, or absent for an agent with no variables. */
   secret: z.string().nullish(),
 });
@@ -136,6 +144,7 @@ export class CustomAgentStore {
               envNames: [...stored.envNames],
               usagePrompt: stored.usagePrompt,
               concurrentTurns: stored.concurrentTurns,
+              steer: stored.steer,
               resolvedCommand,
             })),
           ),
@@ -153,6 +162,7 @@ export class CustomAgentStore {
       args: stored.args,
       usagePrompt: stored.usagePrompt,
       concurrentTurns: stored.concurrentTurns,
+      steer: stored.steer,
       // A value this computer cannot open is left out, and the agent starts without it.
       env: stored.envNames.flatMap((name) => {
         const value = values?.[name];
@@ -208,6 +218,7 @@ export class CustomAgentStore {
           // A sender that does not know the field, such as a registry install, must not reset the
           // saved choice.
           concurrentTurns: input.concurrentTurns ?? current?.stored.concurrentTurns ?? false,
+          steer: input.steer ?? current?.stored.steer ?? false,
           secret: sealed,
         },
         values,
