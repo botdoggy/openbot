@@ -22,7 +22,11 @@ export interface AcpParams {
   interjectionId?: string;
   content?: { type: string; text?: string; mimeType?: string }[];
   /** `initialize`. OpenCode reads the `_meta` key that asks for its subagents' sessions. */
-  clientCapabilities?: { _meta?: { "opencode/child-session-updates"?: boolean } };
+  clientCapabilities?: {
+    _meta?: { "opencode/child-session-updates"?: boolean };
+    /** ACP's compaction updates. The agent should send them only when the client offers it. */
+    session?: { compaction?: Record<string, never> };
+  };
 }
 
 export interface AcpRequest {
