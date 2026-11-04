@@ -36,6 +36,11 @@ export interface CustomAcpAgentDraft {
   env: CustomAcpEnvDraft[];
   /** The command that asks the agent for its plan usage, such as `/usage`. Empty for none. */
   usagePrompt: string;
+  /**
+   * Whether the agent takes a message into its running turn, as the user sets it. A successful
+   * check seeds it from the flag the agent advertised, until the user touches it.
+   */
+  steer: boolean;
 }
 
 export interface CustomAcpAgentErrors {
@@ -59,11 +64,21 @@ export type AcpAgentCheck =
       capabilities: readonly string[];
       /** The names of the models that a new session lists. */
       models: readonly string[];
+      /** The agent opted into mid-turn messages in its `initialize` answer (`_meta.steering.supported`). */
+      steer: boolean;
     }
   | { status: "failed"; message: string };
 
 export function emptyCustomAcpAgentDraft(): CustomAcpAgentDraft {
-  return { agentId: "", displayName: "", command: "", args: "", env: [{ name: "", value: "" }], usagePrompt: "" };
+  return {
+    agentId: "",
+    displayName: "",
+    command: "",
+    args: "",
+    env: [{ name: "", value: "" }],
+    usagePrompt: "",
+    steer: false,
+  };
 }
 
 export function presetAcpAgentDraft(preset: AcpAgentPreset): CustomAcpAgentDraft {
@@ -74,6 +89,7 @@ export function presetAcpAgentDraft(preset: AcpAgentPreset): CustomAcpAgentDraft
     args: formatAgentArgs(preset.args),
     env: [{ name: "", value: "" }],
     usagePrompt: "",
+    steer: false,
   };
 }
 
@@ -89,6 +105,7 @@ export function savedAcpAgentDraft(agent: CustomAgentSummary): CustomAcpAgentDra
         ? agent.envNames.map((name) => ({ name, value: "", savedName: name }))
         : [{ name: "", value: "" }],
     usagePrompt: agent.usagePrompt ?? "",
+    steer: agent.steer ?? false,
   };
 }
 
@@ -164,6 +181,7 @@ export function customAcpAgentValue(draft: CustomAcpAgentDraft): CustomAcpAgentD
         ...(row.savedName === undefined ? {} : { savedName: row.savedName }),
       })),
     usagePrompt: draft.usagePrompt.trim(),
+    steer: draft.steer,
   };
 }
 
@@ -215,6 +233,8 @@ export function customAgentInput(draft: CustomAcpAgentDraft): SaveCustomAgentInp
     args: draftArgs(value.args),
     env: draftEnv(value),
     usagePrompt: value.usagePrompt || null,
+    // The user's choice travels with every save; a check only seeds the draft's checkbox.
+    steer: value.steer,
   };
 }
 

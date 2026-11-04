@@ -12,6 +12,7 @@ export interface AcpParams {
   cwd?: string;
   additionalDirectories?: string[];
   mcpServers?: { name: string }[];
+  /** `session/prompt`, and `_session/steering` of a custom agent. */
   prompt?: { type: string; text?: string }[];
   configId?: string;
   value?: string;

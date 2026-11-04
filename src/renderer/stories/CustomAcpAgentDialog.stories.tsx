@@ -14,6 +14,7 @@ const goose: CustomAcpAgentDraft = {
   args: "acp",
   env: [{ name: "GOOSE_PROVIDER", value: "ollama" }],
   usagePrompt: "",
+  steer: false,
 };
 
 const args: Parameters<typeof CustomAcpAgentDialog>[0] = {

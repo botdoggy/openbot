@@ -45,6 +45,15 @@ const entrySchema = z.object({
     .string()
     .nullish()
     .transform((value) => (value && isCustomAgentUsagePrompt(value.trim()) ? value.trim() : null)),
+  /**
+   * Added in version 1 with no bump, as for `usagePrompt`: a build that does not know it drops it.
+   * The user's saved choice, seeded in the dialog by what the check read from the `initialize`
+   * answer's `_meta.steering.supported`.
+   */
+  steer: z
+    .boolean()
+    .nullish()
+    .transform((value) => value === true),
   /** One ciphertext for every environment value, or absent for an agent with no variables. */
   secret: z.string().nullish(),
 });
@@ -126,6 +135,7 @@ export class CustomAgentStore {
               args: [...stored.args],
               envNames: [...stored.envNames],
               usagePrompt: stored.usagePrompt,
+              steer: stored.steer,
               resolvedCommand,
             })),
           ),
@@ -142,6 +152,7 @@ export class CustomAgentStore {
       command: stored.command,
       args: stored.args,
       usagePrompt: stored.usagePrompt,
+      steer: stored.steer,
       // A value this computer cannot open is left out, and the agent starts without it.
       env: stored.envNames.flatMap((name) => {
         const value = values?.[name];
@@ -194,6 +205,9 @@ export class CustomAgentStore {
           args: [...input.args],
           envNames,
           usagePrompt: input.usagePrompt,
+          // A sender that does not know the field, such as a registry install, must not reset the
+          // saved choice.
+          steer: input.steer ?? current?.stored.steer ?? false,
           secret: sealed,
         },
         values,

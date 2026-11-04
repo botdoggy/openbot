@@ -170,7 +170,19 @@ function checkResult(initialization: InitializeResponse, executable: string, mod
     protocolVersion: initialization.protocolVersion,
     capabilities: capabilityNames(initialization.agentCapabilities).slice(0, CUSTOM_AGENT_LIMITS.capabilities),
     models,
+    steer: steerAdvertised(initialization),
   };
+}
+
+/**
+ * The `_meta` extension with which an agent opts into mid-turn messages: `"steering": { "supported":
+ * true }` in the `initialize` answer says the command answers the `_session/steering` request of
+ * the agreed ACP steering wire protocol (claude-code-acp and mu answer it, for one shape), taking a
+ * message into the running turn. Absent, or anything but the literal true, keeps the queued default.
+ */
+function steerAdvertised(initialization: InitializeResponse): boolean {
+  const steering = initialization._meta?.steering;
+  return isDynamicRecord(steering) && steering.supported === true;
 }
 
 /** One name per model, in the agent's order, within the IPC limits. */

@@ -187,6 +187,10 @@ export const messages = defineMessages("customProvider", {
   "customProvider.acp.checkOk": "{name} answered",
   "customProvider.acp.checkOkVersion": "{name} {version} answered",
   "customProvider.acp.checkProtocol": "ACP version {version}",
+  "customProvider.acp.checkSteer": "steers: a message sent while it works joins the running turn",
+  "customProvider.acp.steer": "Steers a running turn",
+  "customProvider.acp.steerHint":
+    "Whether a message you send while this agent works joins the running turn instead of waiting in the queue. A check sets this from what the agent reported. Turn it on only when the command answers the ACP steering request.",
   "customProvider.acp.checkModels": {
     one: "{count} model: {models}",
     other: "{count} models: {models}",

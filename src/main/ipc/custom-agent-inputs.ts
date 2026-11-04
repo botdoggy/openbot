@@ -78,6 +78,8 @@ export function parseSaveCustomAgent(input: unknown): SaveCustomAgentInput {
     args: parseArgs(input.args),
     env: parseEnv(input.env),
     usagePrompt: parseUsagePrompt(input.usagePrompt),
+    // Absent when the sender does not know it, so the store keeps the saved choice.
+    ...(typeof input.steer === "boolean" ? { steer: input.steer } : {}),
   };
 }
 

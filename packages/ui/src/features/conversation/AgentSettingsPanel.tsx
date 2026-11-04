@@ -25,6 +25,7 @@ import {
   agentPermissionLevels,
   agentPermissionUpdate,
   agentQuickAcknowledgementEnabled,
+  agentSteers,
   type BrowserProfileSummary,
   type BusyMessageMode,
   type ClientAgentModelOption,
@@ -953,7 +954,7 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     return (
       provider !== undefined &&
       (draft.busyMessage === "default" ? defaultBusyMessageMode() : draft.busyMessage) === "steer" &&
-      agentProviderDescriptor(provider).steer !== "native"
+      !agentSteers({ provider, model: draft.runtime.model }, props.customAgents ?? [])
     );
   };
 

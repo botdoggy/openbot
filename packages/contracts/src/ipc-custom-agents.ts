@@ -5,11 +5,18 @@
 // The environment values are the secret half. They travel renderer-to-main on `save` and `check`,
 // and never come back: the summary has the names only, and its guard refuses a row that has more.
 
-import { isCustomAgentId, isNewCustomAgentId } from "./agent-providers";
+import type { AgentProviderRef } from "./agent-providers";
+import {
+  agentProviderDescriptor,
+  customAgentIdOfModel,
+  isCustomAgentId,
+  isKnownAgentProvider,
+  isNewCustomAgentId,
+} from "./agent-providers";
 import { INPUT_LIMITS } from "./input-limits";
 import { isBoundedString, isNullableBoundedString } from "./ipc-bounded-values";
 import { CUSTOM_PROVIDER_RESTARTS, type CustomProviderRestart } from "./ipc-custom-providers";
-import { isDynamicRecord, isOneOf, isString } from "./runtime-values";
+import { isBoolean, isDynamicRecord, isOneOf, isString } from "./runtime-values";
 
 export const CUSTOM_AGENT_LIMITS = {
   agents: 16,
@@ -49,6 +56,13 @@ export interface SaveCustomAgentInput {
    * `/usage`. Null for none. One line.
    */
   usagePrompt: string | null;
+  /**
+   * Whether the command takes a message into its running turn, answering the `_session/steering`
+   * extension request, as the user sets it in the agent's dialog (a check seeds the dialog's choice
+   * from what the agent's `initialize` answer advertised). Absent keeps the saved flag, so a
+   * registry install or a sender that does not know the field does not reset it.
+   */
+  steer?: boolean;
 }
 
 export interface DeleteCustomAgentInput {
@@ -67,6 +81,12 @@ export interface CustomAgentSummary {
    * keeps only the fields it knew, and the next list carries the value.
    */
   usagePrompt?: string | null | undefined;
+  /**
+   * The user's saved choice: the command takes a message into its running turn. Absent in the
+   * result of a registry install from a server, like `usagePrompt`; the resolution reads it as
+   * false.
+   */
+  steer?: boolean | undefined;
   /** The file that the command starts, or null when it cannot be found now. */
   resolvedCommand: string | null;
 }
@@ -103,6 +123,8 @@ export interface CustomAgentCheckResult {
   capabilities: string[];
   /** The names of the models that a new session lists. Empty when the agent lists none before sign-in. */
   models: string[];
+  /** `true` when the agent's `initialize` answer had `"_meta": { "steering": { "supported": true } }`. */
+  steer: boolean;
 }
 
 /** A known agent command that the scan found on this computer. It was not started. */
@@ -148,6 +170,7 @@ export function isCustomAgentSummary(value: unknown): value is CustomAgentSummar
     value.envNames.length <= CUSTOM_AGENT_LIMITS.env &&
     value.envNames.every(isCustomAgentEnvName) &&
     (value.usagePrompt === undefined || value.usagePrompt === null || isCustomAgentUsagePrompt(value.usagePrompt)) &&
+    (value.steer === undefined || isBoolean(value.steer)) &&
     isNullableBoundedString(value.resolvedCommand, CUSTOM_AGENT_LIMITS.command)
   );
 }
@@ -183,8 +206,31 @@ export function isCustomAgentCheckResult(value: unknown): value is CustomAgentCh
     value.capabilities.every((name) => isBoundedString(name, INPUT_LIMITS.identifier)) &&
     Array.isArray(value.models) &&
     value.models.length <= CUSTOM_AGENT_LIMITS.checkModels &&
-    value.models.every((name) => isBoundedString(name, INPUT_LIMITS.modelName))
+    value.models.every((name) => isBoundedString(name, INPUT_LIMITS.modelName)) &&
+    isBoolean(value.steer)
   );
+}
+
+/**
+ * Whether the agent takes a queued message into its running turn. A provider that this build does
+ * not know can: its host decides, and refuses the message when it cannot. Every known provider
+ * answers with its descriptor; only `acp` can differ from it: a custom agent with a saved `steer`
+ * choice — the user sets it in the dialog, and a check seeds it from the agent's advertised
+ * `"_meta": { "steering": { "supported": true } }` — answers the `_session/steering` extension
+ * request, and any other custom agent keeps its messages queued until the turn ends.
+ * `customAgents` is the saved list (`CustomAgentSummary` in the renderer, `CustomAgentConfig` in the
+ * backend).
+ */
+export function agentSteers(
+  agent: { provider: AgentProviderRef; model: string },
+  customAgents: readonly { id: string; steer?: boolean | undefined }[],
+): boolean {
+  if (!isKnownAgentProvider(agent.provider)) return true;
+  if (agent.provider === "acp") {
+    const id = customAgentIdOfModel(agent.model);
+    return (id !== null && customAgents.find((custom) => custom.id === id)?.steer) === true;
+  }
+  return agentProviderDescriptor(agent.provider).steer === "native";
 }
 
 export function isDetectedAcpAgent(value: unknown): value is DetectedAcpAgent {

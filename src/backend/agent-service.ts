@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { agentProviderDescriptor, customAgentIdOfModel } from "@openbot/contracts/agent-providers";
+import { customAgentIdOfModel } from "@openbot/contracts/agent-providers";
 import { sortConversationMessages } from "@openbot/contracts/conversation-order";
 import { developmentStartingModel } from "@openbot/contracts/development-defaults";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
@@ -113,6 +113,7 @@ import {
   agentAutomationAllowed,
   agentBrowserProfile,
   agentNewChatAllowed,
+  agentSteers,
   agentTaskLimit,
   type BusyMessageMode,
   CONTEXT_RESET_ITEM_TYPE,
@@ -4948,7 +4949,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         ? snapshot.activeTurnId
         : null;
     if (!steerTurnId) return;
-    if (agentProviderDescriptor(providerForAgent(agent)).steer !== "native") {
+    // A custom ACP agent steers only when its saved, check-seeded flag says it answers
+    // `_session/steering`; every other non-native provider keeps the message queued.
+    if (!agentSteers(agent, this.#providers.savedCustomAgents())) {
       if (explain) yield* this.#markSteerFallback(agent.id, deliveryId, "provider-unsupported");
     }
     // A routine run's own session ends with the run, so a chat message waits for the next turn.
