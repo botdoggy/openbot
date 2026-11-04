@@ -100,6 +100,7 @@ function agentRow(found: DetectedAcpAgent, saved: CustomAgentSummary | undefined
     added: true,
     envNames: saved.envNames,
     usagePrompt: saved.usagePrompt,
+    concurrentTurns: saved.concurrentTurns,
   };
 }
 

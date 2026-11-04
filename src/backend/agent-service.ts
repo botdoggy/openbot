@@ -583,6 +583,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       hooks: {
         emit: (event) => this.#emit(event),
         agent: (agentId) => store.list().find((agent) => agent.id === agentId),
+        // Read late: the provider runtime is built further down this constructor.
+        customAgents: () => this.#providers.savedCustomAgents(),
         // Read late: the drain is built further down this constructor.
         hold: (agentId, taskId) => this.#drain.taskHold(agentId, taskId),
         queued: (agentId) => {
@@ -3086,8 +3088,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     if (previous && workspaceAccessEnforced(previous) && !workspaceAccessEnforced(agent))
       this.#attention.answerGrantedRequests();
     this.#emit({ type: "agents-changed", agents: this.listAgents() });
-    // The task limit follows the agent's own setting and its provider. A higher one can start a task now.
-    if (providerChanged || (previous && agentTaskLimit(previous) !== agentTaskLimit(agent))) {
+    // The task limit follows the agent's own setting, its provider, and — for a custom ACP agent —
+    // the saved concurrency flag. A higher one can start a task now.
+    const customAgents = this.#providers.savedCustomAgents();
+    if (
+      providerChanged ||
+      (previous && agentTaskLimit(previous, customAgents) !== agentTaskLimit(agent, customAgents))
+    ) {
       this.#tasks.changed(agent.id);
       this.#drain.scheduleDrain(agent.id);
     }

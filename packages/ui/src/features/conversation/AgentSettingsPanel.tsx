@@ -19,6 +19,7 @@ import {
   agentAutomationAllowed,
   agentBrowserProfile,
   agentComputerUseEnabled,
+  agentConcurrentTurns,
   agentNewChatAllowed,
   agentNextProviderAccountId,
   agentPermissionLevel,
@@ -958,7 +959,10 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
   const oneTurnAtATime = () => {
     const provider = knownProvider();
-    return provider !== undefined && !agentProviderDescriptor(provider).concurrentTurns;
+    return (
+      provider !== undefined &&
+      !agentConcurrentTurns({ provider, model: draft.runtime.model }, props.customAgents ?? [])
+    );
   };
   const taskLimitLabel = (choice: TaskLimitChoice) =>
     choice === "default"

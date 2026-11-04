@@ -187,6 +187,10 @@ export const messages = defineMessages("customProvider", {
   "customProvider.acp.checkOk": "{name} answered",
   "customProvider.acp.checkOkVersion": "{name} {version} answered",
   "customProvider.acp.checkProtocol": "ACP version {version}",
+  "customProvider.acp.checkConcurrentTurns": "runs parallel turns: its tasks and chat do not wait for each other",
+  "customProvider.acp.concurrentTurns": "Runs parallel turns",
+  "customProvider.acp.concurrentTurnsHint":
+    "Whether this agent's chats and tasks run at the same time. A check sets this from what the agent reported. Turn it on only when the command can run two sessions of one folder at the same time.",
   "customProvider.acp.checkModels": {
     one: "{count} model: {models}",
     other: "{count} models: {models}",
