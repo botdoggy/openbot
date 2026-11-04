@@ -1,17 +1,14 @@
-// The custom-ACP concurrent-turns opt-in, end to end on the real modules — no Electron, no network:
-// `provider-fakes/agents/concurrent.ts` advertises `"_meta": { "concurrentTurns": true }` in its
-// initialize answer. Check agent reads the extension, the store persists it, and the `acp` driver's
-// router runs the turns of two sessions of one process at the same time — a fast turn on a second
-// session of a shared folder completes while a slow turn on the first session is still running.
-// The flagged agent and one that advertises nothing go through the same store, so the flag survives
-// a save that does not name it and defaults to absent.
+// The custom-ACP concurrent-turns opt-in, end to end on the real modules — no Electron, no network.
+// The store persists the user's flag, and the `acp` driver's router runs the turns of two sessions
+// of one process at the same time when it is on: a fast turn on a second session of a shared folder
+// completes while a slow turn on the first session is still running. A flagless save keeps the flag,
+// and a new agent defaults to off.
 // `bun run test:acp:concurrent-turns`. Writes .openbot-build/acp-concurrent-turns-e2e/report.json.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { agentConcurrentTurns, agentTaskLimit } from "@openbot/contracts/ipc";
-import { checkAcpAgent } from "../src/backend/acp-agent-check";
 import type { AgentClient } from "../src/backend/agent-client";
 import { runCauseEffect } from "../src/backend/effect-boundary";
 import { requireProviderDriver } from "../src/backend/provider-drivers";
@@ -30,7 +27,6 @@ interface LogEntry {
 }
 
 interface Report {
-  checks?: { flagged: boolean; plain: boolean };
   store?: { savedWithFlag: boolean; keptOverFlaglessSave: boolean; plain: boolean };
   choice?: { onRuns: boolean; offHolds: boolean; restored: boolean };
   turns?: { fastBeatSlow: boolean; slowReply: string; fastReply: string };
@@ -44,21 +40,10 @@ try {
   const log = join(root, "fake.jsonl");
   const binFlagged = join(root, "bin", "fake-flagged");
   const binPlain = join(root, "bin", "fake-plain");
-  await installFakeAgent(binFlagged, "concurrent", {
-    FAKE_CONCURRENT: "1",
-    FAKE_SLOW_MS: String(SLOW_MS),
-    FAKE_LOG: log,
-  });
-  await installFakeAgent(binPlain, "concurrent", { FAKE_LOG: log });
+  await installFakeAgent(binFlagged, "concurrent", { FAKE_SLOW_MS: String(SLOW_MS), FAKE_LOG: log });
+  await installFakeAgent(binPlain, "concurrent", { FAKE_SLOW_MS: String(SLOW_MS), FAKE_LOG: log });
 
-  // 1. Check agent: the extension shows on the flagged fake and nowhere else.
-  const checkFlagged = await runCauseEffect(checkAcpAgent({ executable: binFlagged, args: [], env: {} }));
-  const checkPlain = await runCauseEffect(checkAcpAgent({ executable: binPlain, args: [], env: {} }));
-  report.checks = { flagged: checkFlagged.concurrentTurns, plain: checkPlain.concurrentTurns };
-  assert.equal(checkFlagged.concurrentTurns, true, "Check agent misses _meta.concurrentTurns.");
-  assert.equal(checkPlain.concurrentTurns, false, "A plain agent is read as concurrent.");
-
-  // 2. The store: saved with the flag, kept over a save that does not name it, absent by default.
+  // 1. The store: saved with the flag, kept over a save that does not name it, absent by default.
   const store = new CustomAgentStore({ path: join(root, "custom-agents.json"), cipher: xorCipher });
   await runCauseEffect(store.load());
   const saveBase: { name: string; command: string; args: string[]; env: { name: string; value: string }[] } = {

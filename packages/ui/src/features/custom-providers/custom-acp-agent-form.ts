@@ -36,10 +36,7 @@ export interface CustomAcpAgentDraft {
   env: CustomAcpEnvDraft[];
   /** The command that asks the agent for its plan usage, such as `/usage`. Empty for none. */
   usagePrompt: string;
-  /**
-   * Whether the agent runs the turns of two sessions at the same time, as the user sets it. A
-   * successful check seeds it from the flag the agent advertised, until the user touches it.
-   */
+  /** Whether the agent runs the turns of two sessions at the same time, as the user sets it. */
   concurrentTurns: boolean;
 }
 
@@ -64,8 +61,6 @@ export type AcpAgentCheck =
       capabilities: readonly string[];
       /** The names of the models that a new session lists. */
       models: readonly string[];
-      /** The agent opted into parallel turns in its `initialize` answer (`_meta.concurrentTurns`). */
-      concurrentTurns: boolean;
     }
   | { status: "failed"; message: string };
 

@@ -47,8 +47,7 @@ const entrySchema = z.object({
     .transform((value) => (value && isCustomAgentUsagePrompt(value.trim()) ? value.trim() : null)),
   /**
    * Added in version 1 with no bump, as for `usagePrompt`: a build that does not know it drops it.
-   * The user's saved choice, seeded in the dialog by what the check read from the `initialize`
-   * answer's `_meta.concurrentTurns`.
+   * The user's saved choice.
    */
   concurrentTurns: z
     .boolean()
