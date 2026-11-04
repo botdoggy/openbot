@@ -757,7 +757,7 @@ export class ProviderRuntime implements ProviderPort {
 
   /**
    * The saved custom agents, for a resolvable look at their stored flags (such as
-   * `concurrentTurns`) outside a spawn.
+   * `concurrentTurns` and `steer`) outside a spawn.
    */
   savedCustomAgents(): readonly CustomAgentConfig[] {
     return savedCustomAgents(this.#credentials);

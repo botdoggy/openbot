@@ -1,8 +1,9 @@
-import { isKnownAgentProvider, providerSteersTurns } from "@openbot/contracts/agent-providers";
+import { isKnownAgentProvider } from "@openbot/contracts/agent-providers";
 import { supportedAttachmentExtensions } from "@openbot/contracts/attachment-files";
 import {
   type AccountUsageLimit,
   type AgentWait,
+  agentSteers,
   canPreviewAttachment,
   DEFAULT_PROVIDER_ACCOUNT_ID,
   type QueueSnapshot,
@@ -234,8 +235,12 @@ export function ConversationComposer() {
     const expired = localizeSourceText(sourceText("error.provider.opencodeKeyExpired"));
     return currentChatError() === expired ? props.onManageProviders : undefined;
   };
-  /** An ACP provider has no steer request, so its queued messages wait for the turn to end (#3689). */
-  const steers = () => !props.agent || providerSteersTurns(props.agent.provider);
+  /**
+   * An ACP provider has no steer request, so its queued messages wait for the turn to end (#3689) —
+   * except a custom agent whose saved, check-seeded flag says it answers `_session/steering`.
+   */
+  const steers = () =>
+    !props.agent || agentSteers({ provider: props.agent.provider, model: props.agent.model }, props.customAgents ?? []);
   /** Tab sends the draft into the running turn, in place of Send and then Steer on its queue row. */
   const steerOnTab = () =>
     props.activeTurnId &&

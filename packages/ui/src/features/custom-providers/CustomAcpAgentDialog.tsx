@@ -81,6 +81,8 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
     untrack(() => (props.draft ? cloneDraft(props.draft) : emptyCustomAcpAgentDraft())),
   );
   const [submitted, setSubmitted] = createSignal(untrack(() => Boolean(props.showErrors)));
+  // A saved agent's checkbox is the user's own choice, so only a check on a new agent seeds it.
+  const [steerTouched, setSteerTouched] = createSignal(untrack(() => Boolean(props.editing)));
 
   // The same reopen rule as the endpoint form: a second open starts from the given draft again.
   createEffect(
@@ -89,6 +91,7 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
       if (!open || previous) return;
       setDraft(() => (props.draft ? cloneDraft(props.draft) : emptyCustomAcpAgentDraft()));
       setSubmitted(Boolean(props.showErrors));
+      setSteerTouched(Boolean(props.editing));
     },
   );
 
@@ -104,6 +107,18 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
     const state = check();
     return state.status === "failed" ? state.message : undefined;
   };
+
+  // A successful check seeds the checkbox from what the agent advertised, until the user touches it.
+  createEffect(
+    () => check(),
+    (state) => {
+      if (state.status === "ok" && !steerTouched()) {
+        setDraft((draft) => {
+          draft.steer = state.steer;
+        });
+      }
+    },
+  );
 
   const fades = createScrollFades();
   onSettled(() => fades.stop);
@@ -363,6 +378,19 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
                   }
                 />
 
+                <SwitchField
+                  label={t("customProvider.acp.steer")}
+                  description={t("customProvider.acp.steerHint")}
+                  checked={draft.steer}
+                  disabled={busy()}
+                  onChange={(next) => {
+                    setSteerTouched(true);
+                    setDraft((state) => {
+                      state.steer = next;
+                    });
+                  }}
+                />
+
                 <Show when={props.onCheck}>
                   {(runCheck) => (
                     <section class="custom-provider-rows" aria-label={t("customProvider.acp.check")}>
@@ -416,6 +444,9 @@ export function CustomAcpAgentDialog(props: CustomAcpAgentDialogProps) {
                                     {` · ${passed().capabilities.join(", ")}`}
                                   </Show>
                                 </AlertDescription>
+                                <Show when={passed().steer}>
+                                  <AlertDescription>{t("customProvider.acp.checkSteer")}</AlertDescription>
+                                </Show>
                                 <Show when={passed().models.length > 0}>
                                   <AlertDescription>
                                     {t("customProvider.acp.checkModels", {
