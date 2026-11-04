@@ -321,7 +321,9 @@ export const OPENBOT_ACP_CLIENT_CAPABILITIES = {
   fs: { readTextFile: false, writeTextFile: false },
   terminal: false,
   elicitation: { form: {} },
-  session: { configOptions: { boolean: {} } },
+  // `compaction` asks the agent for its `compaction_update`s: without it an agent compacts silently,
+  // and OpenBot cannot resend instructions or show the self-compaction in the context meter.
+  session: { compaction: {}, configOptions: { boolean: {} } },
 } as const;
 
 export const OPENBOT_ACP_CLIENT_INFO = { name: "openbot", title: "OpenBot", version: "0.1.0" } as const;
