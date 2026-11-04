@@ -25,6 +25,7 @@ import { usePlatform } from "../../platform";
 import { createScopeGuard } from "../../scope-lifetime";
 import { createSimpleContext } from "../../simple-context";
 import { useTurns } from "../../turns";
+import { useAgentTasks } from "../agent-tasks/agent-tasks-context";
 import { useAgentReadTracking } from "../agents/agent-read-tracking";
 import { appendLatestRuntimeMessages, attentionKey } from "../agents/agent-runtime-snapshot";
 import { useAgents } from "../agents/agents-context";
@@ -116,6 +117,7 @@ const Conversation = createSimpleContext({
     const { activeServerId, activeServer } = useServers();
     const { agentChatsToMarkRead, agentChatsToRetryRead, autoReadAgentMessages } = useAgentReadTracking();
     const scopeIsCurrent = createScopeGuard();
+    const agentTasks = useAgentTasks();
     const { activeDirectMemberId } = useDirectMessages();
     const channels = useChannels();
     const {
@@ -160,6 +162,12 @@ const Conversation = createSimpleContext({
         Object.entries(conversations).map(([id, conversation]) => [id, conversation.read?.unreadCount ?? 0]),
       ),
     );
+    /** The unread replies of each agent's own chat and of its open side threads. */
+    const agentUnreadReplies = createMemo(() => {
+      const counts = { ...unreadReplies() };
+      for (const [id, count] of Object.entries(agentTasks.unreadTotals())) counts[id] = (counts[id] ?? 0) + count;
+      return counts;
+    });
     const recentReplies = createMemo(() =>
       Object.fromEntries(
         Object.entries(conversations).map(([id, conversation]) => [id, conversation.recentReply === true]),
@@ -660,7 +668,14 @@ const Conversation = createSimpleContext({
             updateStored(stored, stored.animate === undefined ? message : { ...message, animate: stored.animate });
           return stored;
         });
-        conversation.messages = mergeConversationPage(currentMessages, pageMessages, merge);
+        // A delta that came before this page can show a commentary item as its own message. The page
+        // groups that item under its turn's thinking message, so the loaded copy goes.
+        const pageItemIds = new Set(page.messages.map((message) => message.id));
+        conversation.messages = mergeConversationPage(
+          currentMessages.filter((message) => !pageItemIds.has(message.id)),
+          pageMessages,
+          merge,
+        );
         conversation.references = {
           ...(merge === "replace" ? {} : conversation.references),
           ...Object.fromEntries(
@@ -1060,6 +1075,7 @@ const Conversation = createSimpleContext({
       conversations,
       retryConversation: () => setAgentChatOpenRevision((current) => current + 1),
       unreadReplies,
+      agentUnreadReplies,
       recentReplies,
       activeMessages,
       agentChatsToRetryRead,
