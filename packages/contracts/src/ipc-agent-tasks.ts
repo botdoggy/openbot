@@ -1,7 +1,8 @@
-import { type AgentProviderId, agentProviderDescriptor } from "./agent-providers";
+import type { AgentProviderId } from "./agent-providers";
 import { INPUT_LIMITS } from "./input-limits";
 import { integerInRange, isBoundedString, isIdentifier, isNullableBoundedString } from "./ipc-bounded-values";
 import { type ConversationReadState, isConversationReadState } from "./ipc-conversations";
+import { agentConcurrentTurns } from "./ipc-custom-agents";
 import { isDynamicRecord, isOneOf } from "./runtime-values";
 
 /** The most tasks of one agent that run a turn at the same time, next to the agent's own chat. */
@@ -14,11 +15,16 @@ export function isAgentTaskLimit(value: unknown): value is number {
 }
 
 /**
- * How many tasks of the agent run a turn at the same time. A provider that runs one turn at a time
- * runs one task, and the agent's own chat waits for it.
+ * How many tasks of the agent run a turn at the same time. An agent that runs one turn at a time
+ * runs one task, and the agent's own chat waits for it. `customAgents` resolves a custom ACP
+ * agent's answer from its saved `concurrentTurns` choice; callers that know no custom agents, such
+ * as previews, keep the descriptor's answer.
  */
-export function agentTaskLimit(agent: { provider: AgentProviderId; taskLimit?: number }): number {
-  if (!agentProviderDescriptor(agent.provider).concurrentTurns) return 1;
+export function agentTaskLimit(
+  agent: { provider: AgentProviderId; model: string; taskLimit?: number },
+  customAgents: readonly { id: string; concurrentTurns?: boolean | undefined }[] = [],
+): number {
+  if (!agentConcurrentTurns(agent, customAgents)) return 1;
   return agent.taskLimit ?? AGENT_TASK_LIMIT_DEFAULT;
 }
 
