@@ -103,6 +103,27 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting}: ustaw dla wszystkich agentów",
   "settings.agentDefaults.agentLabel": "{setting}: {agent}",
   "settings.agentDefaults.loadFailed": "Nie udało się odczytać agentów.",
+  "settings.planStart.title": "Rozpoczęcie pracy",
+  "settings.planStart.wait": "Gdy nacisnę Start",
+  "settings.planStart.after": "Po {time}",
+  "settings.planStart.custom": "Własny…",
+  "settings.planStart.waitNote": "Plan czeka, aż naciśniesz Start. Dostaniesz powiadomienie.",
+  "settings.planStart.afterNote": "Praca zaczyna się po {time} lub po naciśnięciu Start.",
+  "settings.planStart.customTitle": "Własny czas",
+  "settings.planStart.customPrefix": "Po",
+  "settings.planStart.amountLabel": "Czas do rozpoczęcia pracy",
+  "settings.planStart.unitLabel": "Jednostka",
+  "settings.planStart.seconds": "s",
+  "settings.planStart.minutes": "min",
+  "settings.planStart.customHint": "Co najmniej 5 sekund.",
+  "settings.planStart.customInvalid": "Wpisz liczbę całkowitą, co najmniej 5 sekund.",
+  "settings.planStart.set": "Ustaw",
+  "settings.automationLimit.sectionTitle": "Limit",
+  "settings.automationLimit.sectionDescription": "Dotyczy wszystkich agentów na tym komputerze.",
+  "settings.automationLimit.title": "Żądania na godzinę",
+  "settings.automationLimit.option": "{limit} na godzinę",
+  "settings.automationLimit.note":
+    "Najwięcej wiadomości i uruchomień rutyn, które lokalne skrypty mogą wysłać do każdego agenta w ciągu godziny.",
   "settings.backgroundProcesses.title": "Procesy w tle",
   "settings.backgroundProcesses.description":
     "Programy, które agenci uruchomili i zostawili włączone, np. serwery deweloperskie. Działają dalej po końcu czatu i po zamknięciu OpenBota.",
@@ -553,9 +574,13 @@ export const messages = {
   // The Voice tab: dictation models and the dictation language.
   "settings.voice.dictation.section": "Dyktowanie",
   "settings.voice.model.parakeet.description": "Szybki. Sam rozpoznaje język mowy, w 25 językach europejskich.",
+  "settings.voice.model.parakeetUnified.description":
+    "Szybki. Tylko angielski. Stawia interpunkcję, z mniejszą liczbą błędów niż Parakeet TDT.",
   "settings.voice.model.bark.description":
     "Szybki. Tylko angielski. Pisze głównie małymi literami, z niewielką interpunkcją.",
   "settings.voice.model.whisper.description": "Wolniejszy. Około 100 języków i możesz ustawić język mowy.",
+  "settings.voice.model.cohere.description":
+    "Wolniejszy. 14 języków. Język mowy ustawiasz sam. Używa około 4 GB pamięci.",
   "settings.voice.model.size": "Rozmiar pobierania: {size}",
   "settings.voice.model.downloading": "Pobieranie · {received} z {total}",
   "settings.voice.model.failed": "Pobieranie zostało przerwane. Sprawdź połączenie i spróbuj ponownie.",
@@ -569,10 +594,14 @@ export const messages = {
   "settings.voice.model.removeLabel": "Usuń model {name} z tego komputera",
   "settings.voice.language.section": "Język",
   "settings.voice.language.description": "Język, w którym mówisz. Automatycznie rozpoznaje go z nagrania.",
+  "settings.voice.language.modelLanguages":
+    "Język, którym mówisz. Ten model zna tylko te języki i nie rozpoznaje języka sam.",
   "settings.voice.language.modelDetects":
-    "Parakeet sam rozpoznaje język mowy. Aby ustawić język, użyj Whisper lub ElevenLabs.",
+    "Parakeet sam rozpoznaje język mowy. Aby ustawić język, użyj Whisper, Cohere lub ElevenLabs.",
   "settings.voice.language.englishOnly":
-    "Bark rozpoznaje tylko angielski. Aby ustawić język, użyj Whisper lub ElevenLabs.",
+    "Bark rozpoznaje tylko angielski. Aby ustawić język, użyj Whisper, Cohere lub ElevenLabs.",
+  "settings.voice.language.parakeetUnifiedEnglishOnly":
+    "Parakeet Unified rozpoznaje tylko angielski. Aby ustawić język, użyj Whisper, Cohere lub ElevenLabs.",
   "settings.voice.language.automatic": "Automatycznie",
   "settings.voice.loadFailed": "Nie udało się odczytać modeli głosu.",
   "settings.voice.saveFailed": "Nie udało się zapisać ustawienia głosu. Spróbuj ponownie.",
@@ -596,7 +625,7 @@ export const messages = {
     "Gdy dyktujesz wiadomość, odpowiedź jest czytana na głos. Aby ją zatrzymać, zacznij dyktować ponownie.",
   "settings.voice.speech.codexLive.title": "Głos na żywo Codex",
   "settings.voice.speech.codexLive.description":
-    "Rozmowy głosowe z agentami Codex używają głosu na żywo OpenAI z Twoim logowaniem Codex. Twój głos trafia do OpenAI.",
+    "Rozmowy głosowe z każdym agentem używają głosu na żywo OpenAI z Twoim logowaniem Codex. Twój głos, Twoje prośby i odpowiedzi agenta trafiają do OpenAI.",
   "settings.voice.speech.speed.title": "Szybkość",
   "settings.voice.speech.voice.title": "Głos",
   "settings.voice.speech.voice.female": "Głos żeński {number}",

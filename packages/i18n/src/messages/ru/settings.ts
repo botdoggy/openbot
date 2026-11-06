@@ -105,6 +105,27 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting}: задать всем агентам",
   "settings.agentDefaults.agentLabel": "{setting}: {agent}",
   "settings.agentDefaults.loadFailed": "Не удалось загрузить агентов.",
+  "settings.planStart.title": "Начало работы",
+  "settings.planStart.wait": "Когда я нажму «Начать»",
+  "settings.planStart.after": "Через {time}",
+  "settings.planStart.custom": "Своё время…",
+  "settings.planStart.waitNote": "План ждёт, пока вы не нажмёте «Начать». Вы получите уведомление.",
+  "settings.planStart.afterNote": "Работа начнётся через {time} или когда вы нажмёте «Начать».",
+  "settings.planStart.customTitle": "Своё время",
+  "settings.planStart.customPrefix": "Через",
+  "settings.planStart.amountLabel": "Время до начала работы",
+  "settings.planStart.unitLabel": "Единица",
+  "settings.planStart.seconds": "с",
+  "settings.planStart.minutes": "мин",
+  "settings.planStart.customHint": "Не меньше 5 секунд.",
+  "settings.planStart.customInvalid": "Введите целое число не меньше 5 секунд.",
+  "settings.planStart.set": "Задать",
+  "settings.automationLimit.sectionTitle": "Лимит",
+  "settings.automationLimit.sectionDescription": "Действует для всех агентов на этом компьютере.",
+  "settings.automationLimit.title": "Запросов в час",
+  "settings.automationLimit.option": "{limit} в час",
+  "settings.automationLimit.note":
+    "Наибольшее число сообщений и запусков регулярных задач, которые локальные скрипты могут отправить каждому агенту за час.",
   "settings.backgroundProcesses.title": "Фоновые процессы",
   "settings.backgroundProcesses.description":
     "Программы, которые агенты запустили и оставили работать, например dev-серверы. Они работают и после конца чата, и после выхода из OpenBot.",
@@ -554,9 +575,13 @@ export const messages = {
   // The Voice tab: dictation models and the dictation language.
   "settings.voice.dictation.section": "Диктовка",
   "settings.voice.model.parakeet.description": "Быстрая. Сама определяет язык речи, 25 европейских языков.",
+  "settings.voice.model.parakeetUnified.description":
+    "Быстрая. Только английский. Ставит знаки препинания, ошибок меньше, чем у Parakeet TDT.",
   "settings.voice.model.bark.description":
     "Быстрая. Только английский. Пишет в основном строчными буквами, почти без знаков препинания.",
   "settings.voice.model.whisper.description": "Медленнее. Около 100 языков, и вы можете задать язык речи.",
+  "settings.voice.model.cohere.description":
+    "Медленнее. 14 языков. Язык речи вы задаёте сами. Использует около 4 ГБ памяти.",
   "settings.voice.model.size": "Размер загрузки: {size}",
   "settings.voice.model.downloading": "Загрузка · {received} из {total}",
   "settings.voice.model.failed": "Загрузка прервана. Проверьте подключение и повторите попытку.",
@@ -570,10 +595,14 @@ export const messages = {
   "settings.voice.model.removeLabel": "Удалить {name} с этого компьютера",
   "settings.voice.language.section": "Язык",
   "settings.voice.language.description": "Язык, на котором вы говорите. «Автоматически» определяет его по записи.",
+  "settings.voice.language.modelLanguages":
+    "Язык, на котором вы говорите. Эта модель знает только эти языки и не определяет язык сама.",
   "settings.voice.language.modelDetects":
-    "Parakeet сам определяет язык речи. Чтобы задать язык, используйте Whisper или ElevenLabs.",
+    "Parakeet сам определяет язык речи. Чтобы задать язык, используйте Whisper, Cohere или ElevenLabs.",
   "settings.voice.language.englishOnly":
-    "Bark распознаёт только английский. Чтобы задать язык, используйте Whisper или ElevenLabs.",
+    "Bark распознаёт только английский. Чтобы задать язык, используйте Whisper, Cohere или ElevenLabs.",
+  "settings.voice.language.parakeetUnifiedEnglishOnly":
+    "Parakeet Unified распознаёт только английский. Чтобы задать язык, используйте Whisper, Cohere или ElevenLabs.",
   "settings.voice.language.automatic": "Автоматически",
   "settings.voice.loadFailed": "Не удалось прочитать голосовые модели.",
   "settings.voice.saveFailed": "Не удалось сохранить настройку голоса. Повторите попытку.",
@@ -597,7 +626,7 @@ export const messages = {
     "Когда вы диктуете сообщение, ответ читается вслух. Чтобы остановить его, начните диктовать снова.",
   "settings.voice.speech.codexLive.title": "Живой голос Codex",
   "settings.voice.speech.codexLive.description":
-    "Голосовые разговоры с агентами Codex используют живой голос OpenAI с вашим входом в Codex. Ваш голос передаётся в OpenAI.",
+    "Голосовые разговоры с любым агентом используют живой голос OpenAI с вашим входом в Codex. Ваш голос, ваши запросы и ответы агента передаются в OpenAI.",
   "settings.voice.speech.speed.title": "Скорость",
   "settings.voice.speech.voice.title": "Голос",
   "settings.voice.speech.voice.female": "Женский голос {number}",

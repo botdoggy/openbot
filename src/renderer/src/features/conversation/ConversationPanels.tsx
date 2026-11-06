@@ -49,10 +49,10 @@ import {
 import { conversationPort } from "./conversation-port";
 
 /**
- * The voice conversation with the agent that is open when the pane opens. A Codex agent on this
- * computer uses Codex live voice when the user turned it on in Settings → Voice; a failed read of that
- * setting keeps the conversation that transcribes on this computer. A conversation that still runs
- * from an earlier visit to the pane shows again.
+ * The voice conversation with the agent that is open when the pane opens. An agent on this computer
+ * uses Codex live voice when the user turned it on in Settings → Voice, whatever the agent's provider:
+ * the voice sends each request to the agent. A failed read of that setting keeps the conversation that
+ * transcribes on this computer. A conversation that still runs from an earlier visit to the pane shows again.
  */
 function VoiceConversationPane() {
   const controller = useConversationController();
@@ -61,10 +61,7 @@ function VoiceConversationPane() {
   // Live voice runs in this computer's Codex App Server, so an agent on a remote server transcribes.
   // Settings hides the switch when Codex has no ChatGPT sign-in, so the saved choice does not count then.
   const codex = untrack(
-    () =>
-      props.agent?.provider === "codex" &&
-      props.server?.kind !== "remote" &&
-      codexLiveAccess(props.agentStatus.providers) !== "signIn",
+    () => props.server?.kind !== "remote" && codexLiveAccess(props.agentStatus.providers) !== "signIn",
   );
   const [kind, setKind] = createSignal<VoiceConversationKind | null>(running ?? (codex ? null : "transcribed"));
   if (!running && codex)
@@ -162,6 +159,8 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
     settingsProvider,
     settingsReasoning,
     updateRuntimeSettings,
+    fastMode,
+    fastModeChange,
     messageLinkRelay,
     openMessageLinkRelay,
     pasteMessageLinkRelay,
@@ -632,6 +631,9 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
               busyMessageDefaultIsHost={props.server?.kind === "remote"}
               newChatEditable={props.server?.kind === "local" || props.remoteNewChatLoaded === true}
               quickAcknowledgementEditable={props.server?.kind === "local" || props.remotePlanCardLoaded === true}
+              // The same Fast state and switch as the model picker of the chat header.
+              fastMode={fastMode()}
+              onFastModeChange={fastModeChange()}
               taskLimitEditable={props.server?.kind === "local" || props.remoteTaskLimitLoaded === true}
               backupModelsEditable={props.server?.kind === "local" || props.remoteBackupModelsLoaded === true}
               usageLimited={props.usageLimited}

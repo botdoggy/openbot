@@ -566,6 +566,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: bun run test:claude-api-key
 
+      - name: Run the Claude stored sign-in E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:claude-stored-sign-in
+
       - name: Run the Cursor usage E2E test
         if: ${{ !cancelled() }}
         run: bun run test:cursor-usage
@@ -581,6 +585,10 @@ jobs:
       - name: Run the agent API key E2E test
         if: ${{ !cancelled() }}
         run: bun run test:agent-api-keys
+
+      - name: Run the remote connect analytics E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:remote-connect-analytics
 
       - name: Upload the reports
         if: always()
@@ -647,16 +655,19 @@ jobs:
             .openbot-build/discord-github-files-e2e/
             .openbot-build/opencode-usage-metering-e2e/
             .openbot-build/claude-api-key-e2e/
+            .openbot-build/claude-stored-sign-in-e2e/
             .openbot-build/cursor-usage-e2e/
             .openbot-build/opencode-go-usage-e2e/
             .openbot-build/pi-sign-in-watch-e2e/
             .openbot-build/agent-api-keys-e2e/
+            .openbot-build/remote-connect-analytics-e2e/
           if-no-files-found: ignore
 
   provider-fakes-e2e:
     # Runs the real ACP provider drivers (custom agents, OpenCode, Cline) over fake agents from
     # `scripts/provider-fakes/`. The fakes speak ACP on stdio as the released CLIs do, or replay a
     # recorded transcript of a released CLI, so the job needs no provider account, network or display.
+    # It also runs the agent database host start test, which starts the real host with Node.
     name: Provider fakes E2E
     needs: detect
     if: needs.detect.outputs.desktop == 'true'
@@ -714,6 +725,10 @@ jobs:
       - name: Run the ACP turn stall E2E test
         if: ${{ !cancelled() }}
         run: bun run test:acp-turn-stall
+
+      - name: Run the agent database host start E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:agent-database-host-start
 
       - name: Run the ACP instructions once E2E test
         if: ${{ !cancelled() }}
@@ -792,6 +807,7 @@ jobs:
             .openbot-build/acp-flavor-e2e/
             .openbot-build/acp-mcp-server-names-e2e/
             .openbot-build/acp-turn-stall-e2e/
+            .openbot-build/agent-database-host-start-e2e/
             .openbot-build/acp-instructions-once-e2e/
             .openbot-build/acp-audio-input-e2e/
             .openbot-build/grok-steer-e2e/

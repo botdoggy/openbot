@@ -91,6 +91,8 @@ export const messages = {
   "provider.codeLogin.relayStarting": "Inloggen bij {name} starten op {host}…",
   "provider.codeLogin.pageOpening": "Inlogpagina van {name} openen op {host}…",
   "provider.codeLogin.linkStep": "Log in bij {name}. OpenBot gaat vanzelf verder.",
+  "provider.codeLogin.chatgptDeviceSetting":
+    "Open in ChatGPT op een computer de beveiligingsinstellingen en zet inloggen met apparaatcode voor Codex aan. Bij een werkaccount zet de beheerder van je workspace dit aan.",
   "provider.useApp.title": "Verbind {name} in de OpenBot-app",
   "provider.useApp.description":
     "Het inloggen bij {name} keert terug naar de computer die het startte, en een browsertabblad kan dat niet ontvangen. Verbind {name} in de OpenBot-app. De app rondt het inloggen vanzelf af.",
@@ -286,6 +288,11 @@ export const messages = {
   "provider.settings.turnOnFirst": "Zet eerst {name} aan.",
   "provider.settings.makeDefault": "Als standaard",
   "provider.settings.useTitle": "{name} gebruiken",
+  "provider.settings.deleteTitle": "{name} verwijderen",
+  "provider.settings.deleteOn":
+    "Zet {name} uit en verwijdert de CLI die OpenBot heeft gedownload. Accounts, aanmeldingen en agents blijven.",
+  "provider.settings.deleteOff":
+    "Verwijdert de CLI die OpenBot voor {name} heeft gedownload ({size}). Accounts, aanmeldingen en agents blijven.",
   "provider.settings.endpoints": "Endpoints",
   "provider.settings.noEndpoints": "Geen endpoints.",
   "provider.settings.endpointModels": { one: "{url} · 1 model", other: "{url} · {count} modellen" },

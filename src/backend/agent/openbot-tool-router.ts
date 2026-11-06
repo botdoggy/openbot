@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
+import { attachmentMimeTypeForName } from "@openbot/contracts/attachment-files";
 import { chatVisualItemType } from "@openbot/contracts/chat-visual";
 import { sortConversationMessages } from "@openbot/contracts/conversation-order";
-import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
+import { ATTACHMENT_LIMITS, INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
   AgentModelChoice,
   AgentModelOption,
@@ -36,6 +38,7 @@ import type { AgentTables } from "../agent-data/agent-tables";
 import type { AgentStore } from "../agent-store";
 import type { AgentTasks } from "../agent-tasks/agent-tasks";
 import type { AgentWaits } from "../agent-waits/agent-waits";
+import { attachmentCall, attachmentFailure } from "../attachment-effects";
 import { OPENBOT_BROWSER_NAMESPACE } from "../browser-tools";
 import type { ChannelService } from "../channel-service";
 import type { ProviderSession } from "../database/provider-sessions";
@@ -76,7 +79,7 @@ import { loadAvatarFile } from "./avatar-file";
 import type { BrowserUploads } from "./browser-uploads";
 import {
   CHANNEL_AGENT_TOOL_NAMES,
-  channelAgentToolInChannelTask,
+  CHANNEL_AGENT_TOOL_NEEDS_LOCAL_PERSON,
   handleChannelAgentTool,
   listChannelsToolSchema,
 } from "./channel-agent-tools";
@@ -144,9 +147,6 @@ import type { AgentBrowserHost } from "./turn-lifecycle";
 import { handleUpdateAgentsTool } from "./update-agents-tool";
 
 const logger = createOpenBotLogger("openbot-tool-router");
-
-/** How long the plan card of `acknowledge_request` waits before the host presses its start button. */
-const ACKNOWLEDGE_START_MS = 10_000;
 
 /** The key of a `save_api_key` call whose other arguments can be wrong. */
 const secretKeyArgument = z.object({ key: z.string() });
@@ -579,7 +579,8 @@ export class OpenBotToolRouter {
               PROFILE_TOOL_NAMES.has(tool) ||
               CHANNEL_AGENT_TOOL_NAMES.has(tool) ||
               tool === "list_channels" ||
-              tool === "attach_files_to_response";
+              tool === "attach_files_to_response" ||
+              tool === "messaging_post";
             // A workflow tool reports its own correctable failures; only bad arguments reach this point.
             const correctable = (cause: unknown) =>
               correctableTool || (WORKFLOW_TOOL_NAMES.has(tool) && cause instanceof z.ZodError);
@@ -703,12 +704,14 @@ export class OpenBotToolRouter {
       return openBotToolFailure(
         "request_api_key does not work in an external chat. Ask the user to give you the key in OpenBot.",
       );
-    const spec = apiKeyFormSpec(parsed.data);
+    // With a Vault, the user can save the key for every agent, so another agent does not ask again.
+    const vault = this.#vaultItems?.ready() === true;
+    const spec = apiKeyFormSpec({ ...parsed.data, vault });
     if (!spec) return openBotToolFailure("OpenBot could not show this form. Use a shorter title and retry.");
     this.#attention.surfaceUiBlock(client, request, {
       blockId: randomUUID(),
       spec,
-      apiKey: { name: parsed.data.name },
+      apiKey: { name: parsed.data.name, vault },
     });
     return null;
   });
@@ -774,15 +777,16 @@ export class OpenBotToolRouter {
   });
 
   /**
-   * Shows the plan card of `acknowledge_request` and waits like `ask_ui`. When nobody answers in
-   * `ACKNOWLEDGE_START_MS`, the host presses the start button, so the work never waits long for a
-   * person who is away.
+   * Shows the plan card of `acknowledge_request` and waits like `ask_ui`. When nobody answers in the
+   * `planStartAfterMs` of the account defaults, the host presses the start button. With no time, the
+   * card waits for a person, and its prompt raises a notification as `ask_ui` does.
    */
   #acknowledgeRequest(client: AgentClient, request: AppServerRequest, params: DynamicToolCallParams): void {
     const refuse = (message: string) => client.respond(request.id, openBotToolFailure(message));
     const agentId = this.#conversation.agentForThread(params.threadId);
     const agent = agentId ? this.#store.list().find((candidate) => candidate.id === agentId) : undefined;
-    if (!agent || !agentQuickAcknowledgementEnabled(agent, this.#store.agentDefaults())) {
+    const defaults = this.#store.agentDefaults();
+    if (!agent || !agentQuickAcknowledgementEnabled(agent, defaults)) {
       refuse("The user has not turned on the plan card for you. Start the work without it.");
       return;
     }
@@ -816,7 +820,9 @@ export class OpenBotToolRouter {
       client,
       request,
       { blockId: randomUUID(), spec },
-      { actionId: ACKNOWLEDGE_REQUEST_ACTIONS.start, afterMs: ACKNOWLEDGE_START_MS },
+      defaults.planStartAfterMs === null
+        ? undefined
+        : { actionId: ACKNOWLEDGE_REQUEST_ACTIONS.start, afterMs: defaults.planStartAfterMs },
     );
   }
 
@@ -958,7 +964,26 @@ export class OpenBotToolRouter {
     const executionThreadId = this.#conversation.publicThreadId(senderAgentId, params.threadId);
     // Any agent can post on its own initiative, such as a routine that reports to a Discord channel.
     if (MESSAGING_OUTBOUND_TOOLS.has(params.tool))
-      return yield* this.#messaging.outboundTool(params.tool, params.arguments);
+      return yield* this.#messaging.outboundTool(params.tool, params.arguments, (paths) =>
+        // The attachment path rules: the agent's workspace, its folders, or the OpenBot shared directory,
+        // which holds the files the user attached. The adapters read each file again by its path.
+        Effect.acquireUseRelease(
+          this.#attachments.openSources(senderAgentId, paths, { allowAnyReadablePath: false }),
+          (sources) =>
+            Effect.forEach(sources, (source) =>
+              Effect.gen(function* () {
+                const name = basename(source.path);
+                const { size } = yield* attachmentCall(() => source.handle.stat());
+                if (size > ATTACHMENT_LIMITS.fileBytes)
+                  return yield* attachmentFailure(
+                    new Error(`${name} is larger than ${ATTACHMENT_LIMITS.fileBytes} bytes.`),
+                  );
+                return { name, path: source.path, mimeType: attachmentMimeTypeForName(name) };
+              }),
+            ),
+          (sources) => Effect.promise(() => Promise.allSettled(sources.map((source) => source.handle.close()))),
+        ),
+      );
     if (params.tool.startsWith("messaging_")) {
       // Only the agent that answers a platform conversation, in that conversation's own thread.
       const link = this.#messaging.store.linkForThread(executionThreadId);
@@ -997,14 +1022,18 @@ export class OpenBotToolRouter {
       return openBotToolResult({ channels: this.#channels.handoffTargets(args.archived === true) });
     }
     if (CHANNEL_AGENT_TOOL_NAMES.has(params.tool)) {
-      if (channelId) return channelAgentToolInChannelTask();
-      if (!this.#requestedByPerson(senderAgentId, params.turnId, executionThreadId))
+      // In a channel task, the request that started the task must come from this computer's user.
+      if (channelId) {
+        if (!(yield* this.#channels.requestedByLocalPerson(channelId, senderAgentId, params.turnId)))
+          return openBotToolFailure(CHANNEL_AGENT_TOOL_NEEDS_LOCAL_PERSON);
+      } else if (!this.#requestedByPerson(senderAgentId, params.turnId, executionThreadId))
         return openBotToolFailure(
           "Only a person's message, in your OpenBot chat or a thread they opened, can create or change a channel. Ask the user to request it there.",
         );
       return yield* handleChannelAgentTool(params, senderAgentId, {
         channels: this.#channels,
         listAgents: () => this.#hooks.listAgents(),
+        taskChannelId: channelId,
       });
     }
     if (params.tool === "send_to_channel") {
@@ -2043,8 +2072,22 @@ export class OpenBotToolRouter {
           .replace(/^"(.*)"$/s, "$1")
           .trim() || null;
       // An answer to a request from a side thread runs in that thread. When the thread is archived, the
-      // answer goes to the recipient's own chat, so it is not lost.
-      const answerTaskId = replyTo ? this.#mailbox.answerTaskId(senderAgentId, replyTo, recipientValues) : null;
+      // answer goes to the recipient's own chat, so it is not lost. A message without replyToMessageId,
+      // such as a question back, goes to the thread of the requests from its recipient that this turn
+      // works on, when they all came from that one thread (#5093). Otherwise it goes to the own chat,
+      // and the automatic result does not follow, so the thread would wait without an answer.
+      // `answerTaskId` routes a message to one recipient only.
+      const answeredRequestIds = replyTo
+        ? [replyTo]
+        : turnDeliveries
+            .filter(
+              ({ delivery }) => delivery.sender.kind === "agent" && delivery.sender.agentId === recipientValues[0],
+            )
+            .map(({ delivery }) => delivery.messageId);
+      const answerTaskIds = new Set(
+        answeredRequestIds.map((requestId) => this.#mailbox.answerTaskId(senderAgentId, requestId, recipientValues)),
+      );
+      const [answerTaskId = null] = answerTaskIds.size === 1 ? answerTaskIds : [];
       const taskId = answerTaskId && this.#tasks.threadId(answerTaskId) !== null ? answerTaskId : undefined;
       const text = params.arguments.text;
       const receipt = yield* this.#mailbox

@@ -108,6 +108,28 @@ export const messages = defineMessages("settings", {
   "settings.agentDefaults.setAllLabel": "Set {setting} for all agents",
   "settings.agentDefaults.agentLabel": "{setting} for {agent}",
   "settings.agentDefaults.loadFailed": "The agents could not be read.",
+  // "Start the work", under the default of "Show the plan before long tasks".
+  "settings.planStart.title": "Start the work",
+  "settings.planStart.wait": "When I press Start",
+  "settings.planStart.after": "After {time}",
+  "settings.planStart.custom": "Custom…",
+  "settings.planStart.waitNote": "The plan waits until you press Start. You get a notification.",
+  "settings.planStart.afterNote": "The work starts after {time}, or when you press Start.",
+  "settings.planStart.customTitle": "Custom time",
+  "settings.planStart.customPrefix": "After",
+  "settings.planStart.amountLabel": "Time before the work starts",
+  "settings.planStart.unitLabel": "Unit",
+  "settings.planStart.seconds": "sec",
+  "settings.planStart.minutes": "min",
+  "settings.planStart.customHint": "At least 5 seconds.",
+  "settings.planStart.customInvalid": "Enter a whole number of at least 5 seconds.",
+  "settings.planStart.set": "Set",
+  "settings.automationLimit.sectionTitle": "Limit",
+  "settings.automationLimit.sectionDescription": "It applies to all agents on this computer.",
+  "settings.automationLimit.title": "Requests an hour",
+  "settings.automationLimit.option": "{limit} an hour",
+  "settings.automationLimit.note":
+    "The most messages and routine runs that local scripts can send each agent in one hour.",
   "settings.backgroundProcesses.title": "Background processes",
   "settings.backgroundProcesses.description":
     "Programs that agents started and left running, such as dev servers. They keep running after the chat ends and after you quit OpenBot.",
@@ -543,8 +565,12 @@ export const messages = defineMessages("settings", {
   // The Voice tab: dictation models and the dictation language.
   "settings.voice.dictation.section": "Dictation",
   "settings.voice.model.parakeet.description": "Fast. Finds the spoken language itself, in 25 European languages.",
+  "settings.voice.model.parakeetUnified.description":
+    "Fast. English only. Writes punctuation, with fewer errors than Parakeet TDT.",
   "settings.voice.model.bark.description": "Fast. English only. Writes mostly lowercase, with little punctuation.",
   "settings.voice.model.whisper.description": "Slower. About 100 languages, and you can set the spoken language.",
+  "settings.voice.model.cohere.description":
+    "Slower. 14 languages. You set the spoken language. Uses about 4 GB of memory.",
   "settings.voice.model.size": "Download size: {size}",
   "settings.voice.model.downloading": "Downloading · {received} of {total}",
   "settings.voice.model.failed": "The download stopped. Check the connection and try again.",
@@ -558,9 +584,14 @@ export const messages = defineMessages("settings", {
   "settings.voice.model.removeLabel": "Remove {name} from this computer",
   "settings.voice.language.section": "Language",
   "settings.voice.language.description": "The language that you speak. Automatic finds it from the recording.",
+  "settings.voice.language.modelLanguages":
+    "The language that you speak. This model knows only these languages and does not find the language itself.",
   "settings.voice.language.modelDetects":
-    "Parakeet finds the spoken language itself. To set a language, use Whisper or ElevenLabs.",
-  "settings.voice.language.englishOnly": "Bark recognizes English only. To set a language, use Whisper or ElevenLabs.",
+    "Parakeet finds the spoken language itself. To set a language, use Whisper, Cohere or ElevenLabs.",
+  "settings.voice.language.englishOnly":
+    "Bark recognizes English only. To set a language, use Whisper, Cohere or ElevenLabs.",
+  "settings.voice.language.parakeetUnifiedEnglishOnly":
+    "Parakeet Unified recognizes English only. To set a language, use Whisper, Cohere or ElevenLabs.",
   "settings.voice.language.automatic": "Automatic",
   "settings.voice.loadFailed": "Could not read the voice models.",
   "settings.voice.saveFailed": "Could not save the voice setting. Try again.",
@@ -584,7 +615,7 @@ export const messages = defineMessages("settings", {
     "When you dictate a message, the reply is read aloud. Dictate again to stop it.",
   "settings.voice.speech.codexLive.title": "Codex live voice",
   "settings.voice.speech.codexLive.description":
-    "Voice conversations with Codex agents use OpenAI live voice with your Codex sign-in. Your voice goes to OpenAI.",
+    "Voice conversations with any agent use OpenAI live voice with your Codex sign-in. Your voice, your requests and the agent's replies go to OpenAI.",
   "settings.voice.speech.speed.title": "Speed",
   "settings.voice.speech.voice.title": "Voice",
   "settings.voice.speech.voice.female": "Female voice {number}",

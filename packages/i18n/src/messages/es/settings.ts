@@ -105,6 +105,27 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "Aplicar {setting} a todos los agentes",
   "settings.agentDefaults.agentLabel": "{setting} para {agent}",
   "settings.agentDefaults.loadFailed": "No se pudieron leer los agentes.",
+  "settings.planStart.title": "Empezar el trabajo",
+  "settings.planStart.wait": "Cuando pulse Iniciar",
+  "settings.planStart.after": "Tras {time}",
+  "settings.planStart.custom": "Personalizado…",
+  "settings.planStart.waitNote": "El plan espera hasta que pulses Iniciar. Recibes una notificación.",
+  "settings.planStart.afterNote": "El trabajo empieza tras {time} o cuando pulsas Iniciar.",
+  "settings.planStart.customTitle": "Tiempo personalizado",
+  "settings.planStart.customPrefix": "Tras",
+  "settings.planStart.amountLabel": "Tiempo antes de empezar el trabajo",
+  "settings.planStart.unitLabel": "Unidad",
+  "settings.planStart.seconds": "s",
+  "settings.planStart.minutes": "min",
+  "settings.planStart.customHint": "Al menos 5 segundos.",
+  "settings.planStart.customInvalid": "Escribe un número entero de al menos 5 segundos.",
+  "settings.planStart.set": "Aplicar",
+  "settings.automationLimit.sectionTitle": "Límite",
+  "settings.automationLimit.sectionDescription": "Se aplica a todos los agentes de este ordenador.",
+  "settings.automationLimit.title": "Solicitudes por hora",
+  "settings.automationLimit.option": "{limit} por hora",
+  "settings.automationLimit.note":
+    "El máximo de mensajes y ejecuciones de rutinas que los scripts locales pueden enviar a cada agente en una hora.",
   "settings.backgroundProcesses.title": "Procesos en segundo plano",
   "settings.backgroundProcesses.description":
     "Programas que los agentes iniciaron y dejaron en marcha, como servidores de desarrollo. Siguen en marcha cuando termina el chat y cuando sales de OpenBot.",
@@ -533,9 +554,13 @@ export const messages = {
   "settings.voice.dictation.section": "Dictado",
   "settings.voice.model.parakeet.description":
     "Rápido. Detecta el idioma hablado por sí mismo, en 25 idiomas europeos.",
+  "settings.voice.model.parakeetUnified.description":
+    "Rápido. Solo inglés. Pone puntuación, con menos errores que Parakeet TDT.",
   "settings.voice.model.bark.description":
     "Rápido. Solo inglés. Escribe casi todo en minúsculas y con poca puntuación.",
   "settings.voice.model.whisper.description": "Más lento. Unos 100 idiomas, y puedes fijar el idioma hablado.",
+  "settings.voice.model.cohere.description":
+    "Más lento. 14 idiomas. Tú fijas el idioma hablado. Usa unos 4 GB de memoria.",
   "settings.voice.model.size": "Tamaño de la descarga: {size}",
   "settings.voice.model.downloading": "Descargando · {received} de {total}",
   "settings.voice.model.failed": "La descarga se detuvo. Comprueba la conexión e inténtalo de nuevo.",
@@ -549,9 +574,14 @@ export const messages = {
   "settings.voice.model.removeLabel": "Quitar {name} de este equipo",
   "settings.voice.language.section": "Idioma",
   "settings.voice.language.description": "El idioma que hablas. Automático lo detecta a partir de la grabación.",
+  "settings.voice.language.modelLanguages":
+    "El idioma que hablas. Este modelo solo conoce estos idiomas y no detecta el idioma por sí mismo.",
   "settings.voice.language.modelDetects":
-    "Parakeet detecta el idioma hablado por sí mismo. Para fijar un idioma, usa Whisper o ElevenLabs.",
-  "settings.voice.language.englishOnly": "Bark solo reconoce inglés. Para fijar un idioma, usa Whisper o ElevenLabs.",
+    "Parakeet detecta el idioma hablado por sí mismo. Para fijar un idioma, usa Whisper, Cohere o ElevenLabs.",
+  "settings.voice.language.englishOnly":
+    "Bark solo reconoce inglés. Para fijar un idioma, usa Whisper, Cohere o ElevenLabs.",
+  "settings.voice.language.parakeetUnifiedEnglishOnly":
+    "Parakeet Unified solo reconoce inglés. Para fijar un idioma, usa Whisper, Cohere o ElevenLabs.",
   "settings.voice.language.automatic": "Automático",
   "settings.voice.loadFailed": "No se pudieron leer los modelos de voz.",
   "settings.voice.saveFailed": "No se pudo guardar el ajuste de voz. Inténtalo de nuevo.",
@@ -575,7 +605,7 @@ export const messages = {
     "Cuando dictas un mensaje, la respuesta se lee en voz alta. Dicta otra vez para detenerla.",
   "settings.voice.speech.codexLive.title": "Voz en directo de Codex",
   "settings.voice.speech.codexLive.description":
-    "Las conversaciones de voz con agentes de Codex usan la voz en directo de OpenAI con tu inicio de sesión de Codex. Tu voz se envía a OpenAI.",
+    "Las conversaciones de voz con cualquier agente usan la voz en directo de OpenAI con tu inicio de sesión de Codex. Tu voz, tus peticiones y las respuestas del agente se envían a OpenAI.",
   "settings.voice.speech.speed.title": "Velocidad",
   "settings.voice.speech.voice.title": "Voz",
   "settings.voice.speech.voice.female": "Voz femenina {number}",

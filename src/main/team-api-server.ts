@@ -48,9 +48,11 @@ import { AGENT_THREAD_FILES_CAPABILITY } from "@openbot/contracts/team-protocol/
 import { AGENT_THREAD_READS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-thread-reads-v1";
 import { AGENT_THREAD_REPLIES_CAPABILITY } from "@openbot/contracts/team-protocol/agent-thread-replies-v1";
 import { AGENT_THREADS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-threads-v1";
+import { BROWSER_EGRESS_CAPABILITY } from "@openbot/contracts/team-protocol/browser-egress-v1";
 import { BROWSER_PAGE_STATE_CAPABILITY } from "@openbot/contracts/team-protocol/browser-page-state-v1";
 import { BROWSER_PROFILES_EVENTS_CAPABILITY } from "@openbot/contracts/team-protocol/browser-profiles-events-v1";
 import { BROWSER_PROFILES_CAPABILITY } from "@openbot/contracts/team-protocol/browser-profiles-v1";
+import { BROWSER_PROXIES_CAPABILITY } from "@openbot/contracts/team-protocol/browser-proxies-v1";
 import { BROWSER_USER_CONTROL_CAPABILITY } from "@openbot/contracts/team-protocol/browser-user-control-v1";
 import { CHAT_COLORS_CAPABILITY } from "@openbot/contracts/team-protocol/chat-colors-v1";
 import { CLAUDE_API_KEY_CAPABILITY } from "@openbot/contracts/team-protocol/claude-api-key-v1";
@@ -92,6 +94,7 @@ import {
   MEMORY_REVIEW_CAPABILITY,
   MODEL_VISIBILITY_CAPABILITY,
   ONEPASSWORD_CONNECTOR_CAPABILITY,
+  PASSWORD_MANAGERS_CAPABILITY,
   PROMPT_CACHE_TTL_CAPABILITY,
   PROVIDER_ACCOUNT_RELAY_CAPABILITY,
   PROVIDER_ACCOUNT_RELAY_V2_CAPABILITY,
@@ -133,6 +136,7 @@ import {
   WEBHOOK_TESTS_CAPABILITY,
   WHATSAPP_CONNECTOR_CAPABILITY,
   WORKFLOWS_CAPABILITY,
+  WORKFLOWS_CHATS_CAPABILITY,
   WORKFLOWS_GITHUB_CAPABILITY,
 } from "@openbot/contracts/team-protocol/current";
 import { CUSTOM_AGENTS_CAPABILITY } from "@openbot/contracts/team-protocol/custom-agents-v1";
@@ -259,6 +263,7 @@ import { routeAgents } from "./team-api/route-agents";
 import { routeBitwardenConnector } from "./team-api/route-bitwarden-connector";
 import { routeBrowser } from "./team-api/route-browser";
 import { routeBrowserProfiles } from "./team-api/route-browser-profiles";
+import { routeBrowserProxies } from "./team-api/route-browser-proxies";
 import { routeChannels } from "./team-api/route-channels";
 import { chatColorsOf, routeChatColors, visibleChatColors } from "./team-api/route-chat-colors";
 import { routeComputerActivity } from "./team-api/route-computer-activity";
@@ -266,6 +271,7 @@ import { routeConnectors } from "./team-api/route-connectors";
 import { routeContextCompact } from "./team-api/route-context-compact";
 import { routeContextReset } from "./team-api/route-context-reset";
 import { routeConversationFiles } from "./team-api/route-conversation-files";
+import { routeConversationUnreadFrom } from "./team-api/route-conversation-unread-from";
 import { routeCustomAgents } from "./team-api/route-custom-agents";
 import { routeDirect } from "./team-api/route-direct";
 import { routeDiscordAccess } from "./team-api/route-discord-access";
@@ -288,6 +294,7 @@ import { routeMemoryReview } from "./team-api/route-memory-review";
 import { routeMessageDelete } from "./team-api/route-message-delete";
 import { routeModelVisibility } from "./team-api/route-model-visibility";
 import { routeOnePasswordConnector } from "./team-api/route-onepassword-connector";
+import { routePasswordManagers } from "./team-api/route-password-managers";
 import { routePromptCacheTtl } from "./team-api/route-prompt-cache-ttl";
 import { routeProviderAccounts } from "./team-api/route-provider-accounts";
 import { routeProviderDefault } from "./team-api/route-provider-default";
@@ -416,7 +423,7 @@ export class TeamApiServer {
   readonly #sessionUse = new Map<string, { memberId: string; at: number }>();
   /** When the focus period of each session started, and its last focus ping. Push notifications do not read it. */
   readonly #sessionFocus = new Map<string, { since: number; at: number }>();
-  #agentListener: ((event: AgentEvent) => void) | null = null;
+  #agentListener: ((event: AgentEvent, memberId?: string) => void) | null = null;
   #sidebarLayoutListener: ((layout: SidebarLayoutSnapshot) => void) | null = null;
   #stopAgentAccessListener: (() => void) | null = null;
   #stopMachineAlertListener: (() => void) | null = null;
@@ -511,7 +518,7 @@ export class TeamApiServer {
     });
     const port = yield* remoteCall(() => listenLoopback(server, () => new Error(sourceText("error.team.bindFailed"))));
     this.#port = port;
-    this.#agentListener = (event) => this.#broadcastAgentEvent(event);
+    this.#agentListener = (event, memberId) => this.#broadcastAgentEvent(event, memberId);
     this.#options.agents.on("event", this.#agentListener);
     this.#sidebarLayoutListener = (layout) => this.#broadcastAgentEvent({ type: "sidebar-layout-changed", layout });
     this.#options.sidebarLayout.on("changed", this.#sidebarLayoutListener);
@@ -1020,6 +1027,7 @@ export class TeamApiServer {
       if ((await routeWhatsAppConnector(context, this.#options.connectors)) === "handled") return;
       if ((await routeOnePasswordConnector(context, this.#options.onePasswordConnector)) === "handled") return;
       if ((await routeBitwardenConnector(context, this.#options.bitwardenConnector)) === "handled") return;
+      if ((await routePasswordManagers(context, this.#options.passwordManagers)) === "handled") return;
       if ((await routeVault(context, this.#options.vault)) === "handled") return;
       if ((await routeVaultImport(context, this.#options.vault)) === "handled") return;
       if ((await routeProviderHostSignIn(context, this.#options.providerHostSignIns)) === "handled") return;
@@ -1041,6 +1049,7 @@ export class TeamApiServer {
         "handled"
       )
         return;
+      if ((await routeBrowserProxies(context, this.#options.browserProfiles)) === "handled") return;
       if ((await routeRoutineResults(context, this.#options.admin, hidden)) === "handled") return;
       if ((await routeAgentSessionSettings(context, this.#options.admin, hidden)) === "handled") return;
       if ((await routeAgentFolders(context, this.#options.admin, hidden)) === "handled") return;
@@ -1106,6 +1115,7 @@ export class TeamApiServer {
       if ((await routeContextCompact(context, this.#options.agents, hidden)) === "handled") return;
       if ((await routeMessageDelete(context, this.#options.agents, this.#options.channels, hidden)) === "handled")
         return;
+      if ((await routeConversationUnreadFrom(context, this.#options.agents, hidden)) === "handled") return;
       if ((await routeAgentMemoryPage(context, this.#options.agents, hidden)) === "handled") return;
       if ((await routeWorkspaceDirectory(context, this.#options.agents, hidden)) === "handled") return;
       if ((await routeConversationFiles(context, this.#options.agents)) === "handled") return;
@@ -1319,9 +1329,9 @@ export class TeamApiServer {
     return encodeTeamProtocolV1CurrentEvent(visible, options);
   }
 
-  #broadcastAgentEvent(event: AgentEvent): void {
+  #broadcastAgentEvent(event: AgentEvent, memberId?: string): void {
     if (event.type !== "conversation") {
-      this.#broadcastAgentEventToClients(event);
+      this.#broadcastAgentEventToClients(event, "all", memberId);
       if (event.type === "agents-changed") {
         this.#broadcastAgentColors();
         this.#broadcastChatColors();
@@ -1411,7 +1421,12 @@ export class TeamApiServer {
     Effect.runFork(materialize);
   }
 
-  #broadcastAgentEventToClients(broadcast: AgentEvent, audience: ConversationEventAudience = "all"): void {
+  /** With `memberId`, only the connections of that member get the event. */
+  #broadcastAgentEventToClients(
+    broadcast: AgentEvent,
+    audience: ConversationEventAudience = "all",
+    memberId?: string,
+  ): void {
     const filteredConversationPayloads = new Map<string, string>();
     // The roles give each connection of one member the same agents: read them once for each member.
     const access = new Map<string, { member: AccessMember; blocked: Set<string>; key: string }>();
@@ -1426,6 +1441,7 @@ export class TeamApiServer {
     };
 
     for (const [client, connection] of this.#eventClients) {
+      if (memberId !== undefined && connection.memberId !== memberId) continue;
       const event = this.#eventFor(connection, broadcast);
       // Only accounts after the first: a client reads an empty reading as no provider reporting.
       if (event !== broadcast && event.type === "usage-changed" && event.usage.limits.length === 0) continue;
@@ -2255,6 +2271,7 @@ export class TeamApiServer {
           if (capability === WHATSAPP_CONNECTOR_CAPABILITY) return this.#options.connectors !== undefined;
           if (capability === ONEPASSWORD_CONNECTOR_CAPABILITY) return this.#options.onePasswordConnector !== undefined;
           if (capability === BITWARDEN_CONNECTOR_CAPABILITY) return this.#options.bitwardenConnector !== undefined;
+          if (capability === PASSWORD_MANAGERS_CAPABILITY) return this.#options.passwordManagers !== undefined;
           if (capability === VAULT_CAPABILITY) return this.#options.vault !== undefined;
           if (capability === BROWSER_SECRET_VAULT_CAPABILITY) return this.#options.vault !== undefined;
           if (capability === VAULT_IMPORT_CAPABILITY) return this.#options.vault !== undefined;
@@ -2292,8 +2309,14 @@ export class TeamApiServer {
           if (capability === AGENT_NEW_CHAT_CAPABILITY) return this.#options.admin?.agentHost !== undefined;
           if (capability === AGENT_PLAN_CARD_CAPABILITY) return this.#options.admin?.agentHost !== undefined;
           if (capability === AGENT_FAST_MODE_CAPABILITY) return this.#options.admin?.agentHost !== undefined;
-          if (capability === BROWSER_PROFILES_CAPABILITY || capability === BROWSER_PROFILES_EVENTS_CAPABILITY)
+          if (
+            capability === BROWSER_PROFILES_CAPABILITY ||
+            capability === BROWSER_PROFILES_EVENTS_CAPABILITY ||
+            capability === BROWSER_PROXIES_CAPABILITY
+          )
             return this.#options.browserProfiles !== undefined;
+          // The host reads the egress channel of each desktop peer, and only a profile proxy uses it.
+          if (capability === BROWSER_EGRESS_CAPABILITY) return this.#options.browserProfiles !== undefined;
           if (capability === SKILLS_ADMIN_CAPABILITY) return this.#options.admin?.skills !== undefined;
           if (capability === SKILLS_EVENTS_CAPABILITY) return this.#options.skills !== undefined;
           if (capability === SHARED_TABLES_CAPABILITY) return this.#options.admin?.sharedTables !== undefined;
@@ -2340,6 +2363,9 @@ export class TeamApiServer {
           if (capability === ROUTINE_FLOWS_CAPABILITY) return this.#options.routineFlows !== undefined;
           if (capability === WORKFLOWS_CAPABILITY) return this.#options.workflows !== undefined;
           if (capability === WORKFLOWS_GITHUB_CAPABILITY) return this.#options.workflows?.github !== undefined;
+          // The chats and workspaces of Telegram and Slack nodes come from the routine-results options.
+          if (capability === WORKFLOWS_CHATS_CAPABILITY)
+            return this.#options.workflows !== undefined && this.#options.admin?.routineResults !== undefined;
           if (
             capability === PUSH_NOTIFICATIONS_CAPABILITY ||
             capability === ANDROID_PUSH_NOTIFICATIONS_CAPABILITY ||

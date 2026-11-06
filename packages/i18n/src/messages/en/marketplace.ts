@@ -124,7 +124,8 @@ export const messages = defineMessages("marketplace", {
   "marketplace.app.telegramTagline": "Groups and direct chats in Telegram",
   "marketplace.app.whatsappTagline": "Your own chat and the people you allow in WhatsApp",
   "marketplace.app.bitwardenTagline": "Sign in to sites with logins from a shared folder",
-  // The category row in the information of a password manager page: 1Password and Bitwarden.
+  "marketplace.app.protonPassTagline": "Sign in to sites with logins from a shared vault",
+  // The category row in the information of a password manager page: 1Password, Bitwarden and Proton Pass.
   "marketplace.app.onePasswordCategory": "Login and Credential Management",
   "marketplace.app.yourApps": "Your apps",
   "marketplace.app.addCustom": "Add custom",
@@ -236,6 +237,15 @@ export const messages = defineMessages("marketplace", {
     "Use the styles in this repository and design a settings page in Paper.",
   "marketplace.plugin.paper.prompt.tokens":
     "List the design tokens in the open Paper file and compare them with our theme.",
+  "marketplace.plugin.higgsfield.tagline": "AI images, videos and audio",
+  "marketplace.plugin.higgsfield.description":
+    "Higgsfield lets agents generate images, videos, characters and audio with Higgsfield models such as Seedance, Kling, Veo and MiniMax Hailuo, check the credit balance, and browse the Asset Library. Results are saved to the user's Higgsfield Assets. Each user signs in to their own Higgsfield account through the browser. Every generation uses credits of that account at standard rates, also on an unlimited plan.",
+  "marketplace.plugin.higgsfield.app":
+    "Image, video and audio generation, characters, credits and assets, over Higgsfield's MCP server with browser sign-in.",
+  "marketplace.plugin.higgsfield.prompt.credits": "How many Higgsfield credits do I have?",
+  "marketplace.plugin.higgsfield.prompt.productShot":
+    "Make a Higgsfield product photo of a ceramic mug on a wooden table.",
+  "marketplace.plugin.higgsfield.prompt.clip": "Make a 5-second Higgsfield video of waves at sunset.",
   "marketplace.plugin.appleApps.tagline": "Mail, Calendar and more on your Mac",
   "marketplace.plugin.appleApps.description":
     "Apple apps lets agents use Mail, Calendar, Contacts, Reminders, Notes, Messages and Safari on this Mac. It works on macOS only. OpenBot starts mcp-icloud, a community server that is not made by Apple or OpenBot. The server controls the apps through AppleScript, on this computer, and needs no account and no key. When you install it, OpenBot can ask macOS for access to all of these apps at once, with one prompt for each app. If you do not, macOS asks the first time an agent uses an app. To change this later, open System Settings › Privacy & Security › Automation. Agents can send email and iMessages, and change or delete events, contacts and reminders, so review each write before you approve it. What the tools read, such as email text, goes to the model provider of the agent.",

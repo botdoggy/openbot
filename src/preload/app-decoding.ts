@@ -70,6 +70,7 @@ import {
   isApprovalAutomationPreference,
   isAppThemePalette,
   isAppThemePaletteId,
+  isAutomationRunsPerHour,
   isAvatarColor,
   isBusyMessageMode,
   isCodexLiveVoice,
@@ -82,6 +83,7 @@ import {
   isDetectedAcpAgent,
   isDetectedModelServer,
   isDiscoverModelsResult,
+  isPlanStartAfterMs,
   isProviderDetectionSettings,
   isRemoteDesktopSetupStatus,
   isRemoteDesktopTestStatus,
@@ -108,6 +110,7 @@ import {
   type RemoteDesktopTestStatus,
   type RemoteNetworkRouteState,
   type RemoteSessionReusePreference,
+  type SentMessageStats,
   SPEECH_MODEL_ID,
   type SpeechAudio,
   type SpeechModelStatus,
@@ -175,6 +178,13 @@ export function decodeAppInfo(value: unknown): AppInfo {
   };
 }
 
+export function decodeSentMessageStats(value: unknown): SentMessageStats {
+  const stats = decodeRecord(value, "sent message stats");
+  const sentCount = requiredNumber(stats, "sentCount");
+  if (!Number.isSafeInteger(sentCount) || sentCount < 0) throw new Error("Invalid sentCount.");
+  return { firstSentAt: nullableString(stats, "firstSentAt"), sentCount };
+}
+
 export function decodeAppSetupState(value: unknown): AppSetupState {
   const state = decodeRecord(value, "setup state");
   const { preferredProvider, preferredModel } = state;
@@ -202,6 +212,10 @@ export function decodeAgentDefaults(value: unknown): AgentDefaults {
   const defaults = decodeRecord(value, "agent defaults");
   const decoded = { ...DEFAULT_AGENT_DEFAULTS };
   for (const key of AGENT_DEFAULT_KEYS) decoded[key] = requiredBoolean(defaults, key);
+  if (!isPlanStartAfterMs(defaults.planStartAfterMs)) throw new Error("Invalid plan start time.");
+  decoded.planStartAfterMs = defaults.planStartAfterMs;
+  if (!isAutomationRunsPerHour(defaults.automationRunsPerHour)) throw new Error("Invalid local script limit.");
+  decoded.automationRunsPerHour = defaults.automationRunsPerHour;
   return decoded;
 }
 

@@ -287,8 +287,10 @@ binary, never stops startup.
 
 A provider that is off in this profile runs no CLI, so the manager does not stamp its versions. Pi
 counts as in use while a key-only provider that runs on it is on. Its
-provider page in Settings offers Remove download (#3321), which removes every version of that CLI and
-this profile's partial downloads of it, and leaves accounts and sign-ins alone. It is refused while
+provider page in Settings offers Delete (#3321), which removes every version of that CLI and
+this profile's partial downloads of it, and leaves accounts and sign-ins alone. On a provider that
+is on and runs the CLI that OpenBot downloaded, Delete first turns the provider off. An agent that
+uses the provider stops it, as it stops the switch. It is refused while
 the provider is on, while its download runs, and for a provider with an explicit CLI path. The same
 age rule keeps a version another instance stamped, with one change: the manager remembers its own
 last stamp of each directory, and a directory whose mtime is not later than that stamp counts as
@@ -615,6 +617,12 @@ own folder (`antigravityReadsGeminiHome` gates the rows, the sign-in, the checks
 the agent start), and `antigravityStatePaths` confines its process to that folder. Each new session
 leaves a conversation database in that folder, so a usage read of an account with no agent process
 starts no process: the account shows its reading from the sign-in check. The sandbox cannot create folders in a new account's home, so OpenBot makes them.
+A plan can serve models that the first account's does not, so the account check also reads the account's own
+`model/list` (`ModelCatalog.read`) after it marks the account connected (#5217). The account row carries as
+`models` only the ones that the provider's catalogue does not list: the picker shows the catalogue on the
+account's entry, with the models an admin turned off left out, and then these. `updateAgent` accepts a model
+of the agent's account. A failed list keeps the last one. `provider-accounts-v1` does not carry it, so a joined server
+still shows the provider's catalogue for each account.
 The account sign-in is the same ACP `authenticate` call as the first account's; a Reconnect calls
 `logout` first. So a Reconnect refuses while an agent on the account runs a turn, and it stops the
 account's idle agent processes, which keep the old token. A saved Gemini API key belongs to the

@@ -218,6 +218,30 @@ export interface AnalyticsPreference {
   enabled: boolean;
 }
 
+/**
+ * Renderer timing for host analytics: counts and milliseconds only. The renderer sends it at most
+ * once a minute, and once when the main window's workspace finished its first load.
+ */
+/** The bounds of one renderer timing report. The renderer keeps to them and main rejects a report outside them. */
+export const RENDERER_TIMING_LIMITS = {
+  longTasks: 10_000,
+  inputs: 100_000,
+  /** Timed inputs in one report. Inputs past this count are left out of `inputs` too. */
+  inputDelays: 64,
+  inputDelayMs: 600_000,
+} as const;
+
+export interface RendererTimingReport {
+  /** The main window's workspace finished its first load. Main times it on its own clock. */
+  workspaceReady?: true;
+  /** Renderer tasks of more than 200 ms since the last report. */
+  longTasks: number;
+  /** Key presses and pointer presses since the last report. */
+  inputs: number;
+  /** The input delay of each of those inputs that the browser timed (16 ms or more of handling), in ms. */
+  inputDelaysMs: number[];
+}
+
 export interface SetAnalyticsPreferenceInput {
   enabled: boolean;
   /** True when the user chose this value. Only a choice is sent to the account; a default is not. */
@@ -532,6 +556,16 @@ export interface ChatWindowTarget {
   agentId: string;
 }
 
+/**
+ * The messages that the user sent to agents on this computer, from the database. The social toast
+ * reads it, so a user who used OpenBot before the toast shipped gets it on time.
+ */
+export interface SentMessageStats {
+  /** When the first message was written, as ISO 8601 text, or null before the first message. */
+  firstSentAt: string | null;
+  sentCount: number;
+}
+
 export type ExternalDestination =
   | "opencode-install"
   | "opencode-auth"
@@ -547,8 +581,24 @@ export type ExternalDestination =
   | "discord"
   // The OpenBot repository, from the toast that asks for a GitHub star.
   | "github"
-  // The OpenBot account on X, from the community card of the sidebar.
+  // The OpenBot account on X, from the community card of the sidebar and the social toast.
   | "x"
+  // The OpenBot profiles and community that the social toast asks the user to follow or join.
+  | "threads"
+  | "instagram"
+  | "tiktok"
+  | "facebook"
+  | "linkedin"
+  | "reddit"
+  // The pages that start a post about OpenBot, from the social toast. Main writes the first post
+  // in the app language.
+  | "x-post"
+  | "threads-post"
+  | "linkedin-post"
+  | "reddit-post"
+  | "facebook-post"
+  | "instagram-post"
+  | "tiktok-post"
   // The x.ai marketplace listing of the Grok Bot agent that exports agents for OpenBot.
   | "grok-bot-export"
   // The email for a hosted server plan that the add server dialog does not have, such as a Mac.

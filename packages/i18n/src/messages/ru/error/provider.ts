@@ -105,6 +105,7 @@ export const messages = {
   "error.provider.modelIdDuplicate": "У двух моделей одинаковый ID.",
   "error.provider.contextWindowInvalid": "Контекстное окно модели должно быть целым числом токенов от {min} до {max}.",
   "error.provider.maxOutputInvalid": "Максимальный вывод модели должен быть целым числом токенов от {min} до {max}.",
+  "error.provider.reasoningEffortsInvalid": "Уровни усилий модели недопустимы.",
   "error.provider.headersTooMany": "Слишком много заголовков.",
   "error.provider.headerNameCharacter": "В имени заголовка есть символ, недопустимый в HTTP.",
   "error.provider.headerNameTooLong": "Имя заголовка слишком длинное.",
@@ -209,6 +210,8 @@ export const messages = {
     "OpenCode не смог подключиться к провайдеру моделей. Проверьте сетевое подключение компьютера, где работает OpenBot, и повторите попытку.\n{detail}",
   "error.provider.codexStateBusy":
     "ChatGPT ещё готовит локальную историю после предыдущего запуска. Подождите несколько минут и повторите попытку.",
+  "error.provider.realtimeLimitZero":
+    "Linux остановил провайдера, потому что у OpenBot ограничение процессорного времени реального времени равно 0. Это ограничение задаёт ваша система. Установите и запустите rtkit (`rtkit-daemon`), выполните `systemctl --user restart xdg-desktop-portal`, затем перезапустите OpenBot. Один перезапуск xdg-desktop-portal не поможет, пока rtkit не установлен.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode не смог открыть свою базу данных, потому что её изменила более новая версия OpenCode. Обновите OpenCode до версии 2 или новее и повторите попытку.",
   "error.provider.opencodeNoAnswer":

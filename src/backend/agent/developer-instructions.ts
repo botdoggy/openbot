@@ -15,6 +15,7 @@ import {
 import { redactText } from "@openbot/logging";
 import { automationRunCommand } from "../automation-command";
 import type { HomeSkill } from "../home-skills";
+import { PASSWORD_MANAGER_BRAND_NAMES } from "../password-vault";
 import type { PromptInstructionsFile } from "./workspace-instructions";
 import { existingAgentFolders, workspaceExcludedFolders } from "./workspace-sandbox";
 
@@ -287,7 +288,7 @@ export function developerInstructions(
       : []),
     ...(options.passwordVault
       ? [
-          "The user shares saved logins with OpenBot, from 1Password, Bitwarden, or the OpenBot Vault: before a username, password, or authenticator-app step, call openbot_browser.list_logins for the tab and follow the browser guidance.",
+          `The user shares saved logins with OpenBot, from ${PASSWORD_MANAGER_BRAND_NAMES.join(", ")}, or the OpenBot Vault: before a username, password, or authenticator-app step, call openbot_browser.list_logins for the tab and follow the browser guidance.`,
           ROUTINE_SIGN_IN_RULE,
         ]
       : []),
@@ -362,7 +363,7 @@ export function developerInstructions(
     ...(agentAutomationAllowed(agent, agentDefaults) ? [automationInstructions(agent.id, automationRoot)] : []),
     ...(agentQuickAcknowledgementEnabled(agent, agentDefaults)
       ? [
-          "Before a long task, such as a fix, a build, research, or a change in many files, describe and call openbot.acknowledge_request first: it shows the user one acknowledgement line and your plan, and the work starts after 10 s or when the user presses start. Do not call it for a quick answer, a question, a small change, a routine run, or an external chat. After the card, do not repeat the plan as prose.",
+          "Before a long task, such as a fix, a build, research, or a change in many files, describe and call openbot.acknowledge_request first: it shows the user one acknowledgement line and your plan, and the work starts when the user presses start, or after the wait that the user set. Do not call it for a quick answer, a question, a small change, a routine run, or an external chat. After the card, do not repeat the plan as prose.",
         ]
       : []),
     ...(options.memoriesInTurns

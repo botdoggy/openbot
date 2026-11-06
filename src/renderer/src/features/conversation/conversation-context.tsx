@@ -54,6 +54,7 @@ import {
 import type { SendMessageResult } from "./conversation-types";
 import { useDirectMessages } from "./direct-messages-context";
 import { noteAgentMessageSent } from "./github-star-prompt";
+import { noteSocialFollowMessageSent } from "./social-follow-prompt";
 
 const LATEST_PAGE_SIZE = 50;
 /**
@@ -292,11 +293,12 @@ const Conversation = createSimpleContext({
         const currentMessages = Object.fromEntries(
           Object.entries(current).map(([id, conversation]) => [id, conversation.messages]),
         );
+        const next = appendLatestRuntimeMessages(currentMessages, messages);
         for (const message of messages) {
           if (currentMessages[message.agentId]?.some((candidate) => candidate.id === message.id)) continue;
+          if (!next[message.agentId]?.some((candidate) => candidate.id === message.id)) continue;
           rawAgentMessageBodies.set(agentMessageKey(message.agentId, message.id), "");
         }
-        const next = appendLatestRuntimeMessages(currentMessages, messages);
         for (const agentId of agentIds) {
           current[agentId] ??= { messages: [] };
           current[agentId].messages = next[agentId] ?? [];
@@ -868,6 +870,7 @@ const Conversation = createSimpleContext({
           delivery_count: receipt.deliveries.length,
         });
         noteAgentMessageSent();
+        noteSocialFollowMessageSent();
         const messageId = receipt.deliveries[0]?.id ?? receipt.messageId;
         // The pending message does not wait for read state: it is the user's own message.
         markAgentMessagesRead(agentId, messageId, serverId).catch((error: unknown) => {
@@ -901,8 +904,10 @@ const Conversation = createSimpleContext({
       heldUnreadAgentChats.delete(requestKey);
       const conversationAtStart = conversations[agentId];
       const visibleMessageIdAtStart = latestVisibleAgentMessageId(conversations[agentId]?.messages);
+      // The same boundary as an automatic read. A chat with no message the host counts reads through its newest message.
       const boundary =
         throughMessageId ??
+        visibleMessageIdAtStart ??
         conversations[agentId]?.messages
           ?.filter((message) => !message.id.startsWith("thinking:") && !message.id.startsWith("ui-"))
           .at(-1)?.id ??

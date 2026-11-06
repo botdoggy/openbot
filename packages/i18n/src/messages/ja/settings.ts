@@ -104,6 +104,27 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "すべてのエージェントの {setting} を設定",
   "settings.agentDefaults.agentLabel": "{agent} の {setting}",
   "settings.agentDefaults.loadFailed": "エージェントを読み込めませんでした。",
+  "settings.planStart.title": "作業の開始",
+  "settings.planStart.wait": "開始を押したとき",
+  "settings.planStart.after": "{time}後",
+  "settings.planStart.custom": "カスタム…",
+  "settings.planStart.waitNote": "開始を押すまで計画は待機します。通知が届きます。",
+  "settings.planStart.afterNote": "{time}後、または開始を押すと作業が始まります。",
+  "settings.planStart.customTitle": "カスタム時間",
+  "settings.planStart.customPrefix": "待機",
+  "settings.planStart.amountLabel": "作業開始までの時間",
+  "settings.planStart.unitLabel": "単位",
+  "settings.planStart.seconds": "秒",
+  "settings.planStart.minutes": "分",
+  "settings.planStart.customHint": "5 秒以上。",
+  "settings.planStart.customInvalid": "5 秒以上の整数を入力してください。",
+  "settings.planStart.set": "設定",
+  "settings.automationLimit.sectionTitle": "上限",
+  "settings.automationLimit.sectionDescription": "このコンピューターのすべてのエージェントに適用されます。",
+  "settings.automationLimit.title": "1時間あたりのリクエスト",
+  "settings.automationLimit.option": "1時間あたり{limit}件",
+  "settings.automationLimit.note":
+    "ローカルスクリプトが1時間に各エージェントへ送れるメッセージとルーティン実行の上限です。",
   "settings.backgroundProcesses.title": "バックグラウンドプロセス",
   "settings.backgroundProcesses.description":
     "エージェントが起動して実行したままにしたプログラム（開発サーバーなど）です。チャットが終わっても、OpenBot を終了しても動き続けます。",
@@ -520,8 +541,12 @@ export const messages = {
   // The Voice tab: dictation models and the dictation language.
   "settings.voice.dictation.section": "音声入力",
   "settings.voice.model.parakeet.description": "高速です。ヨーロッパの 25 言語で、話している言語を自動で判別します。",
+  "settings.voice.model.parakeetUnified.description":
+    "高速です。英語のみ。句読点を付け、Parakeet TDT より誤りが少ないです。",
   "settings.voice.model.bark.description": "高速です。英語のみ。ほとんど小文字で書き、句読点はわずかです。",
   "settings.voice.model.whisper.description": "低速です。約 100 言語に対応し、話す言語を指定できます。",
+  "settings.voice.model.cohere.description":
+    "低速です。14 言語に対応し、話す言語を指定します。約 4 GB のメモリを使用します。",
   "settings.voice.model.size": "ダウンロードサイズ: {size}",
   "settings.voice.model.downloading": "ダウンロード中 · {received} / {total}",
   "settings.voice.model.failed": "ダウンロードが止まりました。接続を確認して、もう一度お試しください。",
@@ -535,10 +560,14 @@ export const messages = {
   "settings.voice.model.removeLabel": "{name} をこのコンピュータから削除",
   "settings.voice.language.section": "言語",
   "settings.voice.language.description": "話す言語です。「自動」は録音から言語を判別します。",
+  "settings.voice.language.modelLanguages":
+    "話す言語です。このモデルはこれらの言語のみに対応し、言語を自動で判別しません。",
   "settings.voice.language.modelDetects":
-    "Parakeet は話している言語を自動で判別します。言語を指定するには Whisper または ElevenLabs を使用してください。",
+    "Parakeet は話している言語を自動で判別します。言語を指定するには Whisper、Cohere または ElevenLabs を使用してください。",
   "settings.voice.language.englishOnly":
-    "Bark は英語のみ認識します。言語を指定するには Whisper または ElevenLabs を使用してください。",
+    "Bark は英語のみ認識します。言語を指定するには Whisper、Cohere または ElevenLabs を使用してください。",
+  "settings.voice.language.parakeetUnifiedEnglishOnly":
+    "Parakeet Unified は英語のみ認識します。言語を指定するには Whisper、Cohere または ElevenLabs を使用してください。",
   "settings.voice.language.automatic": "自動",
   "settings.voice.loadFailed": "音声モデルを読み込めませんでした。",
   "settings.voice.saveFailed": "音声の設定を保存できませんでした。もう一度お試しください。",
@@ -562,7 +591,7 @@ export const messages = {
     "メッセージを音声入力すると、返信が読み上げられます。止めるには、もう一度音声入力してください。",
   "settings.voice.speech.codexLive.title": "Codex ライブ音声",
   "settings.voice.speech.codexLive.description":
-    "Codex エージェントとの音声会話は、Codex のサインインで OpenAI のライブ音声を使います。音声は OpenAI に送られます。",
+    "どのエージェントとの音声会話も、Codex のサインインで OpenAI のライブ音声を使います。音声、依頼、エージェントの返信は OpenAI に送られます。",
   "settings.voice.speech.speed.title": "速度",
   "settings.voice.speech.voice.title": "声",
   "settings.voice.speech.voice.female": "女性の声 {number}",

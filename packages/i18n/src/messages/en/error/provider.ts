@@ -105,6 +105,7 @@ export const messages = defineMessages("error.provider", {
   "error.provider.contextWindowInvalid":
     "A model's context window must be a whole number of tokens from {min} to {max}.",
   "error.provider.maxOutputInvalid": "A model's max output must be a whole number of tokens from {min} to {max}.",
+  "error.provider.reasoningEffortsInvalid": "A model's reasoning efforts are not valid.",
   "error.provider.headersTooMany": "There are too many headers.",
   "error.provider.headerNameCharacter": "A header name has a character HTTP does not allow.",
   "error.provider.headerNameTooLong": "A header name is too long.",
@@ -207,6 +208,8 @@ export const messages = defineMessages("error.provider", {
     "OpenCode could not connect to the model provider. Check the network connection of the computer that runs OpenBot, then try again.\n{detail}",
   "error.provider.codexStateBusy":
     "ChatGPT is still preparing its local history after an earlier start. Wait a few minutes, then try again.",
+  "error.provider.realtimeLimitZero":
+    "Linux stopped the provider because OpenBot has a real-time CPU limit of 0. The limit comes from your system. Install and start rtkit (`rtkit-daemon`), run `systemctl --user restart xdg-desktop-portal`, then restart OpenBot. Restarting xdg-desktop-portal alone does not help while rtkit is missing.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode could not open its database because a newer OpenCode version changed it. Update OpenCode to version 2 or later, then try again.",
   "error.provider.opencodeNoAnswer":

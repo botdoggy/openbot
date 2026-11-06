@@ -119,6 +119,7 @@ export const messages = {
     "La fenêtre de contexte d’un modèle doit être un nombre entier de jetons entre {min} et {max}.",
   "error.provider.maxOutputInvalid":
     "La sortie maximale d’un modèle doit être un nombre entier de jetons entre {min} et {max}.",
+  "error.provider.reasoningEffortsInvalid": "Les niveaux d’effort d’un modèle ne sont pas valides.",
   "error.provider.headersTooMany": "Il y a trop d’en-têtes.",
   "error.provider.headerNameCharacter": "Un nom d’en-tête contient un caractère que HTTP n’autorise pas.",
   "error.provider.headerNameTooLong": "Un nom d’en-tête est trop long.",
@@ -230,6 +231,8 @@ export const messages = {
     "OpenCode n’a pas pu se connecter au fournisseur du modèle. Vérifiez la connexion réseau de l’ordinateur qui exécute OpenBot, puis réessayez.\n{detail}",
   "error.provider.codexStateBusy":
     "ChatGPT prépare encore son historique local après un démarrage précédent. Attendez quelques minutes, puis réessayez.",
+  "error.provider.realtimeLimitZero":
+    "Linux a arrêté le fournisseur, car OpenBot a une limite de CPU en temps réel de 0. Cette limite vient de votre système. Installez et démarrez rtkit (`rtkit-daemon`), exécutez `systemctl --user restart xdg-desktop-portal`, puis redémarrez OpenBot. Redémarrer seulement xdg-desktop-portal ne suffit pas tant que rtkit est absent.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode n’a pas pu ouvrir sa base de données, car une version plus récente d’OpenCode l’a modifiée. Mettez OpenCode à jour vers la version 2 ou ultérieure, puis réessayez.",
   "error.provider.opencodeNoAnswer":

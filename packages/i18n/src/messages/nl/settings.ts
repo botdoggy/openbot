@@ -103,6 +103,27 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "Stel {setting} in voor alle agents",
   "settings.agentDefaults.agentLabel": "{setting} voor {agent}",
   "settings.agentDefaults.loadFailed": "De agents konden niet worden gelezen.",
+  "settings.planStart.title": "Het werk starten",
+  "settings.planStart.wait": "Als ik op Starten druk",
+  "settings.planStart.after": "Na {time}",
+  "settings.planStart.custom": "Aangepast…",
+  "settings.planStart.waitNote": "Het plan wacht tot je op Starten drukt. Je krijgt een melding.",
+  "settings.planStart.afterNote": "Het werk start na {time}, of als je op Starten drukt.",
+  "settings.planStart.customTitle": "Aangepaste tijd",
+  "settings.planStart.customPrefix": "Na",
+  "settings.planStart.amountLabel": "Tijd voordat het werk start",
+  "settings.planStart.unitLabel": "Eenheid",
+  "settings.planStart.seconds": "sec",
+  "settings.planStart.minutes": "min",
+  "settings.planStart.customHint": "Minstens 5 seconden.",
+  "settings.planStart.customInvalid": "Voer een geheel getal van minstens 5 seconden in.",
+  "settings.planStart.set": "Instellen",
+  "settings.automationLimit.sectionTitle": "Limiet",
+  "settings.automationLimit.sectionDescription": "Dit geldt voor alle agents op deze computer.",
+  "settings.automationLimit.title": "Verzoeken per uur",
+  "settings.automationLimit.option": "{limit} per uur",
+  "settings.automationLimit.note":
+    "Het maximale aantal berichten en routine-uitvoeringen dat lokale scripts per uur naar elke agent kunnen sturen.",
   "settings.backgroundProcesses.title": "Achtergrondprocessen",
   "settings.backgroundProcesses.description":
     "Programma's die agents hebben gestart en laten draaien, zoals dev-servers. Ze blijven draaien als de chat eindigt en als je OpenBot afsluit.",
@@ -518,9 +539,13 @@ export const messages = {
   "settings.hostedServers.plan.pro.summary": "Voor veel agents en zwaar browserwerk.",
   "settings.voice.dictation.section": "Dicteren",
   "settings.voice.model.parakeet.description": "Snel. Herkent zelf de gesproken taal, in 25 Europese talen.",
+  "settings.voice.model.parakeetUnified.description":
+    "Snel. Alleen Engels. Zet leestekens, met minder fouten dan Parakeet TDT.",
   "settings.voice.model.bark.description":
     "Snel. Alleen Engels. Schrijft meestal in kleine letters, met weinig leestekens.",
   "settings.voice.model.whisper.description": "Trager. Ongeveer 100 talen, en je kunt de gesproken taal instellen.",
+  "settings.voice.model.cohere.description":
+    "Trager. 14 talen. Je stelt de gesproken taal zelf in. Gebruikt ongeveer 4 GB geheugen.",
   "settings.voice.model.size": "Downloadgrootte: {size}",
   "settings.voice.model.downloading": "Downloaden · {received} van {total}",
   "settings.voice.model.failed": "De download is gestopt. Controleer de verbinding en probeer het opnieuw.",
@@ -534,10 +559,14 @@ export const messages = {
   "settings.voice.model.removeLabel": "Verwijder {name} van deze computer",
   "settings.voice.language.section": "Taal",
   "settings.voice.language.description": "De taal die je spreekt. Automatisch herkent hem uit de opname.",
+  "settings.voice.language.modelLanguages":
+    "De taal die je spreekt. Dit model kent alleen deze talen en herkent de taal niet zelf.",
   "settings.voice.language.modelDetects":
-    "Parakeet herkent zelf de gesproken taal. Gebruik Whisper of ElevenLabs om een taal in te stellen.",
+    "Parakeet herkent zelf de gesproken taal. Gebruik Whisper, Cohere of ElevenLabs om een taal in te stellen.",
   "settings.voice.language.englishOnly":
-    "Bark herkent alleen Engels. Gebruik Whisper of ElevenLabs om een taal in te stellen.",
+    "Bark herkent alleen Engels. Gebruik Whisper, Cohere of ElevenLabs om een taal in te stellen.",
+  "settings.voice.language.parakeetUnifiedEnglishOnly":
+    "Parakeet Unified herkent alleen Engels. Gebruik Whisper, Cohere of ElevenLabs om een taal in te stellen.",
   "settings.voice.language.automatic": "Automatisch",
   "settings.voice.loadFailed": "Kan de spraakmodellen niet lezen.",
   "settings.voice.saveFailed": "Kan de spraakinstelling niet opslaan. Probeer het opnieuw.",
@@ -561,7 +590,7 @@ export const messages = {
     "Als je een bericht dicteert, wordt het antwoord voorgelezen. Dicteer opnieuw om het te stoppen.",
   "settings.voice.speech.codexLive.title": "Codex live spraak",
   "settings.voice.speech.codexLive.description":
-    "Spraakgesprekken met Codex-agents gebruiken live spraak van OpenAI met je Codex-aanmelding. Je stem gaat naar OpenAI.",
+    "Spraakgesprekken met elke agent gebruiken live spraak van OpenAI met je Codex-aanmelding. Je stem, je verzoeken en de antwoorden van de agent gaan naar OpenAI.",
   "settings.voice.speech.speed.title": "Snelheid",
   "settings.voice.speech.voice.title": "Stem",
   "settings.voice.speech.voice.female": "Vrouwenstem {number}",

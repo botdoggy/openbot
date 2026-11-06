@@ -96,6 +96,8 @@ export const messages = {
   "provider.codeLogin.relayStarting": "{host}에서 {name} 로그인을 시작하는 중…",
   "provider.codeLogin.pageOpening": "{host}에서 {name} 로그인 페이지를 여는 중…",
   "provider.codeLogin.linkStep": "{name}에 로그인하세요. OpenBot이 알아서 이어서 진행해요.",
+  "provider.codeLogin.chatgptDeviceSetting":
+    "컴퓨터의 ChatGPT에서 보안 설정을 열고 Codex용 기기 코드 로그인을 켜세요. 회사 계정은 워크스페이스 관리자가 켜요.",
 
   "provider.useApp.title": "OpenBot 앱에서 {name} 연결",
   "provider.useApp.description":
@@ -283,15 +285,10 @@ export const messages = {
   "provider.settings.turnOnFirst": "먼저 {name}을(를) 켜세요.",
   "provider.settings.makeDefault": "기본으로 지정",
   "provider.settings.useTitle": "{name} 사용",
-  "provider.settings.download": "다운로드",
-  "provider.settings.downloadedCli": "{name} CLI",
-  "provider.settings.downloadDetail": { other: "{version} · 버전 {count}개 · {size}" },
-  "provider.settings.downloadVersions": { other: "버전 {count}개 · {size}" },
-  "provider.settings.downloadAgain": "{name}을 켜면 OpenBot이 CLI를 다시 다운로드해요.",
-  "provider.settings.removeDownloadConfirm": "{size}를 삭제할까요?",
-  "provider.settings.removeDownloadKeeps": "계정, 로그인, 에이전트는 유지돼요.",
-  "provider.settings.removeDownload": "다운로드 삭제",
-  "provider.settings.removingDownload": "삭제 중…",
+  "provider.settings.deleteTitle": "{name} 삭제",
+  "provider.settings.deleteOn": "{name}을 끄고 OpenBot이 다운로드한 CLI를 삭제해요. 계정, 로그인, 에이전트는 유지돼요.",
+  "provider.settings.deleteOff":
+    "OpenBot이 {name}용으로 다운로드한 CLI({size})를 삭제해요. 계정, 로그인, 에이전트는 유지돼요.",
   "provider.settings.removeDownloadFailed": "다운로드를 삭제하지 못했어요.",
   "provider.settings.endpoints": "엔드포인트",
   "provider.settings.noEndpoints": "엔드포인트가 없어요.",

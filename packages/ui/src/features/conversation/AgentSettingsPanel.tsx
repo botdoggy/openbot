@@ -27,7 +27,6 @@ import {
   agentPermissionUpdate,
   agentQuickAcknowledgementEnabled,
   agentSteers,
-  type BrowserProfileSummary,
   type BusyMessageMode,
   type ClientAgentModelOption,
   type CustomAgentSummary,
@@ -45,7 +44,6 @@ import type { AppTextKey } from "@openbot/i18n";
 import {
   ArrowLeftRight,
   Bell,
-  Brain,
   Button,
   ConfirmDialog,
   Cpu,
@@ -83,7 +81,8 @@ import {
   SUPPORTED_AVATAR_SILHOUETTES,
   type SupportedAvatarSilhouetteId,
 } from "@openbot/ui/bloub-avatar";
-import { ProviderModelPicker, reasoningLabel } from "@openbot/ui/components/ProviderModelPicker";
+import { ProviderModelPicker } from "@openbot/ui/components/ProviderModelPicker";
+import { findModelOption } from "@openbot/ui/components/provider-accounts";
 import { ResizableTextarea } from "@openbot/ui/components/ResizableTextarea";
 import {
   SettingsField,
@@ -96,7 +95,11 @@ import {
 import type { AgentProfile } from "@openbot/ui/data";
 import { AgentAvatar } from "@openbot/ui/features/agents/AgentAvatar";
 import { InstructionsLimit, instructionsTooLong } from "@openbot/ui/features/agents/InstructionsLimit";
-import { type BrowserProfileChoice, BrowserProfileSelect } from "@openbot/ui/features/browser/BrowserProfileSelect";
+import {
+  type BrowserProfileChoice,
+  BrowserProfileSelect,
+  type BrowserProfileSelectProfile,
+} from "@openbot/ui/features/browser/BrowserProfileSelect";
 import { errorReference } from "@openbot/user-errors";
 import type { JSX } from "@solidjs/web";
 import {
@@ -147,6 +150,10 @@ export interface AgentSettingsPanelProps {
   newChatEditable?: boolean;
   /** Whether the agent shows its plan before a long task. Local-only: the Team API does not carry it. */
   quickAcknowledgementEditable?: boolean;
+  /** Fast mode, as the model picker of the chat header shows it. */
+  fastMode?: boolean | undefined;
+  /** Without it, the model picker shows no Fast switch. The picker shows it only for a model with a fast tier. */
+  onFastModeChange?: ((fastMode: boolean) => void) | undefined;
   /** The browser profile of the agent's tabs. Left out when the host cannot change it. */
   browserProfiles?: AgentBrowserProfileOptions | undefined;
   /** The user's own notification level for the agent. Left out when the server cannot keep it. */
@@ -203,7 +210,7 @@ export interface AgentSettingsPanelProps {
 
 export interface AgentBrowserProfileOptions {
   /** The named profiles of the computer that runs the agent. Undefined while they load. */
-  profiles: readonly Pick<BrowserProfileSummary, "id" | "name" | "hue">[] | undefined;
+  profiles: readonly BrowserProfileSelectProfile[] | undefined;
   /**
    * The agent's choice, as its host gives it. The summary of an agent on a joined server does not
    * carry it; absent, the panel reads it from the agent.
@@ -434,14 +441,6 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     });
   }
 
-  const selectedModel = createMemo(() =>
-    props.modelOptions.find(
-      (option) => option.provider === draft.runtime.provider && option.id === draft.runtime.model,
-    ),
-  );
-  const reasoningOptions = createMemo(() => selectedModel()?.supportedReasoningEfforts ?? ["medium" as const]);
-  // The provider has no reasoning setting for this model, and the `medium` it lists is never sent.
-  const reasoningSetByProvider = () => selectedModel()?.reasoningEffortConfigurable === false;
   /** The agent's provider when this build does not know it: its runtime rows cannot change. */
   const agentForeignProvider = () => foreignProvider(props.agent.provider);
   /** The provider whose capabilities apply. A foreign agent leaves `draft.runtime.provider` stale. */
@@ -792,10 +791,9 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     nextModel: AgentModelId,
     nextProvider: AgentProviderId,
     accountId: string | null | undefined,
+    preferredEffort?: AgentReasoningEffort,
   ): Promise<void> {
-    const option = props.modelOptions.find(
-      (candidate) => candidate.provider === nextProvider && candidate.id === nextModel,
-    );
+    const option = findModelOption(props.modelOptions, props.agentStatus.providers, nextProvider, nextModel);
     if (!option) return;
     // A plain copy, not `snapshot`: a snapshot of an unmodified subtree is the store's own object,
     // which the write below would mutate, leaving nothing to roll back to.
@@ -805,12 +803,12 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       reasoningEffort: draft.runtime.reasoningEffort,
     };
     const agentId = props.agent.id;
+    // An effort chosen on the model's tab before the model, else the agent's effort when the model has it.
+    const preferred = preferredEffort ?? previous.reasoningEffort;
     const settings: AgentRuntimeSettings = {
       model: nextModel,
       provider: nextProvider,
-      reasoningEffort: option.supportedReasoningEfforts.includes(previous.reasoningEffort)
-        ? previous.reasoningEffort
-        : option.defaultReasoningEffort,
+      reasoningEffort: option.supportedReasoningEfforts.includes(preferred) ? preferred : option.defaultReasoningEffort,
     };
     setDraft((state) => {
       state.runtime.provider = settings.provider;
@@ -929,10 +927,7 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     };
   const ownModelName = () => {
     const own = ownModel();
-    return (
-      props.modelOptions.find((option) => option.provider === own.provider && option.id === own.model)?.name ??
-      own.model
-    );
+    return findModelOption(props.modelOptions, props.agentStatus.providers, own.provider, own.model)?.name ?? own.model;
   };
 
   const backupModelsSummary = () => {
@@ -1388,43 +1383,16 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
                   disabledReason={t("agentSettings.runtime.modelUnavailable")}
                   accountChoice
                   providerAccountId={agentNextProviderAccountId(props.agent)}
-                  onChange={(nextModel, provider, accountId) => void selectModel(nextModel, provider, accountId)}
-                />
-                <Select<AgentReasoningEffort>
-                  class="agent-settings-runtime-select"
-                  options={reasoningOptions()}
-                  value={draft.runtime.reasoningEffort}
-                  disabled={reasoningSetByProvider() || agentForeignProvider() !== undefined}
-                  onChange={(nextReasoning) => {
-                    if (!nextReasoning || nextReasoning === draft.runtime.reasoningEffort) return;
-                    void selectReasoning(nextReasoning);
+                  onChange={(nextModel, provider, accountId, effort) =>
+                    void selectModel(nextModel, provider, accountId, effort)
+                  }
+                  reasoningEffort={draft.runtime.reasoningEffort}
+                  onReasoningEffortChange={(effort) => {
+                    if (effort !== draft.runtime.reasoningEffort) void selectReasoning(effort);
                   }}
-                  itemComponent={(item) => (
-                    <SelectItem item={item.item}>{reasoningLabel(item.item.rawValue)}</SelectItem>
-                  )}
-                >
-                  <SelectTrigger
-                    class="agent-settings-runtime-row"
-                    aria-label={t("agentSettings.runtime.reasoningLabel")}
-                  >
-                    <span class="settings-link-icon">
-                      <Brain aria-hidden="true" />
-                    </span>
-                    <span class="agent-settings-runtime-label">{t("agentSettings.runtime.reasoning")}</span>
-                    <SelectValue<AgentReasoningEffort>>
-                      {(state) => {
-                        if (reasoningSetByProvider()) {
-                          return t("agentSettings.runtime.reasoningSetByProvider", {
-                            provider: agentProviderName(draft.runtime.provider),
-                          });
-                        }
-                        const effort = state.selectedOption();
-                        return effort ? reasoningLabel(effort) : t("agentSettings.runtime.selectReasoning");
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent />
-                </Select>
+                  fastMode={props.fastMode}
+                  onFastModeChange={props.onFastModeChange}
+                />
               </SettingsLinkGroup>
               <Show when={props.backupModelsEditable}>
                 <SettingsLinkGroup inset>

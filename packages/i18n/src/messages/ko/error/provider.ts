@@ -105,6 +105,7 @@ export const messages = {
   "error.provider.modelIdDuplicate": "모델 두 개의 ID가 같아요.",
   "error.provider.contextWindowInvalid": "모델의 컨텍스트 창은 {min}에서 {max} 사이의 정수 토큰 수여야 해요.",
   "error.provider.maxOutputInvalid": "모델의 최대 출력은 {min}에서 {max} 사이의 정수 토큰 수여야 해요.",
+  "error.provider.reasoningEffortsInvalid": "모델의 추론 강도가 올바르지 않아요.",
   "error.provider.headersTooMany": "헤더가 너무 많아요.",
   "error.provider.headerNameCharacter": "헤더 이름에 HTTP에서 허용하지 않는 문자가 있어요.",
   "error.provider.headerNameTooLong": "헤더 이름이 너무 길어요.",
@@ -213,6 +214,8 @@ export const messages = {
     "OpenCode가 모델 제공자에 연결할 수 없었어요. OpenBot을 실행하는 컴퓨터의 네트워크 연결을 확인한 후 다시 시도해 주세요.\n{detail}",
   "error.provider.codexStateBusy":
     "ChatGPT가 이전 시작 후 아직 로컬 기록을 준비하고 있어요. 몇 분 기다린 후 다시 시도해 주세요.",
+  "error.provider.realtimeLimitZero":
+    "OpenBot의 실시간 CPU 제한이 0이어서 Linux가 공급자를 중지했습니다. 이 제한은 시스템에서 옵니다. rtkit을 설치하고 시작한 다음(`rtkit-daemon`), `systemctl --user restart xdg-desktop-portal`을 실행하고 OpenBot을 다시 시작하세요. rtkit이 없으면 xdg-desktop-portal만 다시 시작해서는 해결되지 않습니다.",
   "error.provider.opencodeDatabaseNewer":
     "더 새로운 OpenCode 버전이 데이터베이스를 변경해서 OpenCode가 데이터베이스를 열 수 없었어요. OpenCode를 버전 2 이상으로 업데이트한 후 다시 시도해 주세요.",
   "error.provider.opencodeNoAnswer": "OpenCode 모델이 답변 없이 턴을 끝냈어요. 다시 시도하거나 다른 모델을 선택하세요.",

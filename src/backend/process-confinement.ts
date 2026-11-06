@@ -379,14 +379,19 @@ export function piAgentDirectory(env: NodeJS.ProcessEnv = process.env, home = ho
 /**
  * Pi can write sessions, but cannot change the sign-in, settings or extensions a later full-access
  * run loads. Pi 1.4.0 takes a lock folder beside `auth.json`, `settings.json` and `trust.json` each
- * time it reads one, and a read stops with EPERM when it cannot make that folder.
+ * time it reads one, and a read stops with EPERM when it cannot make that folder. Pi also locks its
+ * saved model catalog, `models-store.json`, to read it. Without that lock Pi lists the catalog of
+ * its release, which does not have the models that OpenBot's refresh saved (#4926). The catalog
+ * itself stays read-only.
  */
 export function piStatePaths(env: NodeJS.ProcessEnv = process.env, home = homedir()): ProviderStatePaths {
   const agentDirectory = piAgentDirectory(env, home);
   return {
     writable: [join(agentDirectory, "sessions")],
     protected: [],
-    lockFolders: ["auth.json", "settings.json", "trust.json"].map((name) => join(agentDirectory, `${name}.lock`)),
+    lockFolders: ["auth.json", "settings.json", "trust.json", "models-store.json"].map((name) =>
+      join(agentDirectory, `${name}.lock`),
+    ),
   };
 }
 
@@ -546,7 +551,7 @@ export function confineSpawnTarget(
       PROJECT_SETTINGS.filter((name) => name.includes("/")).map((name) => join(root, name)),
     ),
   ];
-  if (platform === "darwin") {
+  if (canConfineProcesses(platform)) {
     if (!existsSync(SANDBOX_EXEC)) throw new ProcessConfinementUnavailableError(unavailable("macOS sandbox-exec"));
     return {
       command: SANDBOX_EXEC,
@@ -569,6 +574,11 @@ export function confineSpawnTarget(
   // bubblewrap on Linux cannot deny a protected file that does not exist yet, such as a new
   // `opencode.json`, so Linux fails closed until it can.
   throw new ProcessConfinementUnavailableError(sourceText("error.agent.workspaceOnlyMacOnly"));
+}
+
+/** Whether `confineSpawnTarget` can make a sandbox on this platform. Only macOS has one now. */
+export function canConfineProcesses(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === "darwin";
 }
 
 function unavailable(tool: string): string {

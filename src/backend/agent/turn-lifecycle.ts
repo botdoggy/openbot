@@ -21,7 +21,7 @@ import {
 import { type DynamicRecord, isString } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
 import { createOpenBotLogger } from "@openbot/logging";
-import { type CauseCode, classifyFailure } from "@openbot/telemetry";
+import { type CauseCode, classifyFailure, isCauseCode } from "@openbot/telemetry";
 import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect";
 import type { AgentClient } from "../agent-client";
 import type { AgentStore } from "../agent-store";
@@ -65,6 +65,7 @@ import {
 } from "./provider-diagnostics";
 import type { ProviderRuntime } from "./provider-runtime";
 import { isNoUpdateAnswer, settleQuietRoutineTurn } from "./routine-quiet-runs";
+import { type SkillLoad, skillLoads, skillLoadTokens } from "./skill-loads";
 import {
   foldCodexChildItem,
   foldCodexSubagentItem,
@@ -225,6 +226,37 @@ export interface TurnHooks {
   ): Effect.Effect<void>;
 }
 
+/** When the drain took a delivery from the queue, and its provider process start (null: it was running). */
+export interface DeliveryStart {
+  pickedAt: number;
+  providerStartMs: number | null;
+}
+
+/**
+ * Where the time of a finished turn went, in milliseconds. Each value is null when it is not known.
+ * `queueWaitMs`: from the message to the drain. `startMs`: from the drain to the provider's
+ * `turn/started`, `providerStartMs` included. `firstOutputMs`: from `turn/started` to the first text,
+ * thinking or tool step.
+ */
+export interface TurnTiming {
+  queueWaitMs: number | null;
+  startMs: number | null;
+  providerStartMs: number | null;
+  firstOutputMs: number | null;
+}
+
+/** Entries kept for starts and finished turns that nothing took. Older ones go first. */
+const TURN_TIMING_LIMIT = 64;
+
+function keepBounded<V>(map: Map<string, V>, key: string, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  for (const oldest of map.keys()) {
+    if (map.size <= TURN_TIMING_LIMIT) break;
+    map.delete(oldest);
+  }
+}
+
 export interface TurnLifecycleOptions {
   store: AgentStore;
   mailbox: MailboxStore;
@@ -299,11 +331,16 @@ export class TurnLifecycle {
       threadId: string;
       startedAt: number;
       sentAt: number | null;
+      start: DeliveryStart | null;
       firstOutputAt: number | null;
       produced: boolean;
       acted: boolean;
     }
   >();
+  /** The drain's start of each starting delivery, until its turn starts. */
+  readonly #deliveryStarts = new Map<string, DeliveryStart>();
+  /** The timing of each finished turn, until host analytics takes it. */
+  readonly #turnTimings = new Map<string, TurnTiming>();
   /** Running turns a provider plan refused, with the reset in epoch seconds when the provider gave it. */
   readonly #limitedTurns = new Map<string, number | null>();
   /**
@@ -384,6 +421,30 @@ export class TurnLifecycle {
     this.#lastEventAt.delete(agentId);
     for (const [childId, parent] of this.#codexChildren)
       if (parent.agentId === agentId) this.#codexChildren.delete(childId);
+  }
+
+  deliveriesStarting(deliveryIds: readonly string[], start: DeliveryStart): void {
+    for (const id of deliveryIds) keepBounded(this.#deliveryStarts, id, start);
+  }
+
+  /** Where the time of this finished turn went. Once: a second call gives null. */
+  takeTurnTiming(turnId: string): TurnTiming | null {
+    const timing = this.#turnTimings.get(turnId) ?? null;
+    this.#turnTimings.delete(turnId);
+    return timing;
+  }
+
+  #keepTurnTiming(
+    turnId: string,
+    running: { startedAt: number; sentAt: number | null; start: DeliveryStart | null; firstOutputAt: number | null },
+  ): void {
+    const { start } = running;
+    keepBounded(this.#turnTimings, turnId, {
+      queueWaitMs: start === null || running.sentAt === null ? null : Math.max(0, start.pickedAt - running.sentAt),
+      startMs: start === null ? null : Math.max(0, running.startedAt - start.pickedAt),
+      providerStartMs: start?.providerStartMs ?? null,
+      firstOutputMs: running.firstOutputAt === null ? null : running.firstOutputAt - running.startedAt,
+    });
   }
 
   /** When this running turn sent `turn/started`, in epoch milliseconds. Null for a turn that is not running. */
@@ -480,6 +541,8 @@ export class TurnLifecycle {
       this.#attention.clearForTurn(turn.threadId, turnId);
       if (this.#observedCompactions.get(turn.threadId) === turnId) this.#observedCompactions.delete(turn.threadId);
       this.#compaction.abandonCompaction(turn.threadId);
+      // The running entry is gone already, so `#completeTurn` cannot keep the timing.
+      this.#keepTurnTiming(turnId, turn);
       yield* this.#completeTurn(turn.agentId, turn.threadId, turnId, "interrupted").pipe(
         Effect.catchCause((cause) =>
           reportOriginalFailure(cause, (failure) =>
@@ -546,15 +609,21 @@ export class TurnLifecycle {
 
   /** Shows a provider error that was held for a failover that did not happen, as it shows with no backup. */
   #showFailoverError(agentId: string, threadId: string, failover: HeldProviderError): void {
-    if (failover.quiet) {
-      this.#hooks.emitFailure?.({ code: "agent_error", agentId, ...failover.context });
+    const taskId = this.#taskForThread(agentId, threadId);
+    if (taskId === null && !failover.quiet) {
+      this.#hooks.emitError("agent_error", failover.message, agentId, failover.context);
       return;
     }
-    const taskId = this.#taskForThread(agentId, threadId);
-    if (taskId !== null) {
-      this.#hooks.emitFailure?.({ code: "agent_error", agentId, ...failover.context });
-      this.#hooks.taskFailed(taskId, failover.message);
-    } else this.#hooks.emitError("agent_error", failover.message, agentId, failover.context);
+    this.#hooks.emitFailure?.({ code: "agent_error", agentId, ...failover.context });
+    // A thread shows no usage notice, so its failed turn keeps the provider's text (#5220).
+    if (taskId !== null) this.#hooks.taskFailed(taskId, failover.message);
+  }
+
+  /** Passes over the model that a held provider error failed. A spent balance names no reset (#5220). */
+  #markFailed(agentId: string, model: string | null, failover: HeldProviderError): void {
+    const resetDelayMs = providerResetDelayMs(failover.message);
+    const spent = failover.quiet === true && resetDelayMs === null && isBalanceDiagnostic(failover.message);
+    this.#usageLimits.failed(agentId, model, resetDelayMs, spent);
   }
 
   readonly handleNotification = Effect.fn("TurnLifecycle.handleNotification")(function* (
@@ -572,20 +641,10 @@ export class TurnLifecycle {
       agentId &&
       ["turn/started", "thread/tokenUsage/updated", "openbot/usage", "model/rerouted"].includes(notification.method)
     ) {
-      const agent = this.#store.list().find((entry) => entry.id === agentId);
-      // A task or other side thread keeps its provider sessions under its own thread, not the agent's.
-      // A routine run's own session is not saved, so its usage has its own session id.
-      const session = agent
-        ? (this.#store.database
-            .listProviderSessions(this.#conversation.publicThreadId(agentId, threadId))
-            .find((entry) => entry.externalSessionId === threadId && entry.provider === source.provider) ??
-          (this.#conversation.isRoutineSession(threadId)
-            ? { id: `routine:${threadId}`, provider: source.provider, createdAt: new Date().toISOString() }
-            : undefined))
-        : undefined;
-      if (agent && session) {
+      const usage = this.#usageSession(agentId, threadId, source);
+      if (usage) {
         try {
-          collectProviderUsage(this.#store.database.usage, agent, session, notification.method, params);
+          collectProviderUsage(this.#store.database.usage, usage.agent, usage.session, notification.method, params);
         } catch {
           this.#hooks.emitError("usage_collection_failed", new Error("Usage data could not be saved."), agentId);
         }
@@ -610,12 +669,16 @@ export class TurnLifecycle {
         const taskId = this.#taskForThread(agentId, threadId);
         const starting = unprompted ? undefined : this.#mailbox.startingDeliveryForAgent(agentId, taskId)?.delivery;
         const sentAt = starting ? Date.parse(starting.createdAt) : Number.NaN;
+        const start = starting ? (this.#deliveryStarts.get(starting.id) ?? null) : null;
+        // The other deliveries of the batch share this start and start no turn of their own.
+        for (const [id, candidate] of this.#deliveryStarts) if (candidate === start) this.#deliveryStarts.delete(id);
         this.#runningTurns.set(turnId, {
           client: source,
           agentId,
           threadId,
           startedAt: Date.now(),
           sentAt: Number.isFinite(sentAt) ? sentAt : null,
+          start,
           firstOutputAt: null,
           produced: false,
           acted: false,
@@ -675,6 +738,17 @@ export class TurnLifecycle {
         }
         if (notification.method === "item/completed" && itemId) {
           this.#deltas.flush(`${threadId}:${turnId}:${itemId}`);
+          const loads = skillLoads(item, getArray(params, "filePaths"));
+          if (loads.length > 0)
+            yield* this.#recordSkillLoads(
+              agentId,
+              threadId,
+              turnId,
+              itemId,
+              getString(item, "cwd"),
+              loads,
+              source,
+            ).pipe(Effect.forkIn(this.#scope, { startImmediately: true }));
         }
         if (item.type === "collabAgentToolCall") this.#applyCodexSubagents(agentId, threadId, turnId, item);
         const threadItem = toThreadItem(item);
@@ -849,6 +923,10 @@ export class TurnLifecycle {
         // an exhausted plan included, into the renderer's generic sentence under the usage notice.
         const error = getRecord(params, "error");
         const message = getString(params, "message") ?? getString(error, "message") ?? "";
+        // An ACP or Pi client names the cause that it read from structured fields, before the
+        // error became a sentence for the user. The other clients leave it to the error.
+        const reportedCause = isRecord(params) && isCauseCode(params.causeCode) ? params.causeCode : null;
+        const causeCode = reportedCause ?? classifyFailure(error ?? message);
         if (notification.method === "warning" && isNonActionableCodexWarning(message)) {
           // No banner, but the log keeps the reason, such as a closed WebSocket.
           logger.info("A provider warning needs no action.", {
@@ -899,7 +977,7 @@ export class TurnLifecycle {
             turnId: errorTurnId,
             provider: source.provider,
             model: agentId && errorTurnId ? this.#hooks.turnModel(agentId, errorTurnId) : null,
-            causeCode: classifyFailure(error ?? message),
+            causeCode,
             severity: notification.method === "warning" ? ("warning" as const) : ("error" as const),
           };
           yield* this.#providers.refreshUsageAfterLimit(source);
@@ -917,10 +995,18 @@ export class TurnLifecycle {
             return;
           }
           this.#hooks.emitFailure?.({ code: "agent_error", ...(agentId !== undefined ? { agentId } : {}), ...context });
+          // A thread shows no usage notice, so its failed turn keeps the provider's text (#5220). A turn
+          // that a plan limit holds waits in the queue for the reset, so it has not failed.
+          const held = planLimit || (errorTurnId !== null && this.#limitedTurns.has(errorTurnId));
+          const taskId =
+            !held && notification.method === "error" && agentId && threadId
+              ? this.#taskForThread(agentId, threadId)
+              : null;
+          if (taskId !== null) this.#hooks.taskFailed(taskId, message);
           return;
         }
         const context = {
-          causeCode: classifyFailure(error ?? message),
+          causeCode,
           provider: source.provider,
           model: agentId && errorTurnId ? this.#hooks.turnModel(agentId, errorTurnId) : null,
           turnId: errorTurnId,
@@ -1043,6 +1129,7 @@ export class TurnLifecycle {
       const reportedFailure = this.#reportedFailures.get(turnId);
       this.#reportedFailures.delete(turnId);
       if (running) {
+        this.#keepTurnTiming(turnId, running);
         // `waitMs` is OpenBot's part of a slow reply: the queue (a usage-limit hold included), the
         // provider start, the session and its settings. `firstOutputMs` is the provider's: the time
         // to its first text, thinking or tool step.
@@ -1206,10 +1293,13 @@ export class TurnLifecycle {
           this.#failoverRetries.set(delivery.id, failed.add(failedKey));
         }
         yield* this.#requeueTurn(agentId, threadId, turnId, snapshot, deliveries);
-        this.#usageLimits.failed(agentId, model, providerResetDelayMs(failover.message));
+        this.#markFailed(agentId, model, failover);
         this.#hooks.scheduleDrain(agentId);
         return;
       }
+      // A thread turn does not run again, but the agent leaves the failing model before its next turn (#5220).
+      if (failover && mayRunAgain && taskTurn && failedKey !== null && this.#hooks.mayFailOver(agentId))
+        this.#markFailed(agentId, model, failover);
       // The turn did work, or nothing waits to run again: the error shows as it does with no backup.
       if (failover) this.#showFailoverError(agentId, threadId, failover);
       if (limited) yield* this.#usageLimits.reached(agentId, resetsAt, model);
@@ -1312,8 +1402,12 @@ export class TurnLifecycle {
           for (const delivery of deliveries)
             yield* this.#relayAgentResult(agentId, turnId, delivery, latestAssistant.text);
         }
+        // A failed turn sends no result, so the agent that asked gets the failure as its answer.
+        if (!continuation && terminal === "failed") {
+          for (const { delivery } of deliveries) yield* this.#answerFailedRequest(agentId, delivery.id);
+        }
         // The requester holds the answers of the other teammates until each request has ended, so
-        // this end can release them, also when this turn failed and sends no result.
+        // this end can release them, and the failure note above.
         for (const { delivery } of deliveries) {
           if (delivery.sender.kind === "agent") this.#hooks.scheduleDrain(delivery.sender.agentId);
         }
@@ -1432,7 +1526,9 @@ export class TurnLifecycle {
   ) {
     const report = (cause: Cause.Cause<TurnOperationFailed>) =>
       reportOriginalFailure(cause, (failure) => this.#hooks.emitError("turn_completion_failed", failure, agentId));
-    const runningThreadId = this.#runningTurns.get(turnId)?.threadId ?? threadId;
+    const running = this.#runningTurns.get(turnId);
+    const runningThreadId = running?.threadId ?? threadId;
+    if (running) this.#keepTurnTiming(turnId, running);
     this.#runningTurns.delete(turnId);
     this.#reportedFailures.delete(turnId);
     this.#markEnded(turnId);
@@ -1622,6 +1718,20 @@ export class TurnLifecycle {
     );
   }, Effect.uninterruptible);
 
+  /** Sends the agent that asked the note that its request failed. A failed note does not stop the turn's end. */
+  #answerFailedRequest(agentId: string, deliveryId: string): Effect.Effect<void> {
+    return this.#mailbox
+      .answerFailedRequest(deliveryId, (taskId) => this.#hooks.taskOpen(taskId))
+      .pipe(
+        Effect.match({
+          onFailure: (failure) => this.#hooks.emitError("failed_request_answer_failed", failure.cause, agentId),
+          onSuccess: (requesterId) => {
+            if (requesterId) this.#mailboxSync.emitQueue(requesterId);
+          },
+        }),
+      );
+  }
+
   readonly #relayAgentResult = Effect.fn("TurnLifecycle.relayAgentResult")(function* (
     this: TurnLifecycle,
     agentId: string,
@@ -1669,6 +1779,69 @@ export class TurnLifecycle {
     this.#mailboxSync.emitQueue(recipientAgentId);
     this.#hooks.scheduleDrain(recipientAgentId);
   }, Effect.uninterruptible);
+
+  /** The agent and provider session that own the usage of a provider thread. */
+  #usageSession(agentId: string, threadId: string, source: AgentClient) {
+    const agent = this.#store.list().find((entry) => entry.id === agentId);
+    if (!agent) return undefined;
+    // A task or other side thread keeps its provider sessions under its own thread, not the agent's.
+    // A routine run's own session is not saved, so its usage has its own session id.
+    const session =
+      this.#store.database
+        .listProviderSessions(this.#conversation.publicThreadId(agentId, threadId))
+        .find((entry) => entry.externalSessionId === threadId && entry.provider === source.provider) ??
+      (this.#conversation.isRoutineSession(threadId)
+        ? { id: `routine:${threadId}`, provider: source.provider, createdAt: new Date().toISOString() }
+        : undefined);
+    return session ? { agent, session } : undefined;
+  }
+
+  /** Saves the skills that a finished tool step loaded, with the estimated tokens of each skill file. */
+  readonly #recordSkillLoads = Effect.fn("TurnLifecycle.recordSkillLoads")(function* (
+    this: TurnLifecycle,
+    agentId: string,
+    threadId: string,
+    turnId: string,
+    itemId: string,
+    cwd: string | null,
+    loads: readonly SkillLoad[],
+    source: AgentClient,
+  ) {
+    const found = this.#usageSession(agentId, threadId, source);
+    if (!found) return;
+    const sizes: (number | null)[] = [];
+    for (const load of loads)
+      sizes.push(
+        yield* skillLoadTokens(load, {
+          cwd,
+          workspace: found.agent.workspacePath ?? null,
+          provider: found.session.provider,
+        }),
+      );
+    // The file reads wait, so the agent can be gone now. Find it again and save all loads at once.
+    const owner = this.#usageSession(agentId, threadId, source);
+    if (!owner) return;
+    const { agent, session } = owner;
+    const usage = this.#store.database.usage;
+    const model = usage.turnModel(agent.id, session.id, turnId) ?? agent.model;
+    const occurredAt = new Date().toISOString();
+    try {
+      for (const [index, load] of loads.entries())
+        usage.recordSkillLoad({
+          agentId: agent.id,
+          sessionId: session.id,
+          turnId,
+          itemId,
+          provider: session.provider,
+          model,
+          skill: load.skill,
+          tokens: sizes[index] ?? null,
+          occurredAt,
+        });
+    } catch {
+      this.#hooks.emitError("usage_collection_failed", new Error("Usage data could not be saved."), agentId);
+    }
+  });
 
   readonly #applyItem = Effect.fn("TurnLifecycle.applyItem")(function* (
     this: TurnLifecycle,
