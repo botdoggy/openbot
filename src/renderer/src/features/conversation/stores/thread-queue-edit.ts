@@ -1,6 +1,6 @@
-import { agentSteers } from "@openbot/contracts/ipc";
 import { attachmentReferenceIds } from "@openbot/contracts/attachment-references";
 import type { AgentTask, QueueDelivery } from "@openbot/contracts/ipc";
+import { agentSteers } from "@openbot/contracts/ipc";
 import { isQueueEditRejected } from "@openbot/contracts/team-protocol/queue-edit-v1";
 import type { AgentThreadQueue } from "@openbot/ui/features/conversation/threads/AgentThreadView";
 import { currentText } from "@openbot/ui/text";
