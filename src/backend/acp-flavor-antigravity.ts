@@ -9,6 +9,12 @@ const GEMINI_QUOTA_CHUNK = /^\s*Usage Limit Reached\n\n([\s\S]*)$/u;
 const GEMINI_SDK_FAILURE = /\bAntigravity SDK error processing prompt for session (\S+)/u;
 /** `format_execution_error` of Antigravity 1.3.0 when the failure is not a Google API error. */
 const GEMINI_EXECUTION_ERROR_ANSWER = /^\s*Agent execution error: /u;
+/**
+ * Antigravity's SDK error when a model step returns neither text nor a tool call, as when an agent
+ * ends its turn silently after a tool call or on a message that asks for no reply (#4505).
+ */
+const GEMINI_EMPTY_OUTPUT_FAILURE =
+  /\bmodel output must contain either output text or tool calls, these cannot both be empty\b/iu;
 
 /**
  * A failed MCP server start, which ends the turn. Antigravity 1.4.4 writes `mcp_load_failed_message`:
@@ -76,13 +82,6 @@ function geminiRequestFailure(error: unknown, detail: string): string {
   return key ? sourceText(key, { detail: shownFailureDetail(reason) }) : detail;
 }
 
-/**
- * Not on Windows: there each process start unpacks about 310 MB (`antigravityTemp`), which every
- * new or reopened session would wait for.
- */
-const SESSION_PROCESSES: Pick<AcpFlavor, "sessionProcesses"> =
-  process.platform === "win32" ? {} : { sessionProcesses: true };
-
 export const ANTIGRAVITY_ACP_FLAVOR: AcpFlavor = {
   // Antigravity 1.4.3 offers its Claude and GPT models only to a client named `zed`, `xcode`,
   // `jetbrains.*` or `android studio*` (`supports_third_party_models`). Any other client gets the
@@ -108,6 +107,7 @@ export const ANTIGRAVITY_ACP_FLAVOR: AcpFlavor = {
   sdkHarness: {
     failedSession: (stderrLine) => GEMINI_SDK_FAILURE.exec(stderrLine)?.[1],
     answerIsFailure: GEMINI_EXECUTION_ERROR_ANSWER,
+    emptyOutputFailure: GEMINI_EMPTY_OUTPUT_FAILURE,
     turnFailure: geminiTurnFailure,
     // Antigravity reports an exhausted quota as answer text and ends the turn as a success. Google
     // sends it only for a spent quota, which resets in days, not for a request-rate limit. The
@@ -136,5 +136,7 @@ export const ANTIGRAVITY_ACP_FLAVOR: AcpFlavor = {
   // Antigravity 1.4.4 starts a `localharness_external` of about 100 MB for each session and keeps it
   // after `session/close`, which it does not advertise, until its process ends (#3925).
   closeKeepsSession: true,
-  ...SESSION_PROCESSES,
+  // Also on Windows, where each process start unpacks about 310 MB (`antigravityTemp`) that a new or
+  // reopened session waits for. One shared process kept a harness for each session it opened (#5497).
+  sessionProcesses: true,
 };

@@ -69,6 +69,11 @@ export const messages = {
   "error.backend.channelUnconfirmedStart": "للقناة بدء تعيين غير مؤكد. تحقق من نتيجته قبل حذفها.",
   "error.backend.channelNotFound": "لم يتم العثور على القناة.",
   "error.backend.channelMemberUnavailable": "أحد أعضاء القناة غير متاح.",
+  "error.backend.channelWaitBeforeNewConversation": "انتظر حتى يتوقف العمل في هذه القناة، ثم ابدأ محادثة جديدة.",
+  "error.backend.channelWaitBeforeCompact": "انتظر حتى يتوقف العمل في هذه القناة، ثم اضغطها.",
+  "error.backend.channelWaitBeforeDeleteHistory": "انتظر حتى يتوقف العمل في هذه القناة، ثم احذف سجلها.",
+  "error.backend.channelCompactUnavailable":
+    "لا يمكن لأي عضو في هذه القناة ضغط سياقه الآن. يجب أن يرد العضو في القناة أولًا، وأن يدعم مزوده الضغط.",
   "error.backend.channelArchived": "استعد هذه القناة قبل إرسال الرسائل أو تغيير المهام.",
   "error.backend.channelReferenceUnavailable": "رسالة القناة المشار إليها غير متاحة.",
   "error.backend.channelTaskNotFound": "لم يتم العثور على مهمة القناة.",
@@ -330,6 +335,8 @@ export const messages = {
   "error.backend.browserInputProtected": "إدخال المتصفح محمي أثناء المصادقة.",
   "error.backend.browserTypingFocusMoved":
     "نقلت الصفحة التركيز بعيدًا عن الهدف قبل الكتابة. لم تتم كتابة أي شيء. التقط لقطة جديدة.",
+  "error.backend.browserTypingFocusMovedWhileTyping":
+    "نقلت الصفحة التركيز بعيدًا قبل كتابة النص كله. الجزء الأول فقط من النص موجود في الحقل. التقط لقطة جديدة وتحقق من الحقل قبل أن تكتب مرة أخرى.",
   "error.backend.browserTypingSubmitSkipped":
     "النص موجود في الحقل، لكن الصفحة نقلت التركيز بعيدًا، لذا لم يتم إرسال Enter. لا تكتب النص مرة أخرى. التقط لقطة جديدة.",
   "error.backend.mcpServerHttpCredentials": "أجاب الخادم بـ {status}. تحقق من مفتاح API أو بيانات الاعتماد الأخرى.",

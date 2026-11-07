@@ -71,6 +71,12 @@ export const messages = defineMessages("error.backend", {
     "The channel has an unconfirmed assignment start. Check its outcome before deleting it.",
   "error.backend.channelNotFound": "Channel not found.",
   "error.backend.channelMemberUnavailable": "A channel member is unavailable.",
+  "error.backend.channelWaitBeforeNewConversation":
+    "Wait until the work in this channel stops, then start a new conversation.",
+  "error.backend.channelWaitBeforeCompact": "Wait until the work in this channel stops, then compact it.",
+  "error.backend.channelWaitBeforeDeleteHistory": "Wait until the work in this channel stops, then delete its history.",
+  "error.backend.channelCompactUnavailable":
+    "No member of this channel can compact its context now. A member must answer in the channel first, and its provider must support compaction.",
   "error.backend.channelArchived": "Restore this channel before sending messages or changing tasks.",
   "error.backend.channelReferenceUnavailable": "The referenced channel message is unavailable.",
   "error.backend.channelTaskNotFound": "Channel task not found.",
@@ -345,6 +351,8 @@ export const messages = defineMessages("error.backend", {
   "error.backend.browserInputProtected": "Browser input is protected during authentication.",
   "error.backend.browserTypingFocusMoved":
     "The page moved focus away from the target before typing. Nothing was typed. Take a fresh snapshot.",
+  "error.backend.browserTypingFocusMovedWhileTyping":
+    "The page moved focus away before all the text was typed. Only the first part of the text is in the field. Take a fresh snapshot and check the field before you type again.",
   "error.backend.browserTypingSubmitSkipped":
     "The text is in the field, but the page moved focus away, so Enter was not sent. Do not type the text again. Take a fresh snapshot.",
   "error.backend.mcpServerHttpCredentials": "The server answered {status}. Check the API key or other credentials.",

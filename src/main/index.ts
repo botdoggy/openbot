@@ -3,10 +3,13 @@ import { join, resolve } from "node:path";
 import { parseInviteUrl, selfHostedApiOrigin } from "@openbot/contracts/invite-links";
 import {
   type AgentEvent,
+  type AgentSummary,
   type AppLogoColor,
   type CentralAuthState,
+  DEFAULT_QUIT_GUARD,
   type HostStatus,
   IPC_ENDPOINTS,
+  type QuitGuard,
 } from "@openbot/contracts/ipc";
 import { createFormat, localeDirection, resolveLocale, translateFor } from "@openbot/i18n";
 import { localizeSourceText } from "@openbot/i18n/source";
@@ -61,6 +64,7 @@ import { takeHostingDeveloperKey } from "./hosted-server-service";
 import { accountIpcHandlers } from "./ipc/account-handlers";
 import { acpRegistryIpcHandlers } from "./ipc/acp-registry-handlers";
 import { agentAdminIpcHandlers } from "./ipc/agent-admin-handlers";
+import { agentDockIpcHandlers } from "./ipc/agent-dock-handlers";
 import { agentFolderIpcHandlers } from "./ipc/agent-folder-handlers";
 import { agentIpcHandlers } from "./ipc/agent-handlers";
 import { agentImportIpcHandlers } from "./ipc/agent-import-handlers";
@@ -512,6 +516,20 @@ const {
 });
 
 // Resolved once, safely: every `app.setPath("userData", ...)` above has already run.
+/**
+ * The agents that a quit stops: the local agents, and the agents on the servers on this computer,
+ * whose processes end with this one. Before the services start, no agent can work.
+ */
+function workingAgents(): AgentSummary[] {
+  if (!services) return [];
+  return [...services.service.workingAgents(), ...(services.localServers?.workingAgents() ?? [])];
+}
+
+/** The user's `Cmd + Q` guard. Before the services exist, the default. */
+function quitGuard(): QuitGuard {
+  return services?.appBehavior.quitGuard ?? DEFAULT_QUIT_GUARD;
+}
+
 const windows = createMainWindowController({
   holder: windowHolder,
   statePath: join(app.getPath("userData"), MAIN_WINDOW_STATE_FILE),
@@ -539,6 +557,8 @@ const windows = createMainWindowController({
   },
   reportError: (message, error) => logger.error(message, toLogValue(error)),
   quitFromShortcut: () => quitFor("shortcut"),
+  workingAgents,
+  quitGuard,
 });
 
 let appIconColorImage: NativeImage | undefined;
@@ -693,7 +713,9 @@ function registerIpcHandlers({
   serverAudit,
   teamStore,
   serverTimezone,
+  serverPersonality,
   promptCacheTtl,
+  claudeUserSetup,
   modelVisibility,
   remoteSessionReuse,
   externalLinkPreference,
@@ -737,6 +759,7 @@ function registerIpcHandlers({
   speech,
   voiceServer,
   dynamicIsland,
+  agentDock,
   cuaDriver,
   computerUsePermissionHelp,
   storageUsage,
@@ -798,6 +821,7 @@ function registerIpcHandlers({
       startup,
     }),
     ...dynamicIslandIpcHandlers({ dynamicIsland }),
+    ...agentDockIpcHandlers({ agentDock }),
     ...browserDockIpcHandlers({ browserDock }),
     ...computerUseIpcHandlers({
       cuaDriver,
@@ -806,8 +830,21 @@ function registerIpcHandlers({
     }),
     ...macAutomationIpcHandlers({ platform: process.platform }),
     ...backgroundProcessIpcHandlers({ platform: process.platform, agents: () => service.listAgents() }),
-    ...providerIpcHandlers({ service, providerRuntimes, credentials: providerCredentials, openLink }),
-    ...voiceIpcHandlers({ voice, speech, server: voiceServer, service }),
+    ...providerIpcHandlers({
+      service,
+      providerRuntimes,
+      credentials: providerCredentials,
+      claudeUserSetup,
+      openLink,
+    }),
+    ...voiceIpcHandlers({
+      voice,
+      speech,
+      server: voiceServer,
+      service,
+      remoteServers,
+      forwardLiveEvent: forwardVoiceLiveEvent,
+    }),
     ...accountIpcHandlers({ centralAuth, host }),
     ...skillIpcHandlers({ skills, getMainWindow: getDialogParent, translate: language.translate }),
     ...agentFolderIpcHandlers({
@@ -900,6 +937,7 @@ function registerIpcHandlers({
       host,
       remoteServers,
       serverTimezone,
+      serverPersonality,
       agentMemoryLimit,
       memoryReview,
       machineAlerts,
@@ -1382,6 +1420,7 @@ if (!hasSingleInstanceLock) {
         remoteServers,
         updater,
         dynamicIsland,
+        agentDock,
         teamStore,
         language,
         logoColor,
@@ -1571,6 +1610,8 @@ if (!hasSingleInstanceLock) {
         interfaceSize,
         language.translate,
         () => windowHolder.current,
+        workingAgents,
+        quitGuard,
         quitFor,
       );
       // The way back to a window hidden in the background, and the sign that a member controls
@@ -1610,6 +1651,8 @@ if (!hasSingleInstanceLock) {
           interfaceSize,
           language.translate,
           () => windowHolder.current,
+          workingAgents,
+          quitGuard,
           quitFor,
         );
         tray.relabel();
@@ -1660,6 +1703,15 @@ if (!hasSingleInstanceLock) {
       screen.on("display-removed", reconcileDynamicIsland);
       screen.on("display-metrics-changed", reconcileDynamicIsland);
       powerMonitor.on("resume", reconcileDynamicIsland);
+      // The agent dock window opens when the main renderer publishes the dock; this only moves it.
+      const reconcileAgentDock = () =>
+        void Effect.runPromise(agentDock.reconcileWindow()).catch((error) =>
+          logger.error("Unable to place the agent dock:", toLogValue(error)),
+        );
+      screen.on("display-added", reconcileAgentDock);
+      screen.on("display-removed", reconcileAgentDock);
+      screen.on("display-metrics-changed", reconcileAgentDock);
+      powerMonitor.on("resume", reconcileAgentDock);
       powerMonitor.on("resume", () => void Effect.runPromise(remoteServers.wake()));
       // A Slack socket can be dead after sleep without knowing it; reconnect instead of waiting for a ping.
       powerMonitor.on("resume", () => built.messaging.resume());
@@ -1882,6 +1934,7 @@ async function prepareForShutdown(deadlineMs = SHUTDOWN_DEADLINE_MS): Promise<vo
   // After the bounds are saved.
   hideWindowsForQuit();
   services?.dynamicIsland.destroy();
+  services?.agentDock.destroy();
   macHapticFeedback.destroy();
   await teardown.runAll();
   runMarker?.clean();

@@ -616,6 +616,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       discoveryCwd: options.discoveryCwd,
       processWideModel: options.flavor.processWideModel === true,
       modelSetUnsaved: options.flavor.modelSetUnsaved,
+      configSetUnsaved: options.flavor.configSetUnsaved,
       keepProbeSession: () => options.flavor.closeKeepsSession === true && this.#supportsSessionResume,
     });
   }
@@ -1497,9 +1498,15 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     return this.#initialization?.agentCapabilities?.sessionCapabilities?.resume != null;
   }
 
-  /** Whether the agent advertises `additionalDirectories`. Grok refuses them unadvertised (#1729). */
+  /**
+   * Whether the agent takes `additionalDirectories`: it advertises them, or its flavor names the
+   * workspace in them. Grok refuses them unadvertised (#1729).
+   */
   get #acceptsAdditionalDirectories(): boolean {
-    return this.#initialization?.agentCapabilities?.sessionCapabilities?.additionalDirectories != null;
+    return (
+      this.#flavor.workspaceAsAdditionalDirectory === true ||
+      this.#initialization?.agentCapabilities?.sessionCapabilities?.additionalDirectories != null
+    );
   }
 
   /**
@@ -1606,9 +1613,16 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
             const connection = () =>
               sessionTransport ? sessionTransport.requireConnection() : this.#requireConnection();
             const additionalDirectories = getArray(params, "runtimeWorkspaceRoots").filter(isString);
-            // Sent only to an agent that advertises them: Grok 1.0.60 refuses them on every session
-            // request, so each new Grok session failed.
-            const directories = this.#acceptsAdditionalDirectories ? { additionalDirectories } : {};
+            // Sent only to an agent that advertises them, or whose flavor sets
+            // `workspaceAsAdditionalDirectory`: Grok 1.0.60 refuses them on every session request,
+            // so each new Grok session failed.
+            const directories = this.#acceptsAdditionalDirectories
+              ? {
+                  additionalDirectories: this.#flavor.workspaceAsAdditionalDirectory
+                    ? [cwd, ...additionalDirectories.filter((root) => root !== cwd)]
+                    : additionalDirectories,
+                }
+              : {};
             const meta = this.#flavor.sessionMeta ? { _meta: this.#flavor.sessionMeta } : {};
             let id: string;
             let configOptions: SessionConfigOption[];
@@ -2265,9 +2279,14 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         const failureAt = turn.sdkFailureAt ?? (sdkHarness.answerIsFailure.test(turn.text) ? 0 : null);
         const failure = failureAt === null ? "" : turn.text.slice(failureAt).trim();
         if (failureAt !== null) {
-          turn.failureCause = classifyFailure(failure || turn.text.trim());
-          turn.providerError = sdkHarness.turnFailure(failure || turn.text.trim());
+          const detail = failure || turn.text.trim();
           turn.text = failure ? turn.text.slice(0, failureAt) : "";
+          // A turn that already produced output (such as a tool call) or needs no answer can end on
+          // an empty model step, which Antigravity's harness reports as an empty-output error (#4505).
+          if (!((turn.receivedOutput || turn.answerOptional) && sdkHarness.emptyOutputFailure?.test(detail))) {
+            turn.failureCause = classifyFailure(detail);
+            turn.providerError = sdkHarness.turnFailure(detail);
+          }
         }
       }
       const status =
@@ -2553,17 +2572,21 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         turn.textMessageStart = turn.text.length + text.length - update.content.text.length;
       }
       if (messageId && (text || !turn.textMessageId)) turn.textMessageId = messageId;
-      if (update.content.text.trim()) {
-        turn.receivedOutput = true;
-        turn.interruptedAnswer = null;
-      }
       // An agent can keep session/prompt open while background tasks run (Antigravity). Its text must
       // not wait for that response. A later tool/thought boundary can still classify it as commentary.
       // Text after an SDK failure is the failure, which the turn reports when it ends.
-      // Antigravity can end a turn on a failed MCP server start before its stderr line arrives. That
-      // text is the failure, not an answer, so it is not shown while the turn can still try again.
-      if (turn.sdkFailureAt === null && !turn.text && this.#flavor.sdkHarness?.mcpLoadFailure(text))
-        turn.sdkFailureAt = 0;
+      // Antigravity can send an SDK failure or a failed MCP server start before its stderr line
+      // arrives. That text is the failure, not an answer, so it is not streamed or counted as output.
+      if (
+        turn.sdkFailureAt === null &&
+        (this.#flavor.sdkHarness?.answerIsFailure.test(text) ||
+          (!turn.text && this.#flavor.sdkHarness?.mcpLoadFailure(text)))
+      )
+        turn.sdkFailureAt = turn.text.length;
+      if (update.content.text.trim() && turn.sdkFailureAt === null) {
+        turn.receivedOutput = true;
+        turn.interruptedAnswer = null;
+      }
       if (this.#flavor.streamAnswerBeforePromptReturns && text && turn.sdkFailureAt === null) {
         if (!turn.text)
           this.emit("notification", {

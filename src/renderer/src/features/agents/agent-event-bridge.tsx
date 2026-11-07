@@ -1,6 +1,5 @@
 import { providerDisplayName } from "@openbot/contracts/agent-providers";
 import type { AgentEvent, AgentRuntimeSnapshot } from "@openbot/contracts/ipc";
-import { MCP_SERVERS_CAPABILITY } from "@openbot/contracts/ipc";
 import { cleanAgentMessageText } from "@openbot/team-client/agent-message-text";
 import { reconcileQueuesWithRuntimeWork } from "@openbot/team-client/dynamic-island-coordinator";
 import { classifyFailure } from "@openbot/telemetry";
@@ -9,7 +8,7 @@ import { currentText } from "@openbot/ui/text";
 import { classifyUserError } from "@openbot/user-errors";
 import { flush, onSettled } from "solid-js";
 import { withoutAgent } from "../../app-message-projection";
-import { playCompletionSoundForAgentEvent } from "../../completion-sound";
+import { playCompletionSoundForAgentEvent, prepareCompletionSound } from "../../completion-sound";
 import { usePlatform } from "../../platform";
 import { useProviders } from "../../providers";
 import { queueAfterTurnCompleted } from "../../queue-reconciliation";
@@ -25,7 +24,7 @@ import { agentConversationKey, composerDraftKey, promptRequestKey } from "../con
 import { latestIncomingConversationMessage } from "../conversation/conversation-read-state";
 import { noteSocialFollowReplyCompleted } from "../conversation/social-follow-prompt";
 import { appendTurnStepLine } from "../conversation/turn-step-lines";
-import { serverCanAdminister } from "../servers/server-capabilities";
+import { serverCanManageMcp } from "../servers/server-capabilities";
 import { useServerSettings } from "../servers/server-settings";
 import { useServers } from "../servers/servers-context";
 import { useSidebar } from "../sidebar/sidebar-context";
@@ -191,7 +190,12 @@ export function AgentEventBridge() {
       case "turn-progress":
         setTurnProgress((current) => ({
           ...current,
-          [event.agentId]: { turnId: event.turnId, detail: cleanAgentMessageText(event.detail) },
+          [event.agentId]: {
+            turnId: event.turnId,
+            detail: cleanAgentMessageText(event.detail),
+            ...(event.running ? { running: true } : {}),
+            ...(event.activity ? { activity: event.activity } : {}),
+          },
         }));
         setTurnStepLines((current) => appendTurnStepLine(current, event.turnId, cleanAgentMessageText(event.detail)));
         return;
@@ -231,6 +235,7 @@ export function AgentEventBridge() {
           ...current,
           [event.agentId]: event.turnId,
         }));
+        if (soundLevel() === "all" && !platform.chatWindow) prepareCompletionSound();
         return;
       case "turn-completed":
         completedTurnByAgent.set(event.agentId, event.turnId);
@@ -402,7 +407,7 @@ export function AgentEventBridge() {
           const serverId = activeServerId();
           toast.error(mcp ? t("agent.error.mcpNotStarted") : providerErrorTitle(event.code), {
             ...{ description: toastKey },
-            ...(mcp && serverCanAdminister(activeServer(), MCP_SERVERS_CAPABILITY)
+            ...(mcp && serverCanManageMcp(activeServer())
               ? {
                   action: {
                     label: t("agent.error.openMcpSettings"),
@@ -447,6 +452,7 @@ export function AgentEventBridge() {
   }
 
   onSettled(() => {
+    if (soundLevel() === "all" && !platform.chatWindow) prepareCompletionSound();
     const unsubscribe = agentsPort().agent.onEvent((event) => {
       if (event.type === "channels-changed") {
         void channels.refresh();

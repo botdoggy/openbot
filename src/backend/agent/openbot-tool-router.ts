@@ -88,7 +88,7 @@ import type { ConversationRuntime } from "./conversation-runtime";
 import { handleDataTool } from "./data-tools";
 import { responseAttachmentMessageId, visualReplyFileName, visualReplyMessageId } from "./delivery-content";
 import type { DrainScheduler } from "./drain-scheduler";
-import { HistoryTools } from "./history-tools";
+import { HistoryTools, isHistoryBrowse, MAIN_CHAT_TASK_ID } from "./history-tools";
 import type { HostedSiteCoordinator } from "./hosted-site-coordinator";
 import { isHostedSiteMutationTool } from "./hosted-site-events";
 import type { MailboxSync } from "./mailbox-sync";
@@ -136,9 +136,11 @@ import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool }
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
 import {
+  browserToolsPrimer,
   CODEX_DEFERRED_MCP_NOTE,
   DEFERRED_MCP_NOTE,
   discoverTools,
+  givesBrowserSchemas,
   namesInSearch,
   resolveDeferredTool,
 } from "./tool-catalog";
@@ -291,12 +293,15 @@ export class OpenBotToolRouter {
   readonly #vaultItems: VaultItems | null;
   readonly #hooks: OpenBotToolRouterHooks;
   readonly #interruptTool: AgentInterruptTool;
+  /** Provider threads whose agent has the browser schemas, from a search or from a first browser result. */
+  readonly #browserSchemasGiven = new Set<string>();
 
   constructor(options: OpenBotToolRouterOptions) {
     this.#history = new HistoryTools({
       store: options.store,
       redact: options.hooks.redactMcp,
       capturedSteps: options.capturedSteps ?? (() => Effect.succeed(null)),
+      recentThreads: (agentId, after, limit) => options.tasks.recent(agentId, after, limit),
     });
     this.#store = options.store;
     this.#mailbox = options.mailbox;
@@ -395,6 +400,7 @@ export class OpenBotToolRouter {
                 client.respond(request.id, openBotToolFailure(invalid));
                 return;
               }
+              if (givesBrowserSchemas(result)) this.#browserSchemasGiven.add(params.threadId);
               const signIns = yield* this.#searchSignIns(agentId, params);
               if (request.signal?.aborted || !client.running) return;
               const found =
@@ -420,19 +426,60 @@ export class OpenBotToolRouter {
               client.respond(request.id, openBotToolFailure(sourceText("error.agent.historyUnavailable")));
               return;
             }
-            // A taskId reads a side thread of the same agent. A thread of another agent reads as unknown.
+            // The agent's other conversations open only from its own chat and its side threads. A
+            // messaging chat is neither: other people can write there, and must not read the owner's chats.
+            const mainThreadId = this.#store.list().find((agent) => agent.id === scope.agentId)?.threadId ?? null;
+            const scopeTask = this.#tasks.taskForThread(scope.threadId);
+            const ownConversation =
+              scope.threadId === mainThreadId || (scopeTask !== null && this.#tasks.has(scope.agentId, scopeTask));
+            // A taskId reads a side thread of the same agent, or "main" its own chat. A thread of another
+            // agent reads as unknown.
             const taskId = isRecord(params.arguments) ? params.arguments.taskId : undefined;
             const targetThreadId =
               taskId === undefined
                 ? scope.threadId
-                : typeof taskId === "string" && this.#tasks.has(scope.agentId, taskId)
-                  ? this.#tasks.require(scope.agentId, taskId).threadId
-                  : null;
-            if (targetThreadId === null) {
+                : !ownConversation
+                  ? null
+                  : taskId === MAIN_CHAT_TASK_ID
+                    ? mainThreadId
+                    : typeof taskId === "string" && this.#tasks.has(scope.agentId, taskId)
+                      ? this.#tasks.require(scope.agentId, taskId).threadId
+                      : null;
+            const browse = isHistoryBrowse(params.tool, params.arguments);
+            if (browse && !ownConversation) {
+              client.respond(request.id, openBotToolFailure(sourceText("error.agent.historyUnavailable")));
+              return;
+            }
+            if (!browse && targetThreadId === null) {
               client.respond(request.id, openBotToolFailure(sourceText("error.backend.threadNotFound")));
               return;
             }
-            const result = yield* this.#history.call(scope.agentId, targetThreadId, params.tool, params.arguments).pipe(
+            // A query with no taskId and no cursor searches all own conversations: a model that skips
+            // the tool description asks "find X" without naming the conversation.
+            const searchAll =
+              ownConversation &&
+              params.tool === "history_search" &&
+              taskId === undefined &&
+              isRecord(params.arguments) &&
+              params.arguments.cursor === undefined;
+            // "No query lists chats, a taskId reads one": a search with only a taskId reads that one.
+            const readsOne =
+              params.tool === "history_search" &&
+              taskId !== undefined &&
+              isRecord(params.arguments) &&
+              params.arguments.query === undefined &&
+              params.arguments.cursor === undefined;
+            const limit = isRecord(params.arguments) ? params.arguments.limit : undefined;
+            const history = browse
+              ? this.#history.threads(scope.agentId, scope.threadId, params.arguments)
+              : searchAll
+                ? this.#history.searchAll(scope.agentId, scope.threadId, params.arguments)
+                : readsOne
+                  ? this.#history.call(scope.agentId, targetThreadId ?? scope.threadId, "history_read", {
+                      ...(typeof limit === "number" ? { limit } : {}),
+                    })
+                  : this.#history.call(scope.agentId, targetThreadId ?? scope.threadId, params.tool, params.arguments);
+            const result = yield* history.pipe(
               Effect.catch(() => Effect.succeed(openBotToolFailure(sourceText("error.agent.historyUnavailable")))),
               Effect.catchDefect(() =>
                 Effect.succeed(openBotToolFailure(sourceText("error.agent.historyUnavailable"))),
@@ -525,7 +572,19 @@ export class OpenBotToolRouter {
               Effect.raceFirst(cancelled),
               Effect.onInterrupt(() => Effect.sync(() => this.#browser.endControl(params.threadId, params.turnId))),
             );
-            if (!signal?.aborted && client.running) client.respond(toolRequest.id, result);
+            if (signal?.aborted || !client.running) return;
+            const threadId = toolRequest.params.threadId;
+            if (this.#browserSchemasGiven.has(threadId)) client.respond(toolRequest.id, result);
+            else {
+              this.#browserSchemasGiven.add(threadId);
+              client.respond(toolRequest.id, {
+                ...result,
+                contentItems: [
+                  ...result.contentItems,
+                  { type: "inputText", text: JSON.stringify({ browserTools: browserToolsPrimer() }) },
+                ],
+              });
+            }
             return;
           }
           if (toolRequest.params.namespace === "openbot") {
@@ -2118,6 +2177,8 @@ export class OpenBotToolRouter {
       );
       const [answerTaskId = null] = answerTaskIds.size === 1 ? answerTaskIds : [];
       const taskId = answerTaskId && this.#tasks.threadId(answerTaskId) !== null ? answerTaskId : undefined;
+      // The same rule for a request from a Slack thread or another external conversation (#5517).
+      const messaging = this.#mailbox.answerReturn(answeredRequestIds, recipientValues);
       const text = params.arguments.text;
       const receipt = yield* this.#mailbox
         .enqueue({
@@ -2127,6 +2188,7 @@ export class OpenBotToolRouter {
           sourcePaths: paths,
           replyToMessageId: replyTo,
           ...(expectsReply === undefined ? {} : { expectsReply }),
+          ...(messaging ? { messaging } : {}),
           ...(messagingReturn ? { messagingReturn } : {}),
           ...(senderTaskId ? { senderTaskId } : {}),
           ...(taskId ? { taskId } : {}),
