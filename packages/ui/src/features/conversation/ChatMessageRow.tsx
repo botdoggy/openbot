@@ -53,6 +53,10 @@ export interface ChatMessageRowProps {
   showAuthor?: boolean | undefined;
   /** Whether the time stands beside the author name. Without a name, the time is in the action row. */
   showTime?: boolean | undefined;
+  /** Draws a long message in full, with no fold: in-chat search and a quote jump read the drawn text. */
+  showFull?: boolean | undefined;
+  /** Opens a folded long message, as its "Show full message" button does. The reader can fold it again. */
+  open?: boolean | undefined;
   animate?: boolean;
   agents: AgentProfile[];
   skills?: InstalledSkill[] | undefined;
@@ -83,8 +87,8 @@ export interface ChatMessageRowProps {
   onOpenLink: (url: string) => void;
   onPreview: (attachment: AttachmentSummary) => void;
   onAttachmentAction: (attachment: AttachmentSummary, action: "open" | "reveal" | "download") => void;
-  onOpenSharedFile?: (path: string) => void;
-  onOpenWorkspaceFile?: ((path: string) => void) | undefined;
+  onOpenSharedFile?: (path: string, asWritten?: string) => void;
+  onOpenWorkspaceFile?: ((path: string, asWritten?: string) => void) | undefined;
   onOpenQuote?: ((messageId: string, text: string) => void) | undefined;
   onOpenTag?: ((kind: "tab" | "thread", id: string) => void) | undefined;
   onDownload?: ((attachment: AttachmentSummary) => void) | undefined;
@@ -194,6 +198,8 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
   const messageBody = (frame?: (content: JSX.Element, imagesOnly: () => boolean) => JSX.Element) => (
     <MessageBody
       frame={frame}
+      showFull={props.showFull}
+      open={props.open}
       animate={props.animate}
       message={props.message}
       referencedMessage={props.referencedMessage}

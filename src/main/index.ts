@@ -28,12 +28,18 @@ import {
   screen,
   shell,
 } from "electron";
+import { setDiskRestoreProbe } from "../backend/disk-restore";
 import { runCauseEffect } from "../backend/effect-boundary";
 import { NewerDatabaseError } from "../backend/openbot-database-schema";
 import { OWNER_NOTIFICATION_KEY } from "./agent-notification-level-store";
 import { watchAppArchive } from "./app-archive-watch";
 import { readAppVariant, resolveAppIconPath, resolveLogoColorIconPath, resolveMenuBarIconPath } from "./app-icon";
-import { type ApplicationServices, createApplicationServices } from "./application-services";
+import { readSavedTransparentWindow } from "./appearance-service";
+import {
+  APPEARANCE_PREFERENCE_FILE,
+  type ApplicationServices,
+  createApplicationServices,
+} from "./application-services";
 import { type BackgroundTray, createBackgroundTray } from "./background-tray";
 import { removeClaudeCodeSessionEnvironment } from "./claude-session-environment";
 import { type DeepLink, findDeepLink, parseDeepLink } from "./deep-link-router";
@@ -50,7 +56,7 @@ import {
 import { stopStuckExitAfterLimit } from "./exit-watchdog";
 import { filePreviewPages } from "./file-preview-pages";
 import { hostAllowsTenantLaunch } from "./host-update-coordinator";
-import { takeHostedServerEnvironment } from "./hosted-server-bootstrap";
+import { hostedDiskRestoreProbe, takeHostedServerEnvironment } from "./hosted-server-bootstrap";
 import { takeHostingDeveloperKey } from "./hosted-server-service";
 import { accountIpcHandlers } from "./ipc/account-handlers";
 import { acpRegistryIpcHandlers } from "./ipc/acp-registry-handlers";
@@ -128,6 +134,7 @@ import { ensureMacApplicationPresence, secondLaunchResponse } from "./main-windo
 import { MessageLinkRelay, openHttpLink } from "./message-link-relay";
 import { recoverFromNewerDatabase } from "./newer-database-recovery";
 import { startMainLog } from "./provider-log";
+import { notifyRemoteControlStarted } from "./remote-control-question";
 import { watchRemoteHostDirectory } from "./remote-server-host-directory";
 import { createRendererForwarders } from "./renderer-forwarders";
 import { sendToRenderer } from "./renderer-ipc";
@@ -142,7 +149,7 @@ import { TeardownRegistry } from "./teardown-registry";
 import type { TraceFile } from "./trace-file";
 import { setIpcCallObserver } from "./trusted-ipc";
 import { UPDATE_INSTALL_TIMEOUT_MS } from "./update-service";
-import { setWindowAppearance } from "./window-appearance";
+import { setInitialWindowGlass, setWindowAppearance } from "./window-appearance";
 import { placeWindowButtons } from "./window-buttons";
 
 const logger = createOpenBotLogger("main");
@@ -229,6 +236,8 @@ const developmentTestClientEnabled = !app.isPackaged && process.env.OPENBOT_DEV_
 removeClaudeCodeSessionEnvironment(process.env);
 // Before any child process starts: this removes the single-use claim from the environment they inherit.
 const hostedServer = takeHostedServerEnvironment(process.env, app.isPackaged, process.platform);
+// Before the first provider check: a restored disk gives the provider CLIs a longer limit.
+if (hostedServer) setDiskRestoreProbe(hostedDiskRestoreProbe());
 const hostingDeveloperKey = takeHostingDeveloperKey(process.env, app.isPackaged);
 const serverMode = takeServerModeEnvironment(process.env, app.isPackaged, process.platform);
 // Always taken, so the owner password leaves the environment also when the flag is refused.
@@ -386,6 +395,8 @@ let activeRemotePrincipalId: string | null = null;
 /** Counts account transitions, so queued work for a superseded one is dropped rather than applied. */
 let centralAuthGeneration = 0;
 let activeAnalyticsPrincipalId: string | null = null;
+/** The last account state that `forwardCentralAuth` saw. It tells a sign-in by the user from a restored session. */
+let previousCentralAuthStatus: CentralAuthState["status"] | null = null;
 const remoteAccountGate = Semaphore.makeUnsafe(1);
 const macHapticFeedback = new MacHapticFeedback();
 let isQuitting = false;
@@ -415,6 +426,7 @@ let pendingDeepLink: RendererDeepLink | null = takeRendererDeepLink(findDeepLink
 let deepLinkReceiverReady = false;
 
 const MAIN_WINDOW_STATE_FILE = "openbot-main-window-state-v1.json";
+const WM_ENDSESSION = 0x0016;
 
 // A server is stopped with SIGTERM (systemd, Docker). Without a handler, Electron ends at once and its
 // services do not stop. A hosted server's boat pre-stop hook stops it this way before the disk save
@@ -608,6 +620,17 @@ function attachWindowsSessionEndHandlers(window: BrowserWindow): void {
       void runCauseEffect(services.browser.flushPersistentStorage()).catch((error) =>
         logger.error("Unable to flush browser storage before Windows session end:", toLogValue(error)),
       );
+  });
+  // Windows sends WM_ENDSESSION with a zero wParam when another app cancels the session end. Electron
+  // has no event for it. Without this reset, closing the window later quits instead of hiding, and the
+  // next quit skips `prepareForShutdown`.
+  window.hookWindowMessage(WM_ENDSESSION, (wParam) => {
+    if (quitStarted || !systemSessionEnding || wParam.some((byte) => byte !== 0)) return;
+    systemSessionEnding = false;
+    systemSessionEndFlushStarted = false;
+    isQuitting = false;
+    // The query stopped the update checks.
+    services?.updater.resume();
   });
   window.on("session-end", () => {
     recordExit("session_end");
@@ -1005,6 +1028,14 @@ function centralAuthPrincipalId(state: CentralAuthState): string | null {
 function forwardCentralAuth(state: CentralAuthState): void {
   // A local server has no account: its owner is a password member that a sign-out must not unbind.
   if (localServerChild) return;
+  // A session that loads, recovers after an error, or refreshes is not a sign-in by the user. Its
+  // publish is automatic, so the account service can refuse a server that its owner removed (#5273).
+  const automaticSignIn =
+    previousCentralAuthStatus === null ||
+    previousCentralAuthStatus === "loading" ||
+    previousCentralAuthStatus === "error" ||
+    previousCentralAuthStatus === "signed_in";
+  previousCentralAuthStatus = state.status;
   if (state.status === "signed_in") {
     if (activeAnalyticsPrincipalId && activeAnalyticsPrincipalId !== state.user.id) services?.analytics.clear();
     activeAnalyticsPrincipalId = state.user.id;
@@ -1084,9 +1115,9 @@ function forwardCentralAuth(state: CentralAuthState): void {
               ),
             );
         // A self-hosted server exists to be a host, so its first sign-in names and starts it too.
-        if (host && services?.serverMode) yield* services.serverMode.publish();
+        if (host && services?.serverMode) yield* services.serverMode.publish(automaticSignIn);
         else if (host && shouldAutoStartHost({ ...host.getStatus(), remoteRole: developmentRemoteRole }))
-          yield* host.start();
+          yield* host.start(true);
       }),
     ),
   ).catch((error) => {
@@ -1183,11 +1214,18 @@ function receiveMessagingInstall(link: Extract<DeepLink, { kind: "slack-workspac
     ),
   )
     .then((accepted) => {
+      if (!accepted) {
+        logger.warn(
+          `A ${platform} install link was not accepted: no install of this run waits for it, or the joined server refused it.`,
+        );
+        return;
+      }
       const window = windowHolder.current;
-      if (accepted && window && !window.isDestroyed()) showMainWindow(window);
+      if (window && !window.isDestroyed()) showMainWindow(window);
     })
-    .catch(() => {
-      // The connector settings show the connection's state. The error can quote Slack or Discord.
+    .catch((error: unknown) => {
+      // The connector settings show the connection's state. The log keeps the cause.
+      logger.error(`Unable to finish the ${platform} install:`, toLogValue(error));
     });
 }
 
@@ -1276,6 +1314,11 @@ if (!hasSingleInstanceLock) {
       configureRendererPermissions();
       // A local server keeps a window that never loads: the agent browser and the services attach to it.
       if (!localServerChild) await Effect.runPromise(windows.restoreMainWindowBounds());
+      // The window takes its blur when it is built: see `glassWindowOptions`.
+      if (process.platform === "darwin" && !localServerChild)
+        setInitialWindowGlass(
+          await runCauseEffect(readSavedTransparentWindow(join(app.getPath("userData"), APPEARANCE_PREFERENCE_FILE))),
+        );
       const mainWindow = windows.openMainWindow();
 
       const built = await createApplicationServices({
@@ -1495,6 +1538,30 @@ if (!hasSingleInstanceLock) {
         });
         return;
       }
+      const publishOnLaunch = () => {
+        const teamIdentity = teamStore.getIdentity();
+        if (built.serverMode) {
+          const serverModeControl = built.serverMode;
+          void runCauseEffect(
+            built.centralAuthInitialization.pipe(Effect.flatMap(() => serverModeControl.publish(true))),
+          ).catch((error) => logger.error("Unable to publish this server:", toLogValue(error)));
+        } else if (
+          shouldAutoStartHost({
+            configured: Boolean(teamIdentity),
+            enabledOnLaunch: teamIdentity?.enabledOnLaunch ?? false,
+            remoteRole: developmentRemoteRole,
+          })
+        ) {
+          void runCauseEffect(built.centralAuthInitialization.pipe(Effect.flatMap(() => host.start(true)))).catch(
+            (error) => logger.error("Unable to republish this OpenBot:", toLogValue(error)),
+          );
+        }
+      };
+      // Nobody looks at the window of a server, and a device that woke it waits for the publish. So a
+      // server publishes now, before the window loads. A desktop publishes after its window loads, so
+      // the bridge window does not compete with the first window for the CPU.
+      const publishesBeforeRenderer = Boolean(built.serverMode || hostedServer);
+      if (publishesBeforeRenderer) publishOnLaunch();
       void requestDesktopNotificationPermission(built.notificationPreference, language.translate).catch((error) =>
         logger.warn("Unable to ask for notification permission:", toLogValue(error)),
       );
@@ -1506,19 +1573,31 @@ if (!hasSingleInstanceLock) {
         () => windowHolder.current,
         quitFor,
       );
-      // The way back to a window hidden in the background.
+      // The way back to a window hidden in the background, and the sign that a member controls
+      // this computer.
       backgroundTray = createBackgroundTray({
         icon: appIconColorImage ?? nativeImage.createFromPath(appIconPath),
         menuBarIcon: loadMenuBarIcon(),
         translate: language.translate,
         open: reopenMainWindow,
         quit: () => quitFor("tray"),
+        stopRemoteControl: () => {
+          void runCauseEffect(host.stopRemoteControl()).catch((error) =>
+            logger.warn("Unable to stop remote control:", toLogValue(error)),
+          );
+        },
       });
       const tray = backgroundTray;
       tray.sync(appBehavior.keepRunningInBackground);
       const unsubscribeBackgroundTray = appBehavior.subscribe(() => tray.sync(appBehavior.keepRunningInBackground));
+      const showRemoteControl = (memberNames: string[]) => tray.setRemoteControl(memberNames);
+      const announceRemoteControl = (memberName: string) => notifyRemoteControlStarted(language.translate, memberName);
+      host.on("remoteControlChanged", showRemoteControl);
+      host.on("remoteControlStarted", announceRemoteControl);
       teardown.push(0, "background tray", () => {
         unsubscribeBackgroundTray();
+        host.off("remoteControlChanged", showRemoteControl);
+        host.off("remoteControlStarted", announceRemoteControl);
         tray.destroy();
       });
       // One place turns a language change into every visible consequence: the menu is built again
@@ -1608,23 +1687,7 @@ if (!hasSingleInstanceLock) {
         powerMonitor.off("on-battery", syncKeepAwake);
         keepAwake.dispose();
       });
-      const teamIdentity = teamStore.getIdentity();
-      if (built.serverMode) {
-        const serverModeControl = built.serverMode;
-        void runCauseEffect(
-          built.centralAuthInitialization.pipe(Effect.flatMap(() => serverModeControl.publish())),
-        ).catch((error) => logger.error("Unable to publish this server:", toLogValue(error)));
-      } else if (
-        shouldAutoStartHost({
-          configured: Boolean(teamIdentity),
-          enabledOnLaunch: teamIdentity?.enabledOnLaunch ?? false,
-          remoteRole: developmentRemoteRole,
-        })
-      ) {
-        void runCauseEffect(built.centralAuthInitialization.pipe(Effect.flatMap(() => host.start()))).catch((error) =>
-          logger.error("Unable to republish this OpenBot:", toLogValue(error)),
-        );
-      }
+      if (!publishesBeforeRenderer) publishOnLaunch();
       void runCauseEffect(built.agentInitialization.start()).catch((error) => {
         logger.error("Unable to initialize the local agent backend:", toLogValue(error));
       });

@@ -3,11 +3,11 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { access, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { agentProviderName, type KeyOnlyProviderId } from "@openbot/contracts/agent-providers";
 import { type DynamicRecord, isBoolean, isString } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
-import { createOpenBotLogger, redactText } from "@openbot/logging";
+import { createOpenBotLogger, type LogValue, redactText } from "@openbot/logging";
 import { type CauseCode, classifyFailure, httpStatusCause, structuredCause } from "@openbot/telemetry";
 import { Cause, Effect, Exit, Option, Schema, Scope, Semaphore } from "effect";
 import { secretElicitationField } from "./agent/prompts";
@@ -101,6 +101,12 @@ const PiSessionUsage = Schema.Struct({
     cacheWrite: Schema.Number,
   }),
 });
+
+/**
+ * The session cost of `get_session_stats`, in USD, at the rates of Pi's model list. Pi sends it with
+ * its tokens; a version that does not leaves the turns unpriced.
+ */
+const PiSessionCost = Schema.Struct({ cost: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)) });
 
 /**
  * The context fill of `get_session_stats`. Pi omits it with no model or window, and its `tokens` is
@@ -851,10 +857,15 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
 
   #notify(method: string, thread: PiThread, params: DynamicRecord): void {
     // Usage contains only validated numeric counters. Generic secret-name matching masks `*Tokens`.
+    // A turn notice holds only OpenBot's own `{ turn: { id, status } }`. A short saved secret could
+    // mask its `turn` key or its status, and the turn would then not end (#5390).
     const safe =
-      method === "openbot/usage" || method === "thread/tokenUsage/updated"
+      method === "openbot/usage" ||
+      method === "thread/tokenUsage/updated" ||
+      method === "turn/started" ||
+      method === "turn/completed"
         ? params
-        : redactMcpRecord(params, this.#secretValues());
+        : withOwnIds(redactMcpRecord(params, this.#secretValues()), params);
     this.emit("notification", {
       method,
       params: {
@@ -940,7 +951,10 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
         ...(done ? { contentItems: [{ type: "inputText", text: piText(getRecord(record, "result")?.content) }] } : {}),
       };
       turn.items.set(id, item);
-      this.#notify(done ? "item/completed" : "item/started", thread, { item });
+      this.#notify(done ? "item/completed" : "item/started", thread, {
+        item,
+        filePaths: piToolFilePaths(item.tool, item.arguments, thread.cwd),
+      });
     }
   }
 
@@ -973,9 +987,14 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
               estimated: true,
             },
           });
-        return providerSync(() => Schema.decodeUnknownSync(PiSessionUsage)(stats));
+        // A bad cost must not drop the totals either.
+        const cost = Schema.decodeUnknownOption(PiSessionCost)(stats);
+        return providerSync(() => ({
+          ...Schema.decodeUnknownSync(PiSessionUsage)(stats),
+          cost: Option.isSome(cost) ? cost.value.cost : null,
+        }));
       }),
-      Effect.map(({ tokens }) =>
+      Effect.map(({ tokens, cost }) =>
         this.#notify("openbot/usage", thread, {
           usage: {
             inputTokens: tokens.input + tokens.cacheRead + tokens.cacheWrite,
@@ -983,6 +1002,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
             cachedReadTokens: tokens.cacheRead,
             cachedWriteTokens: tokens.cacheWrite,
           },
+          ...(cost === null ? {} : { cost }),
         }),
       ),
       // A crashed host cannot answer telemetry; it must not block durable completion.
@@ -1107,10 +1127,25 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
   #safeItems(items: ThreadItem[]): ThreadItem[] {
     const values = this.#secretValues();
     return items.flatMap((item) => {
-      const value = redactMcpRecord(item, values);
+      const value = withOwnIds(redactMcpRecord(item, values), item);
       return isRecord(value) && isString(value.type) ? [{ ...value, type: value.type }] : [];
     });
   }
+}
+
+/**
+ * Puts back the ids of the items of a turn after the secret masking. The masking hides the whole
+ * token around a saved value, and a short saved password can occur in a UUID (#5390). OpenBot and
+ * Pi make these ids; they hold no text from the model or a tool.
+ */
+function withOwnIds(safe: LogValue, original: DynamicRecord | ThreadItem): LogValue {
+  if (!isRecord(safe)) return safe;
+  const restored = { ...safe };
+  if (isString(original.id)) restored.id = original.id;
+  if (isString(original.itemId)) restored.itemId = original.itemId;
+  const itemId = getString(getRecord(original, "item"), "id");
+  if (itemId !== undefined && isRecord(restored.item)) restored.item = { ...restored.item, id: itemId };
+  return restored;
 }
 
 function isNamespace(value: unknown): value is DynamicToolNamespace {
@@ -1155,4 +1190,17 @@ function piFailureCause(message: string | null): CauseCode {
     classifyFailure(message),
   );
   return cause === "unknown" && PI_PROVIDER_STOP.test(message) ? "provider_unavailable" : cause;
+}
+
+/**
+ * The absolute path of a file that a Pi `read`, `write` or `edit` call names, for the thread's file
+ * history. Pi resolves the path as these tools do: without a leading `@`, from `~`, or from the cwd.
+ */
+function piToolFilePaths(tool: unknown, args: unknown, cwd: string): string[] | undefined {
+  if (tool !== "read" && tool !== "write" && tool !== "edit") return undefined;
+  const path = isRecord(args) && typeof args.path === "string" ? args.path.replace(/^@/u, "") : "";
+  if (!path) return undefined;
+  const home = path.startsWith("~/") || (process.platform === "win32" && path.startsWith("~\\"));
+  if (path === "~" || home) return [resolve(homedir(), path.slice(2))];
+  return [resolve(cwd, path)];
 }

@@ -106,6 +106,7 @@ export const messages = {
   "error.provider.maxOutputInvalid":
     "De maximale output van een model moet een geheel aantal tokens zijn van {min} tot {max}.",
   "error.provider.reasoningEffortsInvalid": "De redeneerniveaus van een model zijn niet geldig.",
+  "error.provider.inputsInvalid": "De invoersoorten van een model zijn niet geldig.",
   "error.provider.headersTooMany": "Er zijn te veel headers.",
   "error.provider.headerNameCharacter": "Een headernaam bevat een teken dat HTTP niet toestaat.",
   "error.provider.headerNameTooLong": "Een headernaam is te lang.",
@@ -291,6 +292,8 @@ export const messages = {
     "De sessie van de agent heeft de contextlimiet overschreden en kon niet worden hersteld door compacteren. OpenBot heeft een nieuwe sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, start dan een nieuwe chat.",
   "error.provider.museMcpStartupFault":
     "Muse kon een MCP-server niet starten en heeft MCP in deze sessie geblokkeerd. OpenBot heeft een nieuwe Muse-sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, zet dan Computerbesturing of de mislukte MCP-server uit voor deze agent.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code heeft de opgeslagen sessie van deze chat niet gevonden. OpenBot heeft een nieuwe Claude Code-sessie gestart met de chatgeschiedenis. Probeer het opnieuw.",
   "error.provider.grokSignIn": "Voer `grok login` uit of stel XAI_API_KEY in om Grok te gebruiken.",
   "error.provider.acpSignInTimedOut": "Het inloggen duurde te lang.",
   "error.provider.acpSignInStopped": "Het inloggen is gestopt voordat het klaar was.",

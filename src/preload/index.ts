@@ -249,6 +249,7 @@ import {
   decodeReadStates,
   decodeReceipt,
   decodeTaskConversation,
+  decodeTaskPage,
   decodeWaits,
 } from "./conversation-decoding";
 import {
@@ -311,6 +312,7 @@ import {
   decodeInviteSummary,
   decodeInviteUrl,
   decodePendingInvite,
+  decodeRemoteControlPolicy,
   decodeRemoteDesktopConnectResult,
   decodeRemoteDesktopSessions,
   decodeScopedDirectMessage,
@@ -631,6 +633,7 @@ const agentGroup = bridgeGroup(IPC_ENDPOINTS.agent, {
   cancelWait: decodeVoid,
   listTasks: decodeAgentTasks,
   readTask: decodeTaskConversation,
+  readTaskPage: decodeTaskPage,
   startTask: decodeAgentTask,
   runQueuedMessageAsTask: decodeAgentTask,
   branchTask: decodeAgentTask,
@@ -1501,6 +1504,9 @@ const openbotApi: OpenBotDesktopApi = {
     removeMember: decodeVoid,
     listSessions: decodeTeamSessions,
     revokeSession: decodeVoid,
+    getRemoteControlPolicy: decodeRemoteControlPolicy,
+    setRemoteControlPolicy: decodeRemoteControlPolicy,
+    stopRemoteControl: decodeHostStatus,
     listInvites: decodeTeamInvites,
     revokeInvite: decodeVoid,
     createInvite: decodeInviteSummary,

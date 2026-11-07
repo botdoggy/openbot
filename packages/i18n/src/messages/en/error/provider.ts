@@ -106,6 +106,7 @@ export const messages = defineMessages("error.provider", {
     "A model's context window must be a whole number of tokens from {min} to {max}.",
   "error.provider.maxOutputInvalid": "A model's max output must be a whole number of tokens from {min} to {max}.",
   "error.provider.reasoningEffortsInvalid": "A model's reasoning efforts are not valid.",
+  "error.provider.inputsInvalid": "A model's input kinds are not valid.",
   "error.provider.headersTooMany": "There are too many headers.",
   "error.provider.headerNameCharacter": "A header name has a character HTTP does not allow.",
   "error.provider.headerNameTooLong": "A header name is too long.",
@@ -281,6 +282,8 @@ export const messages = defineMessages("error.provider", {
     "The agent's session grew past its context limit, and the agent could not recover by compacting it. OpenBot started a new session with the chat history. Try again. If the error continues, start a new chat.",
   "error.provider.museMcpStartupFault":
     "Muse could not start an MCP server and blocked MCP in this session. OpenBot started a new Muse session with the chat history. Try again. If the error continues, turn off Computer Use or the failed MCP server for this agent.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code could not find the saved session of this chat. OpenBot started a new Claude Code session with the chat history. Try again.",
   "error.provider.grokSignIn": "Run `grok login` or set XAI_API_KEY to use Grok.",
   "error.provider.acpSignInTimedOut": "The sign-in timed out.",
   "error.provider.acpSignInStopped": "The sign-in stopped before it was complete.",

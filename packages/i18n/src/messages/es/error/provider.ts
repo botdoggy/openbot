@@ -112,6 +112,7 @@ export const messages = {
   "error.provider.maxOutputInvalid":
     "La salida máxima de un modelo debe ser un número entero de tokens entre {min} y {max}.",
   "error.provider.reasoningEffortsInvalid": "Los niveles de esfuerzo de un modelo no son válidos.",
+  "error.provider.inputsInvalid": "Los tipos de entrada de un modelo no son válidos.",
   "error.provider.headersTooMany": "Hay demasiadas cabeceras.",
   "error.provider.headerNameCharacter": "El nombre de una cabecera contiene un carácter que HTTP no permite.",
   "error.provider.headerNameTooLong": "El nombre de una cabecera es demasiado largo.",
@@ -299,6 +300,8 @@ export const messages = {
     "La sesión del agente superó su límite de contexto y el agente no pudo recuperarla compactándola. OpenBot inició una nueva sesión con el historial del chat. Inténtalo de nuevo. Si el error continúa, empieza un chat nuevo.",
   "error.provider.museMcpStartupFault":
     "Muse no pudo iniciar un servidor MCP y bloqueó MCP en esta sesión. OpenBot inició una nueva sesión de Muse con el historial del chat. Inténtalo de nuevo. Si el error continúa, desactiva Uso del equipo o el servidor MCP que falló para este agente.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code no encontró la sesión guardada de este chat. OpenBot inició una nueva sesión de Claude Code con el historial del chat. Inténtalo de nuevo.",
   "error.provider.grokSignIn": "Ejecuta `grok login` o define XAI_API_KEY para usar Grok.",
   "error.provider.acpSignInTimedOut": "Se agotó el tiempo del inicio de sesión.",
   "error.provider.acpSignInStopped": "El inicio de sesión se detuvo antes de completarse.",

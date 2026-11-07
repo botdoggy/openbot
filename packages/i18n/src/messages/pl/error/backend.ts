@@ -61,6 +61,8 @@ export const messages = {
   "error.backend.channelLeadModelUnavailable": "Model lidera kanału jest niedostępny.",
   "error.backend.contextCompactionIneffective":
     "Kompaktowanie nie zmniejsza tego czatu: po dwóch kompaktowaniach nadal zajmuje {percent}% okna kontekstu modelu, więc OpenBot przestaje go kompaktować. Narzędzia i instrukcje zajmują większość okna. Wyłącz serwery MCP lub sterowanie komputerem, których ten agent nie potrzebuje, albo wybierz model z większym oknem. Potem zacznij nowy czat.",
+  "error.backend.contextCompactionStopped":
+    "Dwa kompaktowania tego czatu z rzędu się nie udały, więc OpenBot przestaje go kompaktować automatycznie. Każda próba wysyła cały czat do modelu i zużywa limit planu. Wybierz „Kompaktuj”, aby spróbować ponownie, albo zacznij nowy czat.",
   "error.backend.providerRetrying":
     "Dostawca nie wykonał tego żądania {attempts} razy i próbuje ponownie. Jeśli agent nie będzie kontynuować, zatrzymaj turę.",
   "error.backend.providerRetryingLargeContext":
@@ -236,6 +238,10 @@ export const messages = {
   "error.backend.mcpServerExited":
     "Serwer zatrzymał się przed odpowiedzią. Uruchom polecenie w terminalu, aby zobaczyć błąd.",
   "error.backend.mcpServerFailedToStart": "Serwer się nie uruchomił: {reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider} nie może użyć serwera MCP {name}, ponieważ serwer wymaga zalogowania. Otwórz ustawienia MCP i wybierz Zaloguj się.",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider} nie może uruchomić serwera MCP {name}. Otwórz ustawienia MCP i wybierz Testuj połączenie, aby zobaczyć przyczynę.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot nie mógł uruchomić lokalnego połączenia logowania dla tego serwera. Uruchom ponownie OpenBot i spróbuj jeszcze raz.",
   "error.backend.mcpOAuthSignInNeeded":

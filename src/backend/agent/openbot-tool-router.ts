@@ -685,10 +685,17 @@ export class OpenBotToolRouter {
       const parsed = removeApiKeyToolSchema.safeParse(params.arguments);
       if (!parsed.success)
         return openBotToolFailure(`${z.prettifyError(parsed.error)}\nCorrect the arguments and retry.`);
-      return yield* apiKeys.remove(agentId, parsed.data.name).pipe(
-        Effect.map((removed) =>
-          openBotToolResult({ status: removed ? "removed" : "not_found", name: parsed.data.name }),
-        ),
+      const { name } = parsed.data;
+      return yield* apiKeys.remove(agentId, name).pipe(
+        Effect.map((removed) => {
+          if (removed) return openBotToolResult({ status: "removed", name });
+          // Agents cannot delete a Vault key: every agent reads it.
+          if (this.#vaultItems?.apiKeys().some((key) => key.name === name))
+            return openBotToolFailure(
+              `${name} is in the Vault, which every agent uses. Only the user can delete it, in Server settings > Vault.`,
+            );
+          return openBotToolResult({ status: "not_found", name });
+        }),
         Effect.catch(failed),
       );
     }
@@ -2066,11 +2073,33 @@ export class OpenBotToolRouter {
         .find((taskId) => taskId !== null);
       // An agent can send "" for no reply. Every reader rejects an empty id. A model can also copy the
       // quotes around the id in the delivery prompt; such an id refers to no message.
-      const replyTo =
+      const replyReference =
         replyToMessageId
           ?.trim()
           .replace(/^"(.*)"$/s, "$1")
           .trim() || null;
+      const replyTo = replyReference && this.#mailbox.replyReferenceMessageId(replyReference);
+      // An id that names no message would store the answer outside the thread that asked, and stop the
+      // automatic result for the request (#5452). Nothing is written, so the agent can send it again. The
+      // agent corrects its own call, so the user gets no error for it.
+      if (replyReference && !replyTo) {
+        const requestIds = turnDeliveries
+          .filter(
+            ({ delivery }) =>
+              delivery.sender.kind === "agent" &&
+              recipientValues.includes(delivery.sender.agentId) &&
+              delivery.expectsReply !== false,
+          )
+          .map(({ delivery }) => delivery.messageId);
+        return openBotToolFailure(
+          [
+            sourceText("error.backend.replyReferenceUnknown", { id: replyReference }),
+            ...(requestIds.length > 0
+              ? [sourceText("error.backend.replyReferenceRequests", { ids: requestIds.join(", ") })]
+              : []),
+          ].join(" "),
+        );
+      }
       // An answer to a request from a side thread runs in that thread. When the thread is archived, the
       // answer goes to the recipient's own chat, so it is not lost. A message without replyToMessageId,
       // such as a question back, goes to the thread of the requests from its recipient that this turn

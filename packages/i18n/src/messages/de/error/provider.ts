@@ -111,6 +111,7 @@ export const messages = {
   "error.provider.maxOutputInvalid":
     "Die maximale Ausgabe eines Modells muss eine ganze Zahl von Tokens zwischen {min} und {max} sein.",
   "error.provider.reasoningEffortsInvalid": "Der Denkaufwand eines Modells ist ungültig.",
+  "error.provider.inputsInvalid": "Die Eingabearten eines Modells sind ungültig.",
   "error.provider.headersTooMany": "Es gibt zu viele Header.",
   "error.provider.headerNameCharacter": "Ein Headername enthält ein Zeichen, das HTTP nicht erlaubt.",
   "error.provider.headerNameTooLong": "Ein Headername ist zu lang.",
@@ -306,6 +307,8 @@ export const messages = {
     "Die Sitzung des Agenten hat das Kontextlimit überschritten, und der Agent konnte sie nicht durch Verdichten wiederherstellen. OpenBot hat eine neue Sitzung mit dem Chatverlauf gestartet. Versuche es erneut. Wenn der Fehler bleibt, starte einen neuen Chat.",
   "error.provider.museMcpStartupFault":
     "Muse konnte einen MCP-Server nicht starten und hat MCP in dieser Sitzung gesperrt. OpenBot hat eine neue Muse-Sitzung mit dem Chatverlauf gestartet. Versuche es erneut. Wenn der Fehler bleibt, schalte Computersteuerung oder den fehlerhaften MCP-Server für diesen Agenten aus.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code hat die gespeicherte Sitzung dieses Chats nicht gefunden. OpenBot hat eine neue Claude-Code-Sitzung mit dem Chatverlauf gestartet. Versuche es erneut.",
   "error.provider.grokSignIn": "Führe `grok login` aus oder setze XAI_API_KEY, um Grok zu verwenden.",
   "error.provider.acpSignInTimedOut": "Die Zeit für die Anmeldung ist abgelaufen.",
   "error.provider.acpSignInStopped": "Die Anmeldung wurde vor dem Abschluss gestoppt.",

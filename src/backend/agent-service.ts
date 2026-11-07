@@ -20,6 +20,7 @@ import type {
   AgentSummary,
   AgentTask,
   AgentTaskInput,
+  AgentTaskPage,
   AgentTaskReadState,
   AgentTasksSnapshot,
   AgentWaitsSnapshot,
@@ -73,6 +74,7 @@ import type {
   ProviderUsageResets,
   QueuedMessageReceipt,
   QueueSnapshot,
+  ReadAgentTaskPageInput,
   RemoveMcpServerInput,
   ReorderQueueInput,
   ResetAgentSessionSettingInput,
@@ -255,7 +257,7 @@ import { isAnswer, MessagingThreads, toMessagingThreadFailed } from "./messaging
 import type { PasswordVault } from "./password-vault";
 import { canConfineProcesses } from "./process-confinement";
 import { decodeRecordResponse, getString } from "./protocol";
-import { NO_PROVIDER_CREDENTIALS, type ProviderClientContext } from "./provider-drivers";
+import { NO_PROVIDER_CREDENTIALS, type ProviderClientContext, requireProviderDriver } from "./provider-drivers";
 import { providerHistoryPersistence } from "./provider-history-persistence";
 import { recordAgentRestartActivity } from "./restart-activity";
 import type { RoutineFlowTools } from "./routine-flows/routine-flow-tools";
@@ -436,6 +438,11 @@ const USER_SEND_RETRY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_SECTION_TEAMMATES = 32;
 /** How long an archive waits for the provider to end the turn that it stopped. After it, the archive is refused. */
 const TASK_STOP_WAIT_MS = 15_000;
+/**
+ * How long after a list that lacks an agent's model a `catalog.partialListAtStart` provider is asked
+ * again. Grok 1.0.70 has its whole catalogue about a second after it starts on an expired sign-in.
+ */
+const PARTIAL_LIST_RECHECK_MS = 5_000;
 
 /** The user's update, and the browser profile choice that the profile operations set after their checks. */
 export type AgentUpdate = UpdateAgentInput & {
@@ -871,10 +878,23 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         onProviderActivated: (provider, configRevision) =>
           Effect.gen({ self: this }, function* () {
             if (isCustomProviderHarness(provider)) this.#endpoints.clearReleased(provider, configRevision);
+            // A CLI that can list part of its models at start is asked once more, outside the lock,
+            // before an agent leaves a model. A second list that is not fresh moves nobody, and
+            // neither does one from a process that replaced this one: its own activation decides.
+            let listConfirmed = true;
+            if (
+              requireProviderDriver(provider).catalog?.partialListAtStart &&
+              this.#endpoints.hasAgentsOffList(provider)
+            ) {
+              const client = this.#providers.currentClient(provider);
+              yield* Effect.sleep(PARTIAL_LIST_RECHECK_MS);
+              const fresh = yield* this.#providers.refreshModels();
+              listConfirmed = fresh.has(provider) && this.#providers.currentClient(provider) === client;
+            }
             yield* this.#endpoints.runExclusive(() =>
               Effect.gen({ self: this }, function* () {
                 if (isCustomProviderHarness(provider)) yield* this.#endpoints.moveAgentsToHarness(provider);
-                yield* this.#endpoints.moveAgentsOffUnlistedModels(provider);
+                if (listConfirmed) yield* this.#endpoints.moveAgentsOffUnlistedModels(provider);
               }),
             );
           }),
@@ -2358,10 +2378,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   /**
-   * Tells the renderer and each joined client to read the model list again, after a change to the
-   * models that the picker shows. The list reaches them by pull, refreshed on a status event.
+   * Tells the renderer and each joined client to read the model list and the provider settings
+   * again, after a change to the models that the picker shows or to the prompt cache time. They
+   * reach the clients by pull, refreshed on a status event.
    */
-  notifyModelsChanged(): void {
+  notifyProviderSettingsChanged(): void {
     this.#emit({ type: "status", status: this.getStatus() });
   }
 
@@ -3787,11 +3808,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
-  /** `heldRoutines`: routines due while a restart waited run once. */
-
+  /**
+   * `heldRoutines`: routines due while a restart waited run once.
+   * `rosterLoaded` runs when the agents are restored. The steps after it do not change the roster.
+   * `beforeProviderStart` runs just before the providers start, which read the MCP entries when they spawn.
+   */
   readonly initialize = Effect.fn("AgentService.initialize")(function* (
     this: AgentService,
-    options: { heldRoutines?: RoutineHoldWindow | undefined } = {},
+    options: {
+      heldRoutines?: RoutineHoldWindow | undefined;
+      rosterLoaded?: Effect.Effect<void> | undefined;
+      beforeProviderStart?: Effect.Effect<void> | undefined;
+    } = {},
   ) {
     this.#stopping = false;
     yield* this.#store
@@ -3828,6 +3856,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#initialized = true;
       this.#memoryHold.start();
     });
+    if (options.rosterLoaded) yield* options.rosterLoaded;
+    if (options.beforeProviderStart) yield* options.beforeProviderStart;
     yield* this.#providers
       .start()
       .pipe(Effect.mapError((error) => new AgentLifecycleFailed({ operation: "start providers", cause: error.cause })));
@@ -4658,6 +4688,41 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   /** The conversation of one task, for its panel. */
   readTask(agentId: string, taskId: string): ConversationSnapshot {
     return structuredClone(this.#tasks.read(agentId, taskId));
+  }
+
+  /**
+   * The older messages of a task: the page before a message that its panel holds. A limit of 0 reads
+   * only whether there are any. A message that the thread does not hold has none. `exclusions` leave out
+   * the markers that a remote reader cannot show, so they do not count either.
+   */
+  readTaskPage(input: ReadAgentTaskPageInput, exclusions: ConversationMarkerExclusions = {}): AgentTaskPage {
+    const { threadId } = this.#tasks.require(input.agentId, input.taskId);
+    const database = this.#store.database;
+    const none = (hasOlder: boolean): AgentTaskPage => ({
+      conversation: { agentId: input.agentId, threadId, activeTurnId: null, revision: 0, messages: [] },
+      hasOlder,
+    });
+    if (input.limit === 0)
+      return none(database.conversationCountBefore(threadId, input.beforeMessageId, exclusions) > 0);
+    const cursor = database.conversationCursorAt(threadId, input.beforeMessageId);
+    if (!cursor) return none(false);
+    const page = database.readConversationPage(
+      input.agentId,
+      threadId,
+      { type: "before", cursor },
+      input.limit,
+      exclusions,
+    );
+    return {
+      conversation: {
+        agentId: input.agentId,
+        threadId,
+        activeTurnId: page.activeTurnId,
+        revision: page.revision,
+        messages: page.messages,
+      },
+      hasOlder: page.pageInfo.hasOlder,
+    };
   }
 
   /** Starts a task of the agent with its first message. The task runs beside the agent's own chat. */

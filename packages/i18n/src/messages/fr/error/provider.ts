@@ -120,6 +120,7 @@ export const messages = {
   "error.provider.maxOutputInvalid":
     "La sortie maximale d’un modèle doit être un nombre entier de jetons entre {min} et {max}.",
   "error.provider.reasoningEffortsInvalid": "Les niveaux d’effort d’un modèle ne sont pas valides.",
+  "error.provider.inputsInvalid": "Les types d’entrée d’un modèle ne sont pas valides.",
   "error.provider.headersTooMany": "Il y a trop d’en-têtes.",
   "error.provider.headerNameCharacter": "Un nom d’en-tête contient un caractère que HTTP n’autorise pas.",
   "error.provider.headerNameTooLong": "Un nom d’en-tête est trop long.",
@@ -311,6 +312,8 @@ export const messages = {
     "La session de l’agent a dépassé sa limite de contexte et l’agent n’a pas pu la récupérer en la compactant. OpenBot a démarré une nouvelle session avec l’historique de la conversation. Réessayez. Si l’erreur continue, commencez une nouvelle conversation.",
   "error.provider.museMcpStartupFault":
     "Muse n’a pas pu démarrer un serveur MCP et a bloqué MCP dans cette session. OpenBot a démarré une nouvelle session Muse avec l’historique de la conversation. Réessayez. Si l’erreur persiste, désactivez Computer Use ou le serveur MCP en échec pour cet agent.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code n’a pas trouvé la session enregistrée de cette conversation. OpenBot a ouvert une nouvelle session Claude Code avec l’historique de la conversation. Réessayez.",
   "error.provider.grokSignIn": "Exécutez `grok login` ou définissez XAI_API_KEY pour utiliser Grok.",
   "error.provider.acpSignInTimedOut": "La connexion a expiré.",
   "error.provider.acpSignInStopped": "La connexion s’est arrêtée avant la fin.",

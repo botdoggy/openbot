@@ -59,6 +59,8 @@ export const messages = {
   "error.backend.channelLeadModelUnavailable": "Модель ведущего канала недоступна.",
   "error.backend.contextCompactionIneffective":
     "Сжатие не уменьшает этот чат: после двух сжатий он всё ещё занимает {percent}% окна контекста модели, поэтому OpenBot перестаёт его сжимать. Большую часть окна занимают инструменты и инструкции. Отключите MCP-серверы или управление компьютером, которые не нужны этому агенту, или выберите модель с большим окном. Затем начните новый чат.",
+  "error.backend.contextCompactionStopped":
+    "Два сжатия этого чата подряд не удались, поэтому OpenBot больше не сжимает его автоматически. Каждая попытка отправляет весь чат модели и расходует лимит тарифа. Выберите «Сжать сейчас», чтобы попробовать снова, или начните новый чат.",
   "error.backend.providerRetrying":
     "Провайдер не выполнил этот запрос {attempts} раза и пробует снова. Если агент не продолжит, остановите ход.",
   "error.backend.providerRetryingLargeContext":
@@ -234,6 +236,10 @@ export const messages = {
   "error.backend.mcpServerExited":
     "Сервер остановился, не ответив. Запустите команду в терминале, чтобы увидеть ошибку.",
   "error.backend.mcpServerFailedToStart": "Сервер не запустился: {reason}",
+  "error.backend.mcpServerSignInForProvider":
+    "{provider} не может использовать MCP-сервер {name}: сервер требует входа. Откройте настройки MCP и выберите «Войти».",
+  "error.backend.mcpServerFailedForProvider":
+    "{provider} не может запустить MCP-сервер {name}. Откройте настройки MCP и выберите «Проверить подключение», чтобы увидеть причину.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot не смог запустить локальное подключение для входа на этот сервер. Перезапустите OpenBot и повторите попытку.",
   "error.backend.mcpOAuthSignInNeeded":

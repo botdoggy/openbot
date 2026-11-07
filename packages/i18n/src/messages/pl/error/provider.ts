@@ -107,6 +107,7 @@ export const messages = {
   "error.provider.contextWindowInvalid": "Okno kontekstu modelu musi być liczbą całkowitą tokenów od {min} do {max}.",
   "error.provider.maxOutputInvalid": "Maksymalne wyjście modelu musi być liczbą całkowitą tokenów od {min} do {max}.",
   "error.provider.reasoningEffortsInvalid": "Poziomy wysiłku modelu są nieprawidłowe.",
+  "error.provider.inputsInvalid": "Rodzaje danych wejściowych modelu są nieprawidłowe.",
   "error.provider.headersTooMany": "Jest za dużo nagłówków.",
   "error.provider.headerNameCharacter": "Nazwa nagłówka zawiera znak niedozwolony w HTTP.",
   "error.provider.headerNameTooLong": "Nazwa nagłówka jest za długa.",
@@ -286,6 +287,8 @@ export const messages = {
     "Sesja agenta przekroczyła limit kontekstu, a agent nie mógł jej odzyskać przez kompaktowanie. OpenBot rozpoczął nową sesję z historią czatu. Spróbuj ponownie. Jeśli błąd się powtarza, rozpocznij nowy czat.",
   "error.provider.museMcpStartupFault":
     "Muse nie mógł uruchomić serwera MCP i zablokował MCP w tej sesji. OpenBot rozpoczął nową sesję Muse z historią czatu. Spróbuj ponownie. Jeśli błąd się powtarza, wyłącz Sterowanie komputerem lub serwer MCP, który zawiódł, dla tego agenta.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code nie znalazł zapisanej sesji tego czatu. OpenBot rozpoczął nową sesję Claude Code z historią czatu. Spróbuj ponownie.",
   "error.provider.grokSignIn": "Uruchom `grok login` lub ustaw XAI_API_KEY, aby używać Grok.",
   "error.provider.acpSignInTimedOut": "Upłynął limit czasu logowania.",
   "error.provider.acpSignInStopped": "Logowanie zatrzymało się przed zakończeniem.",
