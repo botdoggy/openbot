@@ -49,11 +49,8 @@ import {
   resolveInstalledFirst,
 } from "./../cli";
 import { readCursorUsage } from "./../cursor-usage";
-<<<<<<< HEAD
 import type { CustomAgentConfig } from "../custom-acp-agents-client";
-=======
 import { DISK_RESTORE_WAIT_MS, diskRestoring, providerCheckTimeoutMs } from "../disk-restore";
->>>>>>> upstream/main
 import { causeHelpers } from "../effect-boundary";
 import { isPythonKimiCli, type SignInRegion } from "../kimi-region";
 import { readKimiUsage } from "../kimi-usage";

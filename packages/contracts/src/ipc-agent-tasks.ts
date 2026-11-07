@@ -1,17 +1,13 @@
 import type { AgentProviderId } from "./agent-providers";
 import { INPUT_LIMITS } from "./input-limits";
 import { integerInRange, isBoundedString, isIdentifier, isNullableBoundedString } from "./ipc-bounded-values";
-<<<<<<< HEAD
-import { type ConversationReadState, isConversationReadState } from "./ipc-conversations";
-import { agentConcurrentTurns } from "./ipc-custom-agents";
-=======
 import {
   type ConversationReadState,
   type ConversationSnapshot,
   isConversationReadState,
   isConversationSnapshot,
 } from "./ipc-conversations";
->>>>>>> upstream/main
+import { agentConcurrentTurns } from "./ipc-custom-agents";
 import { isQueueDelivery, type QueueDelivery } from "./ipc-queue";
 import { isDynamicRecord, isOneOf } from "./runtime-values";
 

@@ -114,7 +114,6 @@ function isMuseMcpStartupFault(provider: AgentProvider, message: string): boolea
 }
 
 /**
-<<<<<<< HEAD
  * A custom ACP agent's provider rejected the turn because the session outgrew the model's context.
  * ACP has no host-triggered compact request, and an agent whose own compact-and-retry failed
  * leaves the oversized history intact, so each later turn fails the same way. Only a new session,
@@ -127,14 +126,15 @@ function isAcpContextOverflow(provider: AgentProvider, message: string): boolean
       message,
     )
   );
-=======
+}
+
+/**
  * OpenBot names a new Claude session before the CLI writes it, and a first turn that stops before
  * that write, such as on a terms prompt, leaves a session that does not exist. The CLI then refuses
  * each resume of it, and so does a session file lost with a changed config folder (#5365).
  */
 function isMissingClaudeSession(provider: AgentProvider, message: string): boolean {
   return provider === "claude" && /\bNo conversation found with session ID\b/.test(message);
->>>>>>> upstream/main
 }
 
 /**
@@ -146,11 +146,8 @@ export function refusedSessionFailure(provider: AgentProvider, message: string):
     return sourceText("error.provider.foreignReasoning", { provider: providerLabel(provider) });
   if (isRejectedOpenCodeRequest(provider, message)) return sourceText("error.provider.opencodeSessionRejected");
   if (isMuseMcpStartupFault(provider, message)) return sourceText("error.provider.museMcpStartupFault");
-<<<<<<< HEAD
   if (isAcpContextOverflow(provider, message)) return sourceText("error.provider.acpContextOverflow");
-=======
   if (isMissingClaudeSession(provider, message)) return sourceText("error.provider.claudeSessionMissing");
->>>>>>> upstream/main
   return null;
 }
 
