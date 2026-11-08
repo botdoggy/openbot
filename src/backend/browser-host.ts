@@ -170,6 +170,14 @@ import {
   parseBrowserToolCall,
 } from "./browser-tools";
 import { runCauseEffect } from "./effect-boundary";
+import {
+  BROWSER_STRING_MORE,
+  BROWSER_VALUE_MORE,
+  BROWSER_VALUE_TEXT_LIMIT,
+  cutModelText,
+  jsonStringFit,
+  type ModelTextCut,
+} from "./model-text-limit";
 import type { DynamicToolCallParams, DynamicToolResult } from "./protocol";
 import { isRecord } from "./protocol";
 import type { VaultCardSecret } from "./vault-items";
@@ -270,9 +278,16 @@ function viewContextMenu(
  * blank page, as a restored tab does. When memory is low, the tab unloads after
  * `LOW_MEMORY_TAB_SLEEP_MS`.
  */
-const IDLE_TAB_SLEEP_MS = 30 * 60_000;
+const IDLE_TAB_SLEEP_MS = 15 * 60_000;
 const LOW_MEMORY_TAB_SLEEP_MS = 5 * 60_000;
 const IDLE_TAB_SWEEP_MS = 60_000;
+/**
+ * Each loaded tab is its own renderer process, about 300 MB on a typical page. Of the tabs that can
+ * sleep and are not in use, only this many most recently used stay loaded; an older one sleeps after
+ * `AWAKE_TAB_GRACE_MS`, so an agent that moves between a few tabs in one task does not reload them.
+ */
+const MAX_IDLE_AWAKE_TABS = 3;
+const AWAKE_TAB_GRACE_MS = 2 * 60_000;
 /**
  * The page load errors that say the proxy of the tab did not answer or refused it, and why, with
  * their Chromium codes. A failed load can give only the code, with no name.
@@ -290,12 +305,29 @@ const PROXY_ERROR_LIST: readonly (readonly [name: string, code: number, failure:
 const PROXY_ERRORS = new Map(PROXY_ERROR_LIST.map(([name, , failure]) => [name, failure]));
 const PROXY_ERROR_CODES = new Map(PROXY_ERROR_LIST.map(([, code, failure]) => [code, failure]));
 
+/** The Chromium error code in the text of a failed page load, written as `(<code>)`. */
+function chromiumErrorCode(text: string): number | undefined {
+  const code = /\((-\d+)\)/u.exec(text)?.[1];
+  return code === undefined ? undefined : Number(code);
+}
+
 /** The proxy failure in the text of a failed page load: a Chromium error name, or `(<code>)`. */
 function proxyErrorInText(text: string): BrowserProxyFailure | undefined {
   const name = /\bERR_[A-Z_]+/u.exec(text)?.[0];
   if (name !== undefined) return PROXY_ERRORS.get(`net::${name}`);
-  const code = /\((-\d+)\)/u.exec(text)?.[1];
-  return code === undefined ? undefined : PROXY_ERROR_CODES.get(Number(code));
+  const code = chromiumErrorCode(text);
+  return code === undefined ? undefined : PROXY_ERROR_CODES.get(code);
+}
+
+/**
+ * A page load that Chromium stopped for the certificate of the site gets a message in plain words.
+ * Chromium gives certificate errors the codes -200 to -299. Other failures stay as they are.
+ */
+function certificateLoadFailure(failure: BrowserOperationError): BrowserOperationError {
+  const code = chromiumErrorCode(String(failure.cause));
+  return code !== undefined && code <= -200 && code > -300
+    ? browserFailure(new Error(sourceText("error.backend.browserCertificateUntrusted")))
+    : failure;
 }
 
 /** How many times one document answers the sign-in of its proxy. More means the sign-in is wrong. */
@@ -337,7 +369,8 @@ const BROWSER_WEB_PREFERENCES = {
   // An agent works in tabs that the panel does not show. A throttled tab waits up to a few seconds
   // for each pointer move, because Chromium sends the move with the next frame, and it tells the
   // page that it is hidden. The cost is that a hidden page keeps its full timer and frame rate
-  // until the idle sweep puts the tab to sleep (`IDLE_TAB_SLEEP_MS`, sooner when memory is low).
+  // until the idle sweep puts the tab to sleep (`IDLE_TAB_SLEEP_MS`, sooner past `MAX_IDLE_AWAKE_TABS`
+  // idle tabs or when memory is low).
   backgroundThrottling: false,
 };
 
@@ -555,6 +588,7 @@ export class BrowserHost {
   /** Whether the machine is too low on memory for one more tab. Only a server has a reading. */
   readonly #memoryLow: () => boolean;
   readonly #idleTabSweep: NodeJS.Timeout;
+  readonly #awakeTabGraceMs: number;
   readonly #webPreferences: ReturnType<typeof browserWebPreferences>;
 
   constructor(
@@ -586,6 +620,8 @@ export class BrowserHost {
       quitShortcut?: (input: Input) => boolean;
       /** The tab preload, which makes the page values that bot checks read agree with Chrome. */
       pagePreload?: string;
+      /** Shorter sleep timing for `scripts/browser-steps-e2e.ts`. */
+      tabSleep?: { sweepMs: number; awakeGraceMs: number };
     } = {},
   ) {
     this.#window = window;
@@ -600,6 +636,7 @@ export class BrowserHost {
       window.once("closed", () => this.#closeBackgroundWindow());
     }
     this.#memoryLow = options.memoryLow ?? (() => false);
+    this.#awakeTabGraceMs = options.tabSleep?.awakeGraceMs ?? AWAKE_TAB_GRACE_MS;
     this.#browserProfile = options.browserProfile ?? (() => ({ kind: "shared" }));
     this.#profileExists = options.profileExists ?? (() => false);
     this.#profileProxy = options.profileProxy ?? (() => null);
@@ -635,7 +672,7 @@ export class BrowserHost {
       void runCauseEffect(this.#sleepIdleTabs()).catch((error) =>
         logger.warn("Unable to sleep browser tabs", { error: toLogValue(error) }),
       );
-    }, IDLE_TAB_SWEEP_MS);
+    }, options.tabSleep?.sweepMs ?? IDLE_TAB_SWEEP_MS);
     this.#idleTabSweep.unref();
   }
 
@@ -710,10 +747,16 @@ export class BrowserHost {
   readonly #sleepIdleTabs = Effect.fn("BrowserHost.sleepIdleTabs")(function* (this: BrowserHost) {
     const now = Date.now();
     const idleMs = this.#memoryLow() ? LOW_MEMORY_TAB_SLEEP_MS : IDLE_TAB_SLEEP_MS;
+    const awake: BrowserHostTab[] = [];
     for (const tab of this.#tabs.values()) {
       if (tab.pendingRestore || !this.#maySleep(tab)) continue;
       if (this.#tabInUse(tab)) tab.lastUsedAt = now;
       else if (now - tab.lastUsedAt >= idleMs) yield* this.#sleep(tab);
+      else awake.push(tab);
+    }
+    awake.sort((left, right) => right.lastUsedAt - left.lastUsedAt);
+    for (const tab of awake.slice(MAX_IDLE_AWAKE_TABS)) {
+      if (now - tab.lastUsedAt >= this.#awakeTabGraceMs) yield* this.#sleep(tab);
     }
   });
 
@@ -933,7 +976,7 @@ export class BrowserHost {
     ownerAgentId: string | null = null,
     focus = false,
   ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
-    return yield* this.#open(url, ownerThreadId, ownerAgentId, focus);
+    return yield* this.#open(url, ownerThreadId, ownerAgentId, focus, false);
   }).bind(this);
 
   /**
@@ -947,15 +990,22 @@ export class BrowserHost {
   ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
     const privateSession = session.fromPartition(`openbot-private-${randomUUID()}`, { cache: false });
     this.#configureSession(privateSession);
-    return yield* this.#open(url, null, null, false, privateSession);
+    return yield* this.#open(url, null, null, false, true, privateSession);
   }).bind(this);
 
+  /**
+   * With `closeOnFailure` false, a tab whose first page does not load stays open on that address, as
+   * a tab does when a later page does not load, so the person sees where it failed and can try again.
+   * The open tool of an agent closes its tab, so that failed attempts do not fill the tab limit, and
+   * a private sign-in page closes its tab, as its callers expect.
+   */
   readonly #open = Effect.fn("BrowserHost.openTab")(function* (
     this: BrowserHost,
     url: string,
     ownerThreadId: string | null,
     ownerAgentId: string | null,
     focus: boolean,
+    closeOnFailure: boolean,
     privateSession?: Session,
   ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
     if (!this.#hasTabCapacity(ownerThreadId, ownerAgentId)) {
@@ -1006,7 +1056,7 @@ export class BrowserHost {
             const error = operationFailure.cause;
             // The user entered an address before the first page loaded: that load is the tab's page now.
             if (this.#tabs.get(tab.id) === tab && tab.loadGeneration !== loadGeneration) return;
-            if (this.#tabs.get(tab.id) === tab) {
+            if (this.#tabs.get(tab.id) === tab && (closeOnFailure || tab.contents.isDestroyed())) {
               this.#unmountView(tab.view);
               this.#tabs.delete(tab.id);
               this.#userControlTabIds.delete(tab.id);
@@ -1022,6 +1072,9 @@ export class BrowserHost {
             yield* this.#persistState();
             const proxyFailure = this.#proxyLoadFailure(tab, operationFailure);
             if (proxyFailure !== operationFailure) return yield* proxyFailure;
+            // An agent keeps the Chromium reason, which tells it which certificate check failed.
+            const certificateFailure = closeOnFailure ? operationFailure : certificateLoadFailure(operationFailure);
+            if (certificateFailure !== operationFailure) return yield* certificateFailure;
             return yield* browserFailure(
               new Error(sourceText("error.backend.browserOpenFailed", { url: normalizedUrl, reason: String(error) })),
             );
@@ -1086,7 +1139,7 @@ export class BrowserHost {
             tab,
             navigateAndWait(tab.contents, () => tab.contents.loadURL(normalizedUrl, browserLoadOptions())),
           ).pipe(
-            Effect.mapError((failure) => this.#proxyLoadFailure(tab, failure)),
+            Effect.mapError((failure) => certificateLoadFailure(this.#proxyLoadFailure(tab, failure))),
             // A same-document load or a load that does not start leaves the flag for the next navigation.
             Effect.ensuring(
               Effect.sync(() => {
@@ -1864,7 +1917,7 @@ export class BrowserHost {
         yield* browserSync(() => this.#requireNoFilledCard(tab, "Browser screenshot"));
         const image = yield* boundEngineOperation(
           tab,
-          tab.engine.screenshot(target, Date.now() + 10_000),
+          tab.engine.screenshot(target, Date.now() + 10_000, true),
           10_000,
           "Browser screenshot timed out.",
           keepQueueBlocked,
@@ -1882,8 +1935,12 @@ export class BrowserHost {
   ): Effect.fn.Return<BrowserPreview, BrowserOperationError> {
     const tab = this.#tabs.get(tabId);
     if (!tab) return yield* browserFailure(new Error(`Unknown browser tab: ${tabId}`));
-    // A preview card on screen does not keep a sleeping tab loaded.
-    if (tab.sleeping?.preview) return tab.sleeping.preview;
+    // A preview card on screen does not keep a sleeping tab loaded, also when the tab has no saved
+    // frame: the card asks again every few seconds, and each wake would load the page again.
+    if (tab.sleeping) {
+      if (tab.sleeping.preview) return tab.sleeping.preview;
+      return yield* browserFailure(new Error("Browser preview is not saved for a sleeping tab."));
+    }
     yield* this.#wake(tab);
     if (tab.secret?.submitted)
       return yield* browserFailure(new Error("Browser inspection is protected during authentication. Use takeover."));
@@ -2087,7 +2144,7 @@ export class BrowserHost {
   readonly #toolHandlers: BrowserToolHandlers = {
     open: ({ args }, params) =>
       Effect.gen({ self: this }, function* () {
-        const tab = yield* this.open(args.url, params.threadId, params.ownerAgentId ?? null);
+        const tab = yield* this.#open(args.url, params.threadId, params.ownerAgentId ?? null, false, true);
         this.#controls.updateTab(params, tab.id);
         // The agent reads a page that it opens, so the first snapshot comes with the tab and saves a call.
         const read = yield* Effect.result(this.#finalStepsSnapshot(params, tab.id));
@@ -2142,7 +2199,7 @@ export class BrowserHost {
                   }
                   const image = yield* boundEngineOperation(
                     tab,
-                    tab.engine.screenshot(),
+                    tab.engine.screenshot(undefined, undefined, true),
                     10_000,
                     "Browser screenshot timed out.",
                     keepQueueBlocked,
@@ -2217,7 +2274,7 @@ export class BrowserHost {
     evaluate: ({ args }, params) =>
       Effect.gen({ self: this }, function* () {
         yield* browserSync(() => this.#requireToolTab(params, args.tabId));
-        return textResult(
+        return valueTextResult(
           yield* this.#runEvaluation(
             args.tabId,
             args.expression,
@@ -2339,6 +2396,7 @@ export class BrowserHost {
           ...snapshotTextResult({
             tabId,
             ...result,
+            ...boundedScriptValue(result.value),
             ...(result.error === undefined ? {} : { error: redactText(result.error) }),
             ...(snapshotError === undefined ? {} : { snapshotError }),
             // A page can put a typed card value in its address, as in the tab list.
@@ -4246,6 +4304,46 @@ function textResult(value: unknown): DynamicToolResult {
   };
 }
 
+/**
+ * An evaluated value as JSON text. Text past the model limit is cut, with a note that says how to read
+ * more. A string is cut in its own characters, so that the note counts what the model returned.
+ */
+function valueTextResult(value: BrowserJsonValue): DynamicToolResult {
+  const text = JSON.stringify(value);
+  let shown = text;
+  if (isString(value)) {
+    const cut = cutStringValue(value);
+    if (cut) shown = `${JSON.stringify(cut.text)}\n${cut.note}`;
+  } else {
+    const cut = cutModelText(text, BROWSER_VALUE_TEXT_LIMIT, BROWSER_VALUE_MORE);
+    if (cut) shown = `${cut.text}\n${cut.note}`;
+  }
+  return { success: true, contentItems: [{ type: "inputText", text: shown }] };
+}
+
+/** The start of a string whose JSON form is past the model limit, and a note in characters of the string. */
+function cutStringValue(value: string): ModelTextCut | null {
+  if (JSON.stringify(value).length <= BROWSER_VALUE_TEXT_LIMIT) return null;
+  return cutModelText(value, jsonStringFit(value, BROWSER_VALUE_TEXT_LIMIT), BROWSER_STRING_MORE);
+}
+
+/**
+ * A script value whose JSON is past the model limit becomes a string, and `valueCut` says so. The model
+ * reads that string with its escapes, so the cut is the longest start whose escaped form fits. A string
+ * value is cut in its own characters; another value is cut in characters of its JSON.
+ */
+function boundedScriptValue(value: BrowserJsonValue | undefined): { value?: string; valueCut?: string } {
+  if (value === undefined) return {};
+  if (isString(value)) {
+    const cut = cutStringValue(value);
+    return cut ? { value: cut.text, valueCut: cut.note } : {};
+  }
+  const json = JSON.stringify(value);
+  if (json.length <= BROWSER_VALUE_TEXT_LIMIT) return {};
+  const cut = cutModelText(json, jsonStringFit(json, BROWSER_VALUE_TEXT_LIMIT), BROWSER_VALUE_MORE);
+  return cut ? { value: cut.text, valueCut: cut.note } : {};
+}
+
 /** An action that closed its tab returns this in place of a snapshot. */
 type ClosedTabResult = { tabId: string; closed: true; openerTabId?: string };
 
@@ -4259,7 +4357,13 @@ type SnapshotToolPayload =
       Partial<Pick<BrowserCardFillResult, "unconfirmed">> & {
         snapshot: BrowserSnapshot | ClosedTabResult | DialogTabResult | null;
       })
-  | (BrowserScriptResult & { tabId: string; snapshotError?: string; url?: string; snapshot?: BrowserSnapshot });
+  | (BrowserScriptResult & {
+      tabId: string;
+      valueCut?: string;
+      snapshotError?: string;
+      url?: string;
+      snapshot?: BrowserSnapshot;
+    });
 
 function snapshotTextResult(value: SnapshotToolPayload): DynamicToolResult {
   return {

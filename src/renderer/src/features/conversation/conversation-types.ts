@@ -108,6 +108,8 @@ export interface ConversationChannelSource {
   readOnly: () => boolean;
   /** The agent that wrote an agent row, with the name the channel keeps for it. */
   author: (message: AgentMessage) => ChatMessageAuthor;
+  /** A person's message that this user sent, not another member's. */
+  ownMessage: (message: AgentMessage) => boolean;
   /** The agents that work now. */
   workers: () => ChannelWorker[];
   /** The turns of the workers that run now, whose steps show under the activity line. */
@@ -378,6 +380,11 @@ export interface ConversationProps {
   onCancelQueuedMessage: (deliveryId: string) => void;
   onCancelWait?: ((waitId: string) => void) | undefined;
   onSteerQueuedMessage: (deliveryId: string) => void;
+  /**
+   * Puts a queued message first and stops the turn, for an agent whose provider cannot steer.
+   * Absent where the host does not offer it.
+   */
+  onSendQueuedMessageNow?: ((deliveryId: string) => void) | undefined;
   onUpdateQueuedMessage: (
     deliveryId: string,
     text: string,

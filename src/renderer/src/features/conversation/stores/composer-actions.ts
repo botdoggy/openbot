@@ -8,6 +8,7 @@ import {
 import { fileQuoteTarget } from "@openbot/contracts/chat-tag-references";
 import { ATTACHMENT_LIMITS, INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import {
+  agentSteers as savedAgentSteers,
   type AttachmentDataInput,
   type DraftAttachment,
   LOCAL_SERVER_ID,
@@ -869,7 +870,8 @@ export function createComposerActions(deps: ComposerActionsDeps) {
         deps.pendingSends.list(target).some((send) => send.state !== "failed"));
     // Read the send functions now: the send outlives this view when the user switches server.
     const send = deps.props.onSendMessage;
-    const steerQueued = deps.props.onSteerQueuedMessage;
+    // An agent whose provider cannot steer takes the message as its next turn: Send now.
+    const steerQueued = agentSteers() ? deps.props.onSteerQueuedMessage : deps.props.onSendQueuedMessageNow;
     const server = deps.props.server;
     // A deferred voice send can name a server that is no longer on screen. Its capabilities are not
     // known here, so only the local host, which always drops a repeat, is safe to retry then.
@@ -896,7 +898,7 @@ export function createComposerActions(deps: ComposerActionsDeps) {
       } else {
         dictatedSent?.(result.messageId);
         // The id is the delivery's. Steer acts on the chat on screen, so not after a switch.
-        if (steer && onScreen()) steerQueued(result.messageId);
+        if (steer && onScreen()) steerQueued?.(result.messageId);
       }
       return result;
     });
@@ -980,13 +982,26 @@ export function createComposerActions(deps: ComposerActionsDeps) {
     void submitMessage();
   }
 
+  /** A custom ACP agent uses its saved, check-seeded `_session/steering` capability. */
+  function agentSteers(): boolean {
+    return (
+      !deps.props.agent ||
+      savedAgentSteers(
+        { provider: deps.props.agent.provider, model: deps.props.agent.model },
+        deps.props.customAgents ?? [],
+      )
+    );
+  }
+
   /**
    * Sends the draft into the running turn: Send, then Steer on its queue row, in one key. An agent
    * that steers each message sent while it works does that itself, so a second steer is not asked.
+   * An agent whose provider cannot steer keeps the message queued, so Send now always follows.
    */
   function steerComposer(): void {
     if (deps.attachmentBusy() || deps.uploadFailed() || deps.voicePhase() !== "idle" || !deps.agentReady()) return;
-    const hostSteers = (deps.props.agent?.busyMessageMode ?? deps.props.defaultBusyMessageMode) === "steer";
+    const hostSteers =
+      agentSteers() && (deps.props.agent?.busyMessageMode ?? deps.props.defaultBusyMessageMode) === "steer";
     void submitMessage(undefined, undefined, undefined, undefined, !hostSteers);
   }
 

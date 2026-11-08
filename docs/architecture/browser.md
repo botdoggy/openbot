@@ -348,7 +348,8 @@ profile, so they share its sign-ins; a profile has no owner agent, and the tab r
 change. The name is a label only and never becomes a path or a partition, so a rename keeps the
 data. An agent with `browserProfileId` also has `ownBrowserSession: true`. After a downgrade, an
 older build thus opens such an agent in a session of its own, never in the shared one. A duplicate
-and an imported agent start with Shared. The user's tabs in an agent's panel use the agent's partition, so
+keeps the named profile of its source. Other duplicates and imported agents start with Shared, because
+an "Only this agent" copy would get a new, empty partition. The user's tabs in an agent's panel use the agent's partition, so
 the user can sign in for the agent there.
 
 `openPrivate` opens a sign-in page for another person in an in-memory partition. The tab is not
@@ -458,7 +459,8 @@ refusal in `AgentService` stays beside it rather than being folded in: it also c
 | Cancelled, interrupted, or failed | Stay open. Completion clears the control session only. |
 | Retry | Same thread and agent, so the same tabs are still reachable. |
 | Restart | Restored from the browser's own state file. |
-| Idle 30 min (5 min when memory is low) | Stays open, but its page unloads and its renderer process ends. The next use loads the page again. |
+| Idle 15 min (5 min when memory is low) | Stays open, but its page unloads and its renderer process ends. The next use loads the page again. |
+| More than 3 idle tabs loaded | The least recently used ones beyond 3 sleep as above once they are idle for 2 min. A tab in use (shown, busy, held, recording, playing audio, or with a secret) does not count. |
 | Agent deleted | That agent's tabs are closed, including a legacy tab holding only its thread id. Its own browser session is cleared. |
 | Browser profile changed | That agent's tabs are closed. Its next tab opens in the profile it chose. Both profiles keep their data. |
 | Profile cleared or deleted | Every tab in that profile is closed, then its data is cleared. |
