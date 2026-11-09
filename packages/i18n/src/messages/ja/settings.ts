@@ -118,6 +118,10 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "すべてのエージェントの {setting} を設定",
   "settings.agentDefaults.agentLabel": "{agent} の {setting}",
   "settings.agentDefaults.loadFailed": "エージェントを読み込めませんでした。",
+  "settings.commitCoAuthor.sectionTitle": "Git コミット",
+  "settings.commitCoAuthor.title": "コミットに OpenBot を記載",
+  "settings.commitCoAuthor.description":
+    "エージェントが作成するコミットに OpenBot を共同作成者として追加します。作成者はあなたのままです。",
   "settings.planStart.title": "作業の開始",
   "settings.planStart.wait": "開始を押したとき",
   "settings.planStart.after": "{time}後",
@@ -196,6 +200,7 @@ export const messages = {
   "settings.soundTheme.play": "{name}を再生",
   "settings.notch.title": "動作",
   "settings.notch.show.title": "MacBook のノッチに状況を表示する",
+  "settings.notch.show.titleTopOfScreen": "画面上部に状況を表示する",
   "settings.notch.show.description": "エージェントの動作と対応が必要な項目を各ディスプレイの上部に表示します。",
   "settings.notch.idle.title": "待機中のアイランドを表示する",
   "settings.notch.idle.description": "表示する状況がないときに OpenBot のロゴとあいさつを表示します。",

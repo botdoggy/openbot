@@ -117,6 +117,10 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "모든 에이전트에 {setting} 설정",
   "settings.agentDefaults.agentLabel": "{agent}의 {setting}",
   "settings.agentDefaults.loadFailed": "에이전트를 읽을 수 없어요.",
+  "settings.commitCoAuthor.sectionTitle": "Git 커밋",
+  "settings.commitCoAuthor.title": "커밋에 OpenBot 표시",
+  "settings.commitCoAuthor.description":
+    "에이전트가 만든 커밋에 OpenBot을 공동 작성자로 추가해요. 커밋 작성자는 바뀌지 않아요.",
   "settings.planStart.title": "작업 시작",
   "settings.planStart.wait": "시작을 누를 때",
   "settings.planStart.after": "{time} 후",
@@ -195,6 +199,7 @@ export const messages = {
   "settings.soundTheme.play": "{name} 재생",
   "settings.notch.title": "동작",
   "settings.notch.show.title": "MacBook 노치에 상태 표시",
+  "settings.notch.show.titleTopOfScreen": "화면 상단에 상태 표시",
   "settings.notch.show.description": "각 디스플레이 상단에 에이전트 활동과 확인이 필요한 항목을 표시해요.",
   "settings.notch.idle.title": "대기 상태 아일랜드 표시",
   "settings.notch.idle.description": "활성 상태가 없을 때 OpenBot 로고와 인사말을 표시해요.",

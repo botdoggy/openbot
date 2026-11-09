@@ -227,6 +227,8 @@ export const messages = {
     "Het OpenCode-model beëindigde de beurt zonder antwoord. Probeer het opnieuw, of kies een ander model.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "Het OpenCode-model beëindigde de beurt na het redeneren, zonder antwoord. Probeer het opnieuw, of kies een ander model.",
+  "error.provider.acpNoAnswer":
+    "{provider} beëindigde de beurt zonder antwoord. Stuur het bericht opnieuw, of begin een nieuwe chat.",
   "error.provider.chatgptPageFailed": "OpenBot kon de verbindingspagina van ChatGPT niet openen.",
   "error.provider.noneReady": "Er is geen agentaanbieder klaar.",
   "error.provider.claudeTurnActive": "Wacht op de actieve Claude-beurt voordat je de context vernieuwt.",
@@ -422,6 +424,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse heeft tekst of een afbeelding nodig.",
   "error.provider.museMethodUnsupported": "Muse ondersteunt {method} niet.",
   "error.provider.museTurnFailed": "De Muse-beurt is mislukt.",
+  "error.provider.museModelUnavailable":
+    "Muse kan dit model niet gebruiken. Muse is mogelijk niet beschikbaar in het land waar deze agent draait, of dit account heeft geen toegang tot het model. Kies een ander model en probeer het opnieuw.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse kan geen profiel maken zonder toegang tot externe tools. Gebruik een andere aanbieder om het profiel te maken en kies daarna Muse voor de agent.",
   "error.provider.museAuthUnverified":

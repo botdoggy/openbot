@@ -120,6 +120,10 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting} für alle Agenten festlegen",
   "settings.agentDefaults.agentLabel": "{setting} für {agent}",
   "settings.agentDefaults.loadFailed": "Die Agenten konnten nicht gelesen werden.",
+  "settings.commitCoAuthor.sectionTitle": "Git-Commits",
+  "settings.commitCoAuthor.title": "OpenBot in Commits nennen",
+  "settings.commitCoAuthor.description":
+    "Agenten tragen OpenBot als Mitautor in ihre Commits ein. Du bleibst der Autor.",
   "settings.planStart.title": "Arbeit starten",
   "settings.planStart.wait": "Wenn ich auf Start drücke",
   "settings.planStart.after": "Nach {time}",
@@ -201,6 +205,7 @@ export const messages = {
   "settings.soundTheme.play": "{name} abspielen",
   "settings.notch.title": "Verhalten",
   "settings.notch.show.title": "Status in der MacBook-Aussparung anzeigen",
+  "settings.notch.show.titleTopOfScreen": "Status oben auf dem Bildschirm anzeigen",
   "settings.notch.show.description":
     "Agentenaktivität und Elemente, die Aufmerksamkeit benötigen, am oberen Rand jedes Displays anzeigen.",
   "settings.notch.idle.title": "Insel im Ruhezustand anzeigen",

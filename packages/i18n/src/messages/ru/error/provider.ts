@@ -221,6 +221,8 @@ export const messages = {
     "Модель OpenCode завершила ход без ответа. Повторите попытку или выберите другую модель.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "Модель OpenCode завершила ход после рассуждения, без ответа. Повторите попытку или выберите другую модель.",
+  "error.provider.acpNoAnswer":
+    "{provider} завершил ход без ответа. Отправьте сообщение ещё раз или начните новый чат.",
   "error.provider.chatgptPageFailed": "OpenBot не смог открыть страницу подключения ChatGPT.",
   "error.provider.noneReady": "Ни один провайдер агентов не готов.",
   "error.provider.claudeTurnActive": "Дождитесь завершения текущего хода Claude, прежде чем обновлять его контекст.",
@@ -415,6 +417,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse нужен текст или изображение.",
   "error.provider.museMethodUnsupported": "Muse не поддерживает {method}.",
   "error.provider.museTurnFailed": "Ход Muse не удался.",
+  "error.provider.museModelUnavailable":
+    "Muse не может использовать эту модель. Возможно, Muse недоступен в стране, где работает этот агент, или у этой учётной записи нет доступа к модели. Выберите другую модель и повторите попытку.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse не может создать профиль без доступа к внешним инструментам. Создайте профиль с другим провайдером, затем выберите Muse для агента.",
   "error.provider.museAuthUnverified":

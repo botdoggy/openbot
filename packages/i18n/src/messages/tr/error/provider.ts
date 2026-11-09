@@ -229,6 +229,8 @@ export const messages = {
     "OpenCode modeli turu yanıt vermeden bitirdi. Tekrar deneyin veya başka bir model seçin.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "OpenCode modeli turu akıl yürütmesinden sonra yanıt vermeden bitirdi. Tekrar deneyin veya başka bir model seçin.",
+  "error.provider.acpNoAnswer":
+    "{provider} turu yanıt vermeden bitirdi. Mesajı yeniden gönderin veya yeni bir sohbet başlatın.",
   "error.provider.chatgptPageFailed": "OpenBot ChatGPT bağlantı sayfasını açamadı.",
   "error.provider.noneReady": "Hiçbir ajan sağlayıcısı hazır değil.",
   "error.provider.claudeTurnActive": "Bağlamını yenilemeden önce etkin Claude turunun bitmesini bekleyin.",
@@ -423,6 +425,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse metin veya görsel gerektirir.",
   "error.provider.museMethodUnsupported": "Muse {method} yöntemini desteklemiyor.",
   "error.provider.museTurnFailed": "Muse turu başarısız oldu.",
+  "error.provider.museModelUnavailable":
+    "Muse bu modeli kullanamıyor. Muse, bu ajanın çalıştığı ülkede kullanılamıyor olabilir ya da bu hesabın modele erişimi olmayabilir. Başka bir model seçip yeniden deneyin.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse, harici araçlara erişim olmadan profil oluşturamaz. Profili oluşturmak için başka bir sağlayıcı kullanın, ardından ajan için Muse'u seçin.",
   "error.provider.museAuthUnverified":

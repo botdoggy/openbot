@@ -236,6 +236,8 @@ export interface DeliveryContext {
   resumeAfterUsageLimit?: UsageLimitContinuation;
   planContinuation?: PlanContinuationMarker;
   channelId?: string;
+  /** The side thread that an agent sent the message from. */
+  senderTaskId?: string;
 }
 
 const EMPTY_STATE: StoredState = {
@@ -2131,11 +2133,21 @@ export class MailboxStore {
     return requesterId;
   }, Effect.uninterruptible).bind(this);
 
-  hasAgentMessageFromTurnTo(agentId: string, turnId: string, recipientAgentId: string): boolean {
+  /**
+   * Whether the turn sent the recipient a message. A reply to one of `turnRequestIds`, the recipient's
+   * requests that the turn read, answers only that request, so it does not count for the others (#5804).
+   */
+  hasAgentMessageFromTurnTo(
+    agentId: string,
+    turnId: string,
+    recipientAgentId: string,
+    turnRequestIds: ReadonlySet<string>,
+  ): boolean {
     const turnIds = this.#sourceTurnIds();
     return this.#state.messages.some((message) => {
       if (message.sender.kind !== "agent" || message.sender.agentId !== agentId) return false;
       if (turnIds.get(message.id) !== turnId) return false;
+      if (message.replyToMessageId !== null && turnRequestIds.has(message.replyToMessageId)) return false;
       return this.#state.deliveries.some(
         (delivery) => delivery.messageId === message.id && delivery.recipientAgentId === recipientAgentId,
       );
@@ -3151,6 +3163,7 @@ export class MailboxStore {
       ...(delivery.resumeAfterUsageLimit ? { resumeAfterUsageLimit: delivery.resumeAfterUsageLimit } : {}),
       ...(delivery.planContinuation ? { planContinuation: delivery.planContinuation } : {}),
       ...(message.channelId ? { channelId: message.channelId } : {}),
+      ...(message.senderTaskId ? { senderTaskId: message.senderTaskId } : {}),
       managedAttachments: message.attachments.map((attachment) => ({
         ...toAttachmentSummary(attachment),
         path: attachment.path,
@@ -3201,6 +3214,11 @@ export class MailboxStore {
           : null,
       editing: Boolean(delivery.editId),
     };
+  }
+
+  /** The queue position of each queued delivery, by delivery id. */
+  queuedPositions(): Map<string, number> {
+    return this.#queuedPositions();
   }
 
   #queuedPositions(): Map<string, number> {

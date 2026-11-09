@@ -120,6 +120,9 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting}: задать всем агентам",
   "settings.agentDefaults.agentLabel": "{setting}: {agent}",
   "settings.agentDefaults.loadFailed": "Не удалось загрузить агентов.",
+  "settings.commitCoAuthor.sectionTitle": "Коммиты Git",
+  "settings.commitCoAuthor.title": "Указывать OpenBot в коммитах",
+  "settings.commitCoAuthor.description": "Агенты добавляют OpenBot соавтором своих коммитов. Автором остаётесь вы.",
   "settings.planStart.title": "Начало работы",
   "settings.planStart.wait": "Когда я нажму «Начать»",
   "settings.planStart.after": "Через {time}",
@@ -203,6 +206,7 @@ export const messages = {
   "settings.soundTheme.play": "Воспроизвести: {name}",
   "settings.notch.title": "Поведение",
   "settings.notch.show.title": "Показывать статус в вырезе MacBook",
+  "settings.notch.show.titleTopOfScreen": "Показывать статус вверху экрана",
   "settings.notch.show.description":
     "Показывать активность агентов и всё, что требует внимания, в верхней части каждого дисплея.",
   "settings.notch.idle.title": "Показывать панель в режиме ожидания",

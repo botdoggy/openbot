@@ -224,6 +224,8 @@ export const messages = {
   "error.provider.opencodeNoAnswer": "OpenCode 모델이 답변 없이 턴을 끝냈어요. 다시 시도하거나 다른 모델을 선택하세요.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "OpenCode 모델이 추론만 하고 답변 없이 턴을 끝냈어요. 다시 시도하거나 다른 모델을 선택하세요.",
+  "error.provider.acpNoAnswer":
+    "{provider}이(가) 답변 없이 턴을 끝냈어요. 메시지를 다시 보내거나 새 채팅을 시작해 주세요.",
   "error.provider.chatgptPageFailed": "OpenBot이 ChatGPT 연결 페이지를 열 수 없었어요.",
   "error.provider.noneReady": "준비된 에이전트 제공자가 없어요.",
   "error.provider.claudeTurnActive": "컨텍스트를 새로 고치기 전에 진행 중인 Claude 턴이 끝날 때까지 기다려 주세요.",
@@ -413,6 +415,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse에는 텍스트나 이미지가 필요해요.",
   "error.provider.museMethodUnsupported": "Muse가 {method}을(를) 지원하지 않아요.",
   "error.provider.museTurnFailed": "Muse 턴에 실패했어요.",
+  "error.provider.museModelUnavailable":
+    "Muse에서 이 모델을 사용할 수 없어요. 이 에이전트가 실행되는 국가에서 Muse를 사용할 수 없거나, 이 계정에 모델 접근 권한이 없을 수 있어요. 다른 모델을 선택한 다음 다시 시도하세요.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse는 외부 도구에 접근하지 않고는 프로필을 생성할 수 없어요. 다른 제공자로 프로필을 생성한 후 에이전트에 Muse를 선택하세요.",
   "error.provider.museAuthUnverified":

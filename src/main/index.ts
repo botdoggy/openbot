@@ -6,6 +6,7 @@ import {
   type AgentSummary,
   type AppLogoColor,
   type CentralAuthState,
+  DEFAULT_APP_LOGO_COLOR,
   DEFAULT_QUIT_GUARD,
   type HostStatus,
   IPC_ENDPOINTS,
@@ -372,6 +373,11 @@ protocol.registerSchemesAsPrivileged([
     scheme: "openbot-remote-visual",
     privileges: { standard: true, secure: true },
   },
+  // The decode window of `read_video`, in its own session. It fetches the downloaded files.
+  {
+    scheme: "openbot-video",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
   {
     scheme: "openbot-avatar",
     privileges: { standard: true, secure: true, supportFetchAPI: true },
@@ -566,6 +572,14 @@ const windows = createMainWindowController({
 });
 
 let appIconColorImage: NativeImage | undefined;
+/**
+ * A packaged release on macOS shows the icon of its bundle in the Dock. On macOS 26 that icon comes
+ * from the Icon Composer catalog, with glass and with dark, clear and tinted versions; `dock.setIcon`
+ * would replace it with one flat image until the app quits.
+ */
+const dockShowsBundleIcon = process.platform === "darwin" && app.isPackaged && appVariant === "production";
+/** Electron cannot give the Dock back to the bundle icon, so after one change each change sets an image. */
+let dockIconChanged = false;
 let backgroundTray: BackgroundTray | null = null;
 
 /**
@@ -576,6 +590,7 @@ let backgroundTray: BackgroundTray | null = null;
  */
 function applyAppIconColor(color: AppLogoColor): void {
   if (appVariant !== "production") return;
+  if (dockShowsBundleIcon && color === DEFAULT_APP_LOGO_COLOR && !dockIconChanged) return;
   const icon = nativeImage.createFromPath(
     resolveLogoColorIconPath({
       color,
@@ -587,6 +602,7 @@ function applyAppIconColor(color: AppLogoColor): void {
   );
   if (icon.isEmpty()) return;
   if (process.platform === "darwin") {
+    dockIconChanged = true;
     app.dock?.setIcon(icon);
     return;
   }
@@ -713,6 +729,7 @@ function registerIpcHandlers({
   agentDefaults,
   agentMemoryLimit,
   memoryReview,
+  skillLearning,
   agentAccess,
   serverAudit,
   teamStore,
@@ -944,6 +961,7 @@ function registerIpcHandlers({
       serverPersonality,
       agentMemoryLimit,
       memoryReview,
+      skillLearning,
       machineAlerts,
       promptCacheTtl,
       modelVisibility,
@@ -1346,7 +1364,7 @@ if (!hasSingleInstanceLock) {
       powerMonitor.on("shutdown", () => runMarker?.osShutdown());
       // Set the Dock icon before `dock.show()` below. A development build runs the stock Electron.app,
       // so until this call its Dock tile shows the Electron logo.
-      if (process.platform === "darwin" && !localServerChild) app.dock?.setIcon(appIconPath);
+      if (process.platform === "darwin" && !localServerChild && !dockShowsBundleIcon) app.dock?.setIcon(appIconPath);
       if (!(await runCauseEffect(hostAllowsTenantLaunch()))) {
         app.quit();
         return;

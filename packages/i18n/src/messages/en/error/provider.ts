@@ -219,6 +219,8 @@ export const messages = defineMessages("error.provider", {
     "The OpenCode model ended the turn with no answer. Try again, or choose another model.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "The OpenCode model ended the turn after its reasoning, with no answer. Try again, or choose another model.",
+  "error.provider.acpNoAnswer":
+    "{provider} ended the turn with no answer. Send the message again, or start a new chat.",
   "error.provider.chatgptPageFailed": "OpenBot could not open the ChatGPT connection page.",
   "error.provider.noneReady": "No agent provider is ready.",
   "error.provider.claudeTurnActive": "Wait for the active Claude turn before refreshing its context.",
@@ -406,6 +408,8 @@ export const messages = defineMessages("error.provider", {
   "error.provider.museEmptyInput": "Muse needs text or an image.",
   "error.provider.museMethodUnsupported": "Muse does not support {method}.",
   "error.provider.museTurnFailed": "Muse turn failed.",
+  "error.provider.museModelUnavailable":
+    "Muse cannot use this model. Muse may not be available in the country where this agent runs, or this account has no access to the model. Choose another model, then try again.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse cannot generate a profile without access to external tools. Use another provider to generate the profile, then select Muse for the agent.",
   "error.provider.museAuthUnverified":

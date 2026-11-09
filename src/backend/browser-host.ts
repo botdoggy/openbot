@@ -160,8 +160,10 @@ import {
   browserInputAction,
   browserToolTimeout,
 } from "./browser-tool-actions";
+import { repairBrowserToolInput } from "./browser-tool-input";
 import {
   BROWSER_SCRIPT_DEFAULT_TIMEOUT_MS,
+  BROWSER_SCRIPT_EVALUATE_MAX_BYTES,
   BROWSER_SCRIPT_MAX_STEPS,
   type BrowserStep,
   type BrowserToolArguments,
@@ -374,10 +376,15 @@ const BROWSER_WEB_PREFERENCES = {
   backgroundThrottling: false,
 };
 
+/** macOS and Windows draw no page of a minimized or hidden window, so they use `#backgroundWindow`. */
+const USES_BACKGROUND_WINDOW = process.platform === "darwin" || process.platform === "win32";
+
 /** The window of `BrowserHost.#backgroundWindow`. It has no page of its own. */
 function createBackgroundWindow(): BaseWindow {
   const window = new BaseWindow({
     show: false,
+    // A Windows tool window is not in Alt+Tab or the taskbar.
+    ...(process.platform === "win32" ? { type: "toolbar" } : {}),
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -392,7 +399,7 @@ function createBackgroundWindow(): BaseWindow {
   });
   window.setIgnoreMouseEvents(true);
   window.setOpacity(0);
-  window.excludedFromShownWindowsMenu = true;
+  if (process.platform === "darwin") window.excludedFromShownWindowsMenu = true;
   return window;
 }
 
@@ -458,6 +465,16 @@ function runBrowserTool<Name extends BrowserToolName>(
 
 const AGENT_CODE_CARD_FILL =
   "Card fill is unavailable while a script from evaluate can still run in this page or in another open page of this site. Reload this page, close or navigate each other tab where you ran evaluate on this site, take a fresh snapshot, and call fill_card again, or use request_takeover.";
+
+/**
+ * The origins of the documents in the page. A frame whose renderer is gone, for example after a crash,
+ * has no document. `isDestroyed()` of its `WebContents` stays false, but Electron throws when code
+ * reads the frame, and in an Electron event listener that throw stops the main process.
+ */
+function frameOrigins(contents: WebContents): string[] {
+  if (contents.isDestroyed() || contents.mainFrame.isDestroyed()) return [];
+  return contents.mainFrame.framesInSubtree.flatMap((frame) => (frame.isDestroyed() ? [] : [frame.origin]));
+}
 
 function markScriptedOrigin(tab: BrowserHostTab, origin: string): void {
   const origins = tab.scriptedOrigins ?? new Set<string>();
@@ -562,10 +579,11 @@ export class BrowserHost {
   #target: BrowserViewTarget = "main";
   readonly #mountedViews = new Map<WebContentsView, BrowserWindow>();
   /**
-   * macOS draws no page of a hidden or minimized window. A page that loads there gives no image, so a
-   * snapshot or screenshot waits until its deadline (#5580). While the main window is hidden or
-   * minimized, the views of its tabs are in this window: shown, but transparent, click-through and
-   * never focused. `#mountedViews` still names the main window for them.
+   * macOS and Windows draw no page of a hidden or minimized window. A page that loads there gives
+   * no image, so a snapshot or screenshot waits until its deadline or is empty (#5580, #5991).
+   * While the main window is hidden or minimized, the views of its tabs are in this window: shown,
+   * but transparent, click-through and never focused. `#mountedViews` still names the main window
+   * for them.
    */
   #backgroundWindow: BaseWindow | null = null;
   #mainViewsInBackground = false;
@@ -625,7 +643,7 @@ export class BrowserHost {
     } = {},
   ) {
     this.#window = window;
-    if (process.platform === "darwin") {
+    if (USES_BACKGROUND_WINDOW) {
       const syncBackgroundWindow = () => {
         if (this.#syncBackgroundWindow()) this.#syncAttachedView();
       };
@@ -1383,7 +1401,9 @@ export class BrowserHost {
         this.listTabs().find((tab) => this.#userControlTabIds.has(tab.id) && this.#canUseToolTab(params, tab))?.id ??
         null
       );
-    const tabId = isRecord(params.arguments) ? params.arguments.tabId : undefined;
+    // The tool reads the repaired arguments, so this check does too: a call with tab_id names the tab.
+    const args = repairBrowserToolInput(params.tool, params.arguments).value;
+    const tabId = isRecord(args) ? args.tabId : undefined;
     if (!isString(tabId) || !this.#userControlTabIds.has(tabId)) return null;
     const tab = this.listTabs().find((candidate) => candidate.id === tabId);
     return tab && this.#canUseToolTab(params, tab) ? tabId : null;
@@ -1627,9 +1647,12 @@ export class BrowserHost {
     if (!tab.hasSharedBrowsingContext) return;
     const site = approximateSite(origin);
     for (const connected of this.#connectedTabs(tab)) {
-      if (connected === tab || connected.contents.isDestroyed()) continue;
-      const origins = connected.contents.mainFrame.framesInSubtree.map((frame) => frame.origin);
-      if (origins.some((frameOrigin) => frameOrigin !== "null" && approximateSite(frameOrigin) === site))
+      if (connected === tab) continue;
+      if (
+        frameOrigins(connected.contents).some(
+          (frameOrigin) => frameOrigin !== "null" && approximateSite(frameOrigin) === site,
+        )
+      )
         throw new Error(
           "Secure input is unavailable while a connected popup or opener tab shows the same site. Use takeover.",
         );
@@ -1676,10 +1699,10 @@ export class BrowserHost {
     if (!scripted) return;
     const connected = this.#connectedTabs(tab);
     for (const other of this.#sessionTabs(target)) {
-      if (other === tab || other.contents.isDestroyed()) continue;
-      const frameOrigins = new Set(other.contents.mainFrame.framesInSubtree.map((frame) => frame.origin));
+      if (other === tab) continue;
+      const otherOrigins = new Set(frameOrigins(other.contents));
       for (const origin of scripted) {
-        if (!frameOrigins.has(origin)) continue;
+        if (!otherOrigins.has(origin)) continue;
         if (connected.has(other)) markScriptedOrigin(other, origin);
         else markWorkerExposedOrigin(other, origin);
       }
@@ -1762,11 +1785,7 @@ export class BrowserHost {
   /** Whether a page of the origin other than the tab's own is open in the session. */
   #originOpenElsewhere(target: Session, origin: string, tab: BrowserHostTab): boolean {
     return [...this.#tabs.values()].some(
-      (other) =>
-        other !== tab &&
-        !other.contents.isDestroyed() &&
-        this.#tabSession(other) === target &&
-        other.contents.mainFrame.framesInSubtree.some((frame) => frame.origin === origin),
+      (other) => other !== tab && this.#tabSession(other) === target && frameOrigins(other.contents).includes(origin),
     );
   }
 
@@ -1922,9 +1941,10 @@ export class BrowserHost {
           "Browser screenshot timed out.",
           keepQueueBlocked,
         );
+        const imageUrl = yield* browserSync(() => boundedCaptureDataUrl(image));
         // An element image can scroll the page to the element, so it does not pass an earlier one on.
         if (!target) markImageTaken(tab);
-        return boundedCaptureDataUrl(image);
+        return imageUrl;
       }),
     );
   }).bind(this);
@@ -2204,8 +2224,8 @@ export class BrowserHost {
                     "Browser screenshot timed out.",
                     keepQueueBlocked,
                   );
+                  imageUrl = yield* browserSync(() => boundedCaptureDataUrl(image));
                   markImageTaken(tab);
-                  imageUrl = boundedCaptureDataUrl(image);
                 }),
             );
             return { result, imageUrl };
@@ -2735,6 +2755,8 @@ export class BrowserHost {
               step.awaitPromise ?? true,
               browserToolTimeout(step.timeoutMs),
               true,
+              // The value goes to the script, not to the model; the script result keeps the 64 KB limit.
+              BROWSER_SCRIPT_EVALUATE_MAX_BYTES,
             ),
           };
         case "sleep":
@@ -3906,14 +3928,19 @@ export class BrowserHost {
   #syncBackgroundWindow(): boolean {
     const window = this.#window;
     // Hide OpenBot (⌘H) also hides the background window. Showing it then would show OpenBot again.
-    if (process.platform !== "darwin" || window.isDestroyed() || this.#destroying || app.isHidden()) return false;
+    if (
+      !USES_BACKGROUND_WINDOW ||
+      window.isDestroyed() ||
+      this.#destroying ||
+      (process.platform === "darwin" && app.isHidden())
+    )
+      return false;
     const background = !window.isVisible() || window.isMinimized();
     if (background === this.#mainViewsInBackground) return false;
     const from = this.#nativeParent(window);
     if (background) {
       this.#backgroundWindow ??= createBackgroundWindow();
-      // The views keep their bounds, so the window has the size of the main window's content.
-      this.#backgroundWindow.setBounds(window.getContentBounds());
+      this.#backgroundWindow.setBounds(this.#backgroundBounds(window));
       this.#backgroundWindow.showInactive();
     }
     this.#mainViewsInBackground = background;
@@ -3925,6 +3952,25 @@ export class BrowserHost {
     }
     if (!background) this.#backgroundWindow?.hide();
     return true;
+  }
+
+  /**
+   * The views keep their bounds, so the background window has the size of the main window's content.
+   * A minimized Windows window reports a tiny content size off screen, so there the background window
+   * takes the restored place and covers each view.
+   */
+  #backgroundBounds(window: BrowserWindow): Rectangle {
+    if (process.platform !== "win32" || !window.isMinimized()) return window.getContentBounds();
+    const { x, y, width, height } = window.getNormalBounds();
+    let right = width;
+    let bottom = height;
+    for (const [view, owner] of this.#mountedViews) {
+      if (owner !== window) continue;
+      const bounds = view.getBounds();
+      right = Math.max(right, bounds.x + bounds.width);
+      bottom = Math.max(bottom, bounds.y + bounds.height);
+    }
+    return { x, y, width: right, height: bottom };
   }
 
   #closeBackgroundWindow(): void {
@@ -4070,6 +4116,7 @@ export class BrowserHost {
     awaitPromise: boolean,
     timeoutMs: number,
     undefinedAsNull = false,
+    maxBytes?: number,
   ): Effect.fn.Return<BrowserJsonValue, BrowserOperationError> {
     const tab = yield* this.#requireTab(tabId);
     // The origin is read in the tab's queue, just before the script runs, and again when it ends: a
@@ -4090,6 +4137,7 @@ export class BrowserHost {
       awaitPromise,
       timeoutMs,
       undefinedAsNull,
+      maxBytes,
     ).pipe(Effect.ensuring(Effect.sync(markScripted)));
   });
 
@@ -4268,7 +4316,11 @@ function readConsoleMessage(args: unknown[]): BrowserConsoleMessageDetails | nul
 
 function boundedCaptureDataUrl(image: NativeImage): string {
   const size = image.getSize();
-  if (size.width <= 0 || size.height <= 0) throw new Error("Browser screenshot is empty.");
+  // A typed failure in `browserSync`, so the agent reads the reason, not a failed tool request (#5991).
+  if (size.width <= 0 || size.height <= 0)
+    throw new Error(
+      "Browser screenshot is empty: the page drew no image. This can happen while the OpenBot window is minimized or hidden. If it is, ask the person to open the OpenBot window, then try again.",
+    );
   const area = size.width * size.height;
   if (area <= MAX_ENCODED_CAPTURE_PIXELS) return image.toDataURL();
   const scale = Math.sqrt(MAX_ENCODED_CAPTURE_PIXELS / area);

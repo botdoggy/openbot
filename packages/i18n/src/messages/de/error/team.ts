@@ -67,6 +67,7 @@ export const messages = {
   "error.team.historyDeleteUnsupported": "Diese Verbindung unterstützt das Löschen des Verlaufs nicht.",
   "error.team.channelTaskCancelUnsupported": "Diese Verbindung unterstützt das Abbrechen von Kanalaufgaben nicht.",
   "error.team.membersCannotDeleteChannels": "Mitglieder können keine Kanäle löschen.",
+  "error.team.membersCannotDeleteChannelHistory": "Mitglieder können den Kanalverlauf nicht löschen.",
   "error.team.membersCannotArchiveChannels": "Mitglieder können keine Kanäle archivieren.",
   "error.team.membersCannotRestoreChannels": "Mitglieder können keine Kanäle wiederherstellen.",
   "error.team.sharedDataUnsupported": "Diese Verbindung unterstützt keine geteilten Daten.",
@@ -115,6 +116,7 @@ export const messages = {
   "error.team.agentFoldersUnsupported": "Diese Verbindung unterstützt die Ordner der Agenten nicht.",
   "error.team.folderUnavailable": "Dieser Ordner ist auf dem Host-Computer nicht verfügbar.",
   "error.team.memoryReviewUnsupported": "Diese Verbindung unterstützt die Erinnerungsprüfung nicht.",
+  "error.team.skillLearningUnsupported": "„Fähigkeiten lernen“ wird von dieser Verbindung nicht unterstützt.",
   "error.team.promptCacheTtlUnsupported": "Diese Verbindung unterstützt die Prompt-Cache-Dauer nicht.",
   "error.team.modelVisibilityUnsupported": "Diese Verbindung unterstützt die Modellliste nicht.",
   "error.team.providerDefaultUnsupported": "Diese Verbindung unterstützt den Standardanbieter nicht.",
@@ -125,6 +127,8 @@ export const messages = {
   "error.team.browserViewUnavailable": "Die Live-Browseransicht ist nicht verfügbar.",
   "error.team.browserSessionNotFound": "Browseransichtssitzung nicht gefunden.",
   "error.team.mcpUnsupported": "Diese Verbindung unterstützt keine MCP-Server.",
+  "error.team.mcpServerListNeedsUpdate":
+    "Aktualisiere OpenBot auf diesem Gerät, um mehr als {limit} MCP-Server auf diesem Server zu nutzen.",
   "error.team.storageUnsupported": "Diese Verbindung unterstützt keinen Speicher.",
   "error.team.machineResourcesUnsupported": "Diese Verbindung unterstützt keine Maschinennutzung.",
   "error.team.machineAlertMemberInvalid":

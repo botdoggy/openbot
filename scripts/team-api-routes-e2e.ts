@@ -105,12 +105,14 @@ import {
   BROWSER_SECRET_VAULT_ROUTES,
 } from "@openbot/contracts/team-protocol/browser-secret-vault-v1";
 import { CHAT_COLORS_CAPABILITY, CHAT_COLORS_ROUTES } from "@openbot/contracts/team-protocol/chat-colors-v1";
+import { CHAT_HISTORY_CAPABILITY, CHAT_HISTORY_ROUTES } from "@openbot/contracts/team-protocol/chat-history-v1";
 import { CODEX_API_KEY_CAPABILITY } from "@openbot/contracts/team-protocol/codex-api-key-v1";
 import {
   CONTEXT_COMPACT_CAPABILITY,
   CONTEXT_COMPACT_ROUTES,
   ContextCompactRefusedError,
 } from "@openbot/contracts/team-protocol/context-compact-v1";
+import { ContextResetBusyError } from "@openbot/contracts/team-protocol/context-reset-v1";
 import {
   CONVERSATION_UNREAD_FROM_CAPABILITY,
   CONVERSATION_UNREAD_FROM_ROUTE,
@@ -120,6 +122,11 @@ import {
   CUSTOM_AGENTS_CODECS,
   CUSTOM_AGENTS_ROUTES,
 } from "@openbot/contracts/team-protocol/custom-agents-v1";
+import {
+  CUSTOM_PROVIDER_EDIT_CAPABILITY,
+  CUSTOM_PROVIDER_EDIT_CODECS,
+  CUSTOM_PROVIDER_EDIT_ROUTES,
+} from "@openbot/contracts/team-protocol/custom-provider-edit-v1";
 import {
   CUSTOM_PROVIDER_HARNESS_CAPABILITY,
   CUSTOM_PROVIDER_HARNESS_CODECS,
@@ -171,6 +178,7 @@ import {
 } from "@openbot/contracts/team-protocol/routine-run-place-v1";
 import { SIDE_QUESTION_CAPABILITY, SIDE_QUESTION_ROUTES } from "@openbot/contracts/team-protocol/side-question-v1";
 import { SIDEBAR_PINS_CAPABILITY, SIDEBAR_PINS_ROUTES } from "@openbot/contracts/team-protocol/sidebar-pins-v1";
+import { SKILL_LEARNING_CAPABILITY, SKILL_LEARNING_ROUTES } from "@openbot/contracts/team-protocol/skill-learning-v1";
 import { STORAGE_DISK_CAPABILITY, STORAGE_DISK_ROUTES } from "@openbot/contracts/team-protocol/storage-disk-v1";
 import {
   TEAM_APP_VERSION_HEADER,
@@ -181,11 +189,13 @@ import { TEAM_LONG_CAPABILITY_LISTS_CAPABILITY, TEAM_PROTOCOL_V9 } from "@openbo
 import { VAULT_IMPORT_CAPABILITY, VAULT_IMPORT_ROUTES } from "@openbot/contracts/team-protocol/vault-import-v1";
 import { VAULT_CAPABILITY, VAULT_ROUTES } from "@openbot/contracts/team-protocol/vault-v1";
 import { VAULT_V2_CAPABILITY, VAULT_V2_ROUTES } from "@openbot/contracts/team-protocol/vault-v2";
+import { VAULT_V3_CAPABILITY, VAULT_V3_ROUTES } from "@openbot/contracts/team-protocol/vault-v3";
 import {
   WHATSAPP_CONNECTOR_CAPABILITY,
   WHATSAPP_CONNECTOR_CODECS,
   WHATSAPP_CONNECTOR_ROUTES,
 } from "@openbot/contracts/team-protocol/whatsapp-connector-v1";
+import { parseTwoStepKey, twoStepCode } from "@openbot/contracts/two-step-code";
 import { sourceText } from "@openbot/i18n/source";
 import { createOpenBotLogger } from "@openbot/logging";
 import { Effect } from "effect";
@@ -208,12 +218,15 @@ import { AgentNotificationLevelStore } from "../src/main/agent-notification-leve
 import { type BitwardenCliRunner, BitwardenConnectorService } from "../src/main/bitwarden-connector-service";
 import { BitwardenConnectorStore } from "../src/main/bitwarden-connector-store";
 import { createBrowserProfileService } from "../src/main/browser-profile-service";
+import { createCustomProviderChanges } from "../src/main/custom-provider-changes";
+import { CustomProviderStore } from "../src/main/custom-provider-store";
 import { MachineAlertMonitor, MachineAlertPreferenceStore } from "../src/main/machine-alerts";
 import { MemoryReviewPreferenceStore } from "../src/main/memory-review-preference-store";
 import type { PasswordManagerDriver } from "../src/main/password-managers/driver";
 import { PasswordManagersService } from "../src/main/password-managers/password-managers-service";
 import { RemoteWorkflowError } from "../src/main/remote-service-effects";
 import { SidebarPinStore } from "../src/main/sidebar-pin-store";
+import { SkillLearningPreferenceStore } from "../src/main/skill-learning-preference-store";
 import type {
   TeamApiAgentAccess,
   TeamApiAgents,
@@ -635,6 +648,10 @@ const fakeAgents: TeamApiAgents = {
       );
     return Effect.succeed(`Answer to ${input.question}`);
   },
+  saveSkillSuggestion: (input) => {
+    record("saveSkillSuggestion", input);
+    return Effect.succeed({ saved: input.messageId === "suggestion-1" });
+  },
   saveProfile: unused("saveProfile"),
   createAgent: unused("createAgent"),
   committedAgentDuplication: unused("committedAgentDuplication"),
@@ -711,6 +728,10 @@ const fakeAgents: TeamApiAgents = {
                 text: "Reply",
                 createdAt: "2026-11-05T08:00:00.000Z",
                 status: "completed",
+                // A memory review's skill question, for the skill-learning-v1 projection.
+                ...(anchor.messageId === "skill-question"
+                  ? { itemType: "skill-suggestion:create", skillSuggestion: { name: "Weekly report" } }
+                  : {}),
               },
             ]
           : [],
@@ -744,6 +765,22 @@ const fakeAgents: TeamApiAgents = {
     return Effect.void;
   },
   clearAgentContext: unused("clearAgentContext"),
+  // `agent-oc` has work that runs, as the agent service answers it.
+  deleteAgentHistory: (agentId) => {
+    record("deleteAgentHistory", agentId);
+    if (agentId === "agent-oc")
+      return Effect.fail(
+        new AgentLifecycleFailed({
+          operation: "delete agent history",
+          cause: new ContextResetBusyError(sourceText("error.agent.waitBeforeDeleteHistory")),
+        }),
+      );
+    return Effect.succeed(undefined);
+  },
+  // This host has no channel service, so no channel route reaches these.
+  clearChannelContext: unused("clearChannelContext"),
+  compactChannelContext: unused("compactChannelContext"),
+  deleteChannelHistory: unused("deleteChannelHistory"),
   compactAgentContext: (agentId) => Effect.sync(() => record("compactAgentContext", agentId)),
   compactTaskContext: (input) => {
     record("compactTaskContext", input);
@@ -1116,6 +1153,9 @@ const vault = new VaultService({ store: new VaultStore(vaultFile, fakeCipher), c
 await Effect.runPromise(vault.load());
 const VAULT_PASSWORD = "e2e-vault-password-7f3c";
 const VAULT_API_KEY = "e2e-vault-api-key-91d2";
+/** A two-step setup key as a site shows it: grouped and in lower case. The host saves it in upper case. */
+const VAULT_TWO_STEP_KEY = "e2ev ault twos tepk ey23";
+const VAULT_TWO_STEP_SECRET = "E2EVAULTTWOSTEPKEY23";
 /** Resolves with the first status after a host sign-in started (`connecting`) and then ended. */
 function bitwardenSettled(connector: BitwardenConnectorService): Promise<BitwardenConnectorStatus> {
   return new Promise((resolveStatus) => {
@@ -1179,6 +1219,9 @@ let refuseHostKeyRotation = false;
 /** The servers that the stand-in of `LocalServers` runs. */
 const localServerList: { serverId: string; name: string; published: boolean }[] = [];
 const memoryReview = new MemoryReviewPreferenceStore(memoryReviewFile);
+// The real skill learning store on a temporary file, as the host keeps it.
+const skillLearningFile = join(root, "skill-learning.json");
+const skillLearning = new SkillLearningPreferenceStore(skillLearningFile);
 // The real store of the levels that each member chose for each agent, on a temporary file.
 const agentLevelsFile = join(root, "agent-notification-levels.json");
 const agentLevels = new AgentNotificationLevelStore(agentLevelsFile);
@@ -1360,6 +1403,7 @@ try {
         agentDefaults: { get: () => DEFAULT_AGENT_DEFAULTS },
       }),
       memoryReview,
+      skillLearning,
       // A stand-in for `HostService.rotateIdentityKey`; `host-key-rotation-e2e.ts` checks the real
       // signing. This checks the gate and that a refused request never reaches the host.
       hostKey: {
@@ -1505,6 +1549,15 @@ try {
                   harness: harness ?? "opencode",
                 },
               ];
+              return customEndpointResult();
+            }),
+          // Records the input that the route gives to the merge, which the real changes run.
+          peerUpdate: (input) =>
+            Effect.sync(() => {
+              record("peerUpdateCustomProvider", input);
+              customEndpoints = customEndpoints.map((endpoint) =>
+                endpoint.id === input.id ? { ...endpoint, name: input.name } : endpoint,
+              );
               return customEndpointResult();
             }),
           remove: (id) =>
@@ -3364,6 +3417,114 @@ try {
     );
   }
 
+  // ---- Delete history and channel context (chat-history-v1) ----
+  {
+    const historyCapabilities = [AGENT_HIDDEN_CAPABILITY, TEAM_QUEUE_EDIT_CAPABILITY, CHAT_HISTORY_CAPABILITY];
+    const deletes = () => callsOf("deleteAgentHistory");
+    const compatibility = await call("GET", TEAM_API_ROUTES.compatibility, { protocol: TEAM_PROTOCOL_V9 });
+    const older = await call("GET", TEAM_API_ROUTES.compatibility, { protocol: 8 });
+    check(
+      "the host advertises chat-history-v1 to a protocol 9 peer only",
+      list(field(compatibility.body, "capabilities")).includes(CHAT_HISTORY_CAPABILITY) &&
+        older.status === 200 &&
+        !list(field(older.body, "capabilities")).includes(CHAT_HISTORY_CAPABILITY),
+      [summary(compatibility), summary(older)],
+    );
+    const unsupported = await call("POST", CHAT_HISTORY_ROUTES.agentDelete, {
+      token: bobToken,
+      json: { agentId: "agent-ada" },
+    });
+    const unsupportedChannel = await call("POST", CHAT_HISTORY_ROUTES.channelClear, {
+      token: bobToken,
+      json: { channelId: "channel-1" },
+    });
+    check(
+      "the routes without the capability get 400 historyDeleteUnsupported or channelContextUnsupported, and delete nothing",
+      errorIs(unsupported, 400, sourceText("error.team.historyDeleteUnsupported")) &&
+        errorIs(unsupportedChannel, 400, sourceText("error.team.channelContextUnsupported")) &&
+        deletes().length === 0,
+      [summary(unsupported), summary(unsupportedChannel)],
+    );
+    const deleted = await call("POST", CHAT_HISTORY_ROUTES.agentDelete, {
+      token: bobToken,
+      json: { agentId: "agent-ada" },
+      capabilities: historyCapabilities,
+    });
+    check(
+      "a member who manages the agent deletes the history of its chat, with an empty answer",
+      deleted.status === 200 && isDeepStrictEqual(deleted.body, {}) && isDeepStrictEqual(deletes(), [["agent-ada"]]),
+      summary(deleted),
+    );
+    const busy = await call("POST", CHAT_HISTORY_ROUTES.agentDelete, {
+      token: bobToken,
+      json: { agentId: "agent-oc" },
+      capabilities: historyCapabilities,
+    });
+    check(
+      "a delete while work runs gets 409 with the host's sentence",
+      errorIs(busy, 409, sourceText("error.agent.waitBeforeDeleteHistory")),
+      summary(busy),
+    );
+    accessLevels = { revision: 1, everyone: { "agent-ada": "chat" }, roles: [] };
+    const chatOnly = await call("POST", CHAT_HISTORY_ROUTES.agentDelete, {
+      token: bobToken,
+      json: { agentId: "agent-ada" },
+      capabilities: historyCapabilities,
+    });
+    const admin = await call("POST", CHAT_HISTORY_ROUTES.agentDelete, {
+      token: adaToken,
+      json: { agentId: "agent-ada" },
+      capabilities: historyCapabilities,
+    });
+    accessLevels = { revision: 2, everyone: {}, roles: [] };
+    check(
+      "with chat on the agent, a member gets 403 agentManageDenied; an admin deletes the history",
+      errorIs(chatOnly, 403, sourceText("error.team.agentManageDenied")) &&
+        admin.status === 200 &&
+        isDeepStrictEqual(deletes(), [["agent-ada"], ["agent-oc"], ["agent-ada"]]),
+      [summary(chatOnly), summary(admin)],
+    );
+    const missing = await call("POST", CHAT_HISTORY_ROUTES.agentDelete, {
+      token: bobToken,
+      json: { agentId: "agent-none" },
+      capabilities: historyCapabilities,
+    });
+    const hidden = await call("POST", CHAT_HISTORY_ROUTES.agentDelete, {
+      token: bobToken,
+      json: { agentId: "agent-pi" },
+      capabilities: historyCapabilities,
+      protocol: 6,
+    });
+    check(
+      "an unknown agent, and an agent that the client protocol does not show, get 404 and delete nothing",
+      errorIs(missing, 404, sourceText("error.team.agentNotFound")) &&
+        errorIs(hidden, 404, sourceText("error.team.agentNotFound")) &&
+        deletes().length === 3,
+      [summary(missing), summary(hidden)],
+    );
+    // This host has no channel service, so the channel routes answer as every channel route does.
+    // `channel-notifications-e2e.ts` runs the real channel service.
+    const channelRoutes = [
+      CHAT_HISTORY_ROUTES.channelClear,
+      CHAT_HISTORY_ROUTES.channelCompact,
+      CHAT_HISTORY_ROUTES.channelDelete,
+    ];
+    const channel = await Promise.all(
+      channelRoutes.map((route) =>
+        call("POST", route, {
+          token: bobToken,
+          json: { channelId: "channel-1" },
+          capabilities: [...historyCapabilities, CHANNEL_CHATS_CAPABILITY],
+        }),
+      ),
+    );
+    check(
+      "the channel routes on a host without channels get 400 channelsUnsupported",
+      channel.every((answer) => errorIs(answer, 400, sourceText("error.team.channelsUnsupported"))),
+      channel.map(summary),
+    );
+  }
+
   // ---- Delete a message (message-delete-v1) ----
   {
     const deleteCapabilities = [AGENT_HIDDEN_CAPABILITY, TEAM_QUEUE_EDIT_CAPABILITY, MESSAGE_DELETE_CAPABILITY];
@@ -3665,6 +3826,161 @@ try {
       "an admin turns the memory review on again at 40 turns",
       on.status === 200 && field(on.body, "interval") === 40 && memoryReview.get().interval === 40,
       summary(on),
+    );
+  }
+
+  // ---- Skill learning (skill-learning-v1) ----
+  {
+    const capabilities = [SKILL_LEARNING_CAPABILITY];
+    const choices = ["automatic", "ask", "off"];
+    const compatibility = await call("GET", TEAM_API_ROUTES.compatibility, { protocol: TEAM_PROTOCOL_V9 });
+    const older = await call("GET", TEAM_API_ROUTES.compatibility, { protocol: 8 });
+    check(
+      "the host advertises skill-learning-v1 on protocol 9 only",
+      list(field(compatibility.body, "capabilities")).includes(SKILL_LEARNING_CAPABILITY) &&
+        !list(field(older.body, "capabilities")).includes(SKILL_LEARNING_CAPABILITY),
+      [summary(compatibility), summary(older)],
+    );
+    const adminRead = await call("POST", SKILL_LEARNING_ROUTES.settings, { token: adaToken, json: {}, capabilities });
+    check(
+      "an admin reads the default automatic skill learning and the values the host permits",
+      adminRead.status === 200 && isDeepStrictEqual(adminRead.body, { mode: "automatic", choices }),
+      summary(adminRead),
+    );
+    const unsupported = await call("POST", SKILL_LEARNING_ROUTES.settings, { token: adaToken, json: {} });
+    check(
+      "the skill learning routes without the capability get 400 skillLearningUnsupported",
+      errorIs(unsupported, 400, sourceText("error.team.skillLearningUnsupported")),
+      summary(unsupported),
+    );
+    const memberRead = await call("POST", SKILL_LEARNING_ROUTES.settings, { token: bobToken, json: {}, capabilities });
+    const memberSet = await call("POST", SKILL_LEARNING_ROUTES.update, {
+      token: bobToken,
+      json: { mode: "off" },
+      capabilities,
+    });
+    const invalid = await call("POST", SKILL_LEARNING_ROUTES.update, {
+      token: adaToken,
+      json: { mode: "always" },
+      capabilities,
+    });
+    check(
+      "a member cannot read or set skill learning, the host refuses a value it does not permit, and nothing is saved",
+      errorIs(memberRead, 403, sourceText("error.team.adminRequired")) &&
+        errorIs(memberSet, 403, sourceText("error.team.adminRequired")) &&
+        invalid.status === 400 &&
+        skillLearning.get().mode === "automatic" &&
+        !existsSync(skillLearningFile),
+      [summary(memberRead), summary(memberSet), summary(invalid)],
+    );
+    const off = await call("POST", SKILL_LEARNING_ROUTES.update, {
+      token: adaToken,
+      json: { mode: "off" },
+      capabilities,
+    });
+    const reloaded = new SkillLearningPreferenceStore(skillLearningFile);
+    await runCauseEffect(reloaded.load());
+    check(
+      "an admin turns skill learning off; the host saves it and a restart reads it",
+      off.status === 200 &&
+        isDeepStrictEqual(off.body, { mode: "off", choices }) &&
+        skillLearning.get().mode === "off" &&
+        reloaded.get().mode === "off",
+      summary(off),
+    );
+    const ask = await call("POST", SKILL_LEARNING_ROUTES.update, {
+      token: adaToken,
+      json: { mode: "ask" },
+      capabilities,
+    });
+    check(
+      "an admin sets skill learning to ask first",
+      ask.status === 200 && field(ask.body, "mode") === "ask" && skillLearning.get().mode === "ask",
+      summary(ask),
+    );
+
+    // The skill name of a skill question reaches only a client with the capability.
+    const skillPagePath = `${TEAM_API_ROUTES.agent.conversationPage("agent-ada")}?around=skill-question`;
+    const namedPage = await call("GET", skillPagePath, { token: bobToken, protocol: TEAM_PROTOCOL_V9, capabilities });
+    const plainPage = await call("GET", skillPagePath, { token: bobToken, protocol: TEAM_PROTOCOL_V9 });
+    const pageQuestion = (reply: Reply) => list(field(reply.body, "messages"))[0];
+    check(
+      "a conversation page carries the skill name of a skill question only with skill-learning-v1",
+      namedPage.status === 200 &&
+        isDeepStrictEqual(field(pageQuestion(namedPage), "skillSuggestion"), { name: "Weekly report" }) &&
+        field(pageQuestion(namedPage), "itemType") === "skill-suggestion:create" &&
+        plainPage.status === 200 &&
+        field(pageQuestion(plainPage), "itemType") === "skill-suggestion:create" &&
+        field(pageQuestion(plainPage), "skillSuggestion") === undefined,
+      [summary(namedPage), summary(plainPage)],
+    );
+
+    // A member presses Save on a suggestion card. The host writes the skill in the background.
+    const saveUnsupported = await call("POST", SKILL_LEARNING_ROUTES.save, {
+      token: bobToken,
+      json: { agentId: "agent-ada", messageId: "suggestion-1" },
+    });
+    const saveMalformed = await call("POST", SKILL_LEARNING_ROUTES.save, {
+      token: bobToken,
+      json: { agentId: "agent-ada", messageId: "" },
+      capabilities,
+    });
+    // Protocol 6 does not know Pi, so the host hides `agent-pi`.
+    const saveHidden = await call("POST", SKILL_LEARNING_ROUTES.save, {
+      token: bobToken,
+      protocol: 6,
+      json: { agentId: "agent-pi", messageId: "suggestion-1" },
+      capabilities,
+    });
+    const saveMissing = await call("POST", SKILL_LEARNING_ROUTES.save, {
+      token: bobToken,
+      json: { agentId: "agent-gone", messageId: "suggestion-1" },
+      capabilities,
+    });
+    accessLevels = { revision: 6, everyone: { "agent-ada": "view" }, roles: [] };
+    const saveViewer = await call("POST", SKILL_LEARNING_ROUTES.save, {
+      token: bobToken,
+      json: { agentId: "agent-ada", messageId: "suggestion-1" },
+      capabilities,
+    });
+    accessLevels = { revision: 7, everyone: {}, roles: [] };
+    check(
+      "a skill save without the capability, with a bad body, to a hidden or missing agent, or from a viewer reaches no agent",
+      errorIs(saveUnsupported, 400, sourceText("error.team.skillLearningUnsupported")) &&
+        saveMalformed.status === 400 &&
+        errorIs(saveHidden, 404, sourceText("error.team.agentNotFound")) &&
+        errorIs(saveMissing, 404, sourceText("error.team.agentNotFound")) &&
+        saveViewer.status === 403 &&
+        callsOf("saveSkillSuggestion").length === 0,
+      [
+        summary(saveUnsupported),
+        summary(saveMalformed),
+        summary(saveHidden),
+        summary(saveMissing),
+        summary(saveViewer),
+      ],
+    );
+    const saved = await call("POST", SKILL_LEARNING_ROUTES.save, {
+      token: bobToken,
+      json: { agentId: "agent-ada", messageId: "suggestion-1" },
+      capabilities,
+    });
+    const notSaved = await call("POST", SKILL_LEARNING_ROUTES.save, {
+      token: bobToken,
+      json: { agentId: "agent-ada", messageId: "suggestion-2" },
+      capabilities,
+    });
+    check(
+      "a member with chat level saves a suggestion; the host gets the agent and message, and a host that cannot save says so",
+      saved.status === 200 &&
+        isDeepStrictEqual(saved.body, { saved: true }) &&
+        notSaved.status === 200 &&
+        isDeepStrictEqual(notSaved.body, { saved: false }) &&
+        isDeepStrictEqual(callsOf("saveSkillSuggestion"), [
+          [{ agentId: "agent-ada", messageId: "suggestion-1" }],
+          [{ agentId: "agent-ada", messageId: "suggestion-2" }],
+        ]),
+      [summary(saved), summary(notSaved)],
     );
   }
 
@@ -5229,6 +5545,157 @@ try {
     );
   }
 
+  // ---- Custom endpoint edit (custom-provider-edit-v1) ----
+  {
+    const edit = { token: adaToken, capabilities: [CUSTOM_PROVIDER_EDIT_CAPABILITY], protocol: TEAM_PROTOCOL_V9 };
+    const decoded = (route: string, reply: Reply) => CUSTOM_PROVIDER_EDIT_CODECS.get(route)?.response(200, reply.body);
+    const compatibility = await call("GET", TEAM_API_ROUTES.compatibility, { protocol: TEAM_PROTOCOL_V9 });
+    const older = await call("GET", TEAM_API_ROUTES.compatibility, { protocol: 8 });
+    check(
+      "the host advertises custom-provider-edit-v1 to a protocol 9 peer only",
+      list(field(compatibility.body, "capabilities")).includes(CUSTOM_PROVIDER_EDIT_CAPABILITY) &&
+        !list(field(older.body, "capabilities")).includes(CUSTOM_PROVIDER_EDIT_CAPABILITY),
+      [summary(compatibility), list(field(older.body, "capabilities")).length],
+    );
+    const spark = {
+      id: "spark",
+      name: "DGX Spark",
+      baseUrl: "http://spark.local:8080/v1",
+      hasApiKey: false,
+      models: [{ id: "qwen3-coder", name: "Qwen3 Coder" }],
+      harness: "pi",
+      headerNames: ["X-Tenant"],
+    };
+    const listed = await call("POST", CUSTOM_PROVIDER_EDIT_ROUTES.customList, { ...edit, json: {} });
+    check(
+      "an admin lists the endpoint with its harness and header names, without the model limits",
+      listed.status === 200 &&
+        isDeepStrictEqual(listed.body, [spark]) &&
+        isDeepStrictEqual(decoded(CUSTOM_PROVIDER_EDIT_ROUTES.customList, listed), [spark]),
+      summary(listed),
+    );
+    const updated = await call("POST", CUSTOM_PROVIDER_EDIT_ROUTES.customUpdate, {
+      ...edit,
+      json: {
+        id: "spark",
+        name: "Spark Lab",
+        baseUrl: "http://spark.local:8080/v1",
+        models: [
+          { id: "qwen3-coder", name: "Qwen3 Coder" },
+          { id: "gpt-oss", name: "GPT-OSS" },
+        ],
+        headers: [{ name: "X-Tenant", value: null }],
+      },
+    });
+    check(
+      "an edit reaches the host with no key, the header kept by name, and the model names only",
+      updated.status === 200 &&
+        isDeepStrictEqual(callsOf("peerUpdateCustomProvider"), [
+          [
+            {
+              id: "spark",
+              name: "Spark Lab",
+              baseUrl: "http://spark.local:8080/v1",
+              models: [
+                { id: "qwen3-coder", name: "Qwen3 Coder" },
+                { id: "gpt-oss", name: "GPT-OSS" },
+              ],
+              headers: [{ name: "X-Tenant", value: null }],
+            },
+          ],
+        ]) &&
+        isDeepStrictEqual(decoded(CUSTOM_PROVIDER_EDIT_ROUTES.customUpdate, updated), {
+          providers: [{ ...spark, name: "Spark Lab" }],
+          restart: "not-running",
+        }),
+      [summary(updated), callsOf("peerUpdateCustomProvider")],
+    );
+    const unsupported = await call("POST", CUSTOM_PROVIDER_EDIT_ROUTES.customUpdate, {
+      token: adaToken,
+      capabilities: [CUSTOM_PROVIDER_HARNESS_CAPABILITY],
+      json: { id: "spark", name: "Spark", baseUrl: "http://spark.local:8080/v1", models: [] },
+    });
+    const member = await call("POST", CUSTOM_PROVIDER_EDIT_ROUTES.customUpdate, {
+      ...edit,
+      token: bobToken,
+      json: { id: "spark", name: "Spark", baseUrl: "http://spark.local:8080/v1", models: [] },
+    });
+    check(
+      "the edit route without the capability gets 400 providersUnsupported, and a member gets 403",
+      errorIs(unsupported, 400, sourceText("error.team.providersUnsupported")) &&
+        errorIs(member, 403, sourceText("error.team.adminRequired")) &&
+        callsOf("peerUpdateCustomProvider").length === 1,
+      [summary(unsupported), summary(member)],
+    );
+
+    // The real merge, over the real store on a temporary file: an edit from a joined admin keeps
+    // the harness, the key, the header value and the limits of each model that it keeps.
+    const store = new CustomProviderStore({
+      path: join(root, "custom-providers.json"),
+      cipher: { ...fakeCipher, canPersist: () => true },
+    });
+    await Effect.runPromise(
+      store.save({
+        id: "spark",
+        name: "DGX Spark",
+        baseUrl: "http://spark.local:8080/v1",
+        apiKey: "sk-spark-host",
+        models: [{ id: "qwen3-coder", name: "Qwen3 Coder", contextWindow: 131072, maxOutput: 8192 }],
+        headers: [{ name: "X-Tenant", value: "acme" }],
+        harness: "pi",
+      }),
+    );
+    const harnesses: string[] = [];
+    const changes = createCustomProviderChanges({
+      service: {
+        saveCustomProvider: (_id, _harness, persist) => persist(),
+        updateCustomProvider: (_id, harness, _removed, persist) => {
+          harnesses.push(harness);
+          return persist();
+        },
+        removeCustomProvider: (_id, persist) => persist(),
+        reloadCustomProviderConfig: () => Effect.succeed("not-running"),
+        startHarnessForMovedAgents: () => Effect.void,
+      },
+      customProviders: store,
+      providerRuntimes: { startCustomProviderHarness: () => Effect.void },
+    });
+    await Effect.runPromise(
+      changes.peerUpdate({
+        id: "spark",
+        name: "Spark Lab",
+        baseUrl: "http://spark.local:8080/v1",
+        // A harness and a model limit that a peer cannot send over the wire are dropped all the same.
+        harness: "opencode",
+        models: [
+          { id: "qwen3-coder", name: "Qwen3", contextWindow: 1 },
+          { id: "gpt-oss", name: "GPT-OSS" },
+        ],
+        headers: [{ name: "X-Tenant", value: null }],
+      }),
+    );
+    const merged = store.configs();
+    check(
+      "a joined admin's edit keeps the harness, the key, the header value and the kept model's limits",
+      isDeepStrictEqual(harnesses, ["pi"]) &&
+        isDeepStrictEqual(merged, [
+          {
+            id: "spark",
+            name: "Spark Lab",
+            baseUrl: "http://spark.local:8080/v1",
+            apiKey: "sk-spark-host",
+            models: [
+              { id: "qwen3-coder", name: "Qwen3", contextWindow: 131072, maxOutput: 8192 },
+              { id: "gpt-oss", name: "GPT-OSS" },
+            ],
+            headers: [{ name: "X-Tenant", value: "acme" }],
+            harness: "pi",
+          },
+        ]),
+      [harnesses, store.list()],
+    );
+  }
+
   // ---- Usage reset credits (provider-usage-reset-v1) ----
   {
     const resetCapabilities = [PROVIDER_USAGE_RESET_CAPABILITY];
@@ -5954,6 +6421,125 @@ try {
         isDeepStrictEqual(deletedLogin.body, { status: "ready", items: [] }) &&
         vault.state().items.length === 0,
       [summary(deletedKey), summary(deletedLogin)],
+    );
+  }
+
+  // ---- Two-step keys in the host's Vault (vault-v3), and vault-v2 on the same host ----
+  {
+    const v2Call = (token: string, path: string, json: unknown = {}) =>
+      call("POST", path, { token, json, capabilities: [VAULT_V2_CAPABILITY] });
+    const v3Call = (token: string, path: string, json: unknown = {}) =>
+      call("POST", path, { token, json, capabilities: [VAULT_V3_CAPABILITY] });
+    const key = parseTwoStepKey(VAULT_TWO_STEP_SECRET);
+    assert.ok(key, "the e2e two-step key does not parse.");
+    /** True when the text carries the key in any form that the user typed or the host saved. */
+    const hasKey = (text: string) =>
+      text.includes(VAULT_TWO_STEP_SECRET) || text.toLowerCase().includes(VAULT_TWO_STEP_KEY);
+    const login = {
+      kind: "login",
+      id: null,
+      website: "https://code.example.com",
+      username: "ada@example.com",
+      notes: "",
+      password: VAULT_PASSWORD,
+      twoStepKey: VAULT_TWO_STEP_KEY,
+    };
+    const unsupported = await v2Call(adaToken, VAULT_V3_ROUTES.codes);
+    const memberCodes = await v3Call(bobToken, VAULT_V3_ROUTES.codes);
+    const memberSave = await v3Call(bobToken, VAULT_V3_ROUTES.save, login);
+    check(
+      "the vault-v3 routes need vault-v3 and an owner or admin",
+      errorIs(unsupported, 400, sourceText("error.team.vaultUnsupported")) &&
+        errorIs(memberCodes, 403, sourceText("error.team.adminRequired")) &&
+        errorIs(memberSave, 403, sourceText("error.team.adminRequired")) &&
+        vault.state().items.length === 0,
+      [summary(unsupported), summary(memberCodes), summary(memberSave)],
+    );
+    const badKey = await v3Call(adaToken, VAULT_V3_ROUTES.save, { ...login, twoStepKey: "not a key" });
+    check(
+      "a two-step key that is not a setup key is refused with catalog text, and no login is added",
+      errorIs(badKey, 400, sourceText("error.vault.twoStepKeyInvalid")) && vault.state().items.length === 0,
+      summary(badKey),
+    );
+    const saved = await v3Call(adaToken, VAULT_V3_ROUTES.save, login);
+    const loginId = field(saved.body, "items", 0, "id");
+    check(
+      "an admin adds a login with a two-step key; the answer says it has one and carries no key",
+      saved.status === 200 &&
+        field(saved.body, "items", 0, "hasTwoStep") === true &&
+        typeof loginId === "string" &&
+        !hasKey(saved.text) &&
+        !hasKey(readFileSync(vaultFile, "utf8")),
+      summary(saved),
+    );
+    assert.ok(typeof loginId === "string", "the vault-v3 save did not answer an item id.");
+    const before = Date.now();
+    const codes = await v3Call(adaToken, VAULT_V3_ROUTES.codes);
+    const after = Date.now();
+    const expected = new Set([await twoStepCode(key, before), await twoStepCode(key, after)]);
+    const code = field(codes.body, "codes", 0, "code");
+    const remainingMs = field(codes.body, "codes", 0, "remainingMs");
+    check(
+      "codes answers the current code of the login, its period and its time left, with no key",
+      codes.status === 200 &&
+        field(codes.body, "codes", 0, "id") === loginId &&
+        typeof code === "string" &&
+        expected.has(code) &&
+        field(codes.body, "codes", 0, "period") === 30 &&
+        typeof remainingMs === "number" &&
+        remainingMs > 0 &&
+        remainingMs <= 30_000 &&
+        !hasKey(codes.text),
+      summary(codes),
+    );
+    const revealKey = await v3Call(adaToken, VAULT_V3_ROUTES.reveal, { id: loginId, field: "twoStepKey" });
+    check("no reveal answers a two-step key", revealKey.status === 400 && !hasKey(revealKey.text), summary(revealKey));
+    const v2List = await v2Call(adaToken, VAULT_V2_ROUTES.list);
+    const v2Save = await v2Call(adaToken, VAULT_V2_ROUTES.save, {
+      kind: "login",
+      id: loginId,
+      website: "https://code.example.com",
+      username: "ada@code.example.com",
+      notes: "Changed from vault-v2",
+      password: null,
+    });
+    const keptCodes = await v3Call(adaToken, VAULT_V3_ROUTES.codes);
+    check(
+      "vault-v2 on the same host lists the login without hasTwoStep, and its save keeps the key",
+      v2List.status === 200 &&
+        field(v2List.body, "items", 0, "id") === loginId &&
+        field(v2List.body, "items", 0, "hasTwoStep") === undefined &&
+        v2Save.status === 200 &&
+        field(v2Save.body, "items", 0, "username") === "ada@code.example.com" &&
+        field(v2Save.body, "items", 0, "hasTwoStep") === undefined &&
+        field(keptCodes.body, "codes", 0, "id") === loginId,
+      [summary(v2List), summary(v2Save), summary(keptCodes)],
+    );
+    const kept = await v3Call(adaToken, VAULT_V3_ROUTES.save, {
+      ...login,
+      id: loginId,
+      password: null,
+      twoStepKey: undefined,
+    });
+    const removed = await v3Call(adaToken, VAULT_V3_ROUTES.save, {
+      ...login,
+      id: loginId,
+      password: null,
+      twoStepKey: "",
+    });
+    const noCodes = await v3Call(adaToken, VAULT_V3_ROUTES.codes);
+    check(
+      "a vault-v3 save without twoStepKey keeps the key, and an empty one removes it",
+      field(kept.body, "items", 0, "hasTwoStep") === true &&
+        field(removed.body, "items", 0, "hasTwoStep") === false &&
+        isDeepStrictEqual(noCodes.body, { codes: [] }),
+      [summary(kept), summary(removed), summary(noCodes)],
+    );
+    const deleted = await v3Call(adaToken, VAULT_V3_ROUTES.delete, { id: loginId });
+    check(
+      "an admin deletes the login through vault-v3",
+      isDeepStrictEqual(deleted.body, { status: "ready", items: [] }) && vault.state().items.length === 0,
+      summary(deleted),
     );
   }
 

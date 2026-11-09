@@ -127,6 +127,10 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "Régler {setting} pour tous les agents",
   "settings.agentDefaults.agentLabel": "{setting} pour {agent}",
   "settings.agentDefaults.loadFailed": "Impossible de lire les agents.",
+  "settings.commitCoAuthor.sectionTitle": "Commits Git",
+  "settings.commitCoAuthor.title": "Créditer OpenBot dans les commits",
+  "settings.commitCoAuthor.description":
+    "Les agents ajoutent OpenBot comme coauteur de leurs commits. Vous restez l’auteur.",
   "settings.planStart.title": "Démarrer le travail",
   "settings.planStart.wait": "Quand j’appuie sur Démarrer",
   "settings.planStart.after": "Après {time}",
@@ -207,6 +211,7 @@ export const messages = {
   "settings.soundTheme.play": "Écouter {name}",
   "settings.notch.title": "Comportement",
   "settings.notch.show.title": "Afficher l’état dans l’encoche du MacBook",
+  "settings.notch.show.titleTopOfScreen": "Afficher l’état en haut de l’écran",
   "settings.notch.show.description":
     "Afficher l’activité des agents et les éléments nécessitant votre attention en haut de chaque écran.",
   "settings.notch.idle.title": "Afficher l’îlot au repos",

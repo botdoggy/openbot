@@ -12,6 +12,7 @@ import { Deferred, Effect, Result, Schema } from "effect";
 import { type AgentProvider, ProviderTurnActiveError } from "../agent-client";
 import type { AgentStore } from "../agent-store";
 import type { ChannelService } from "../channel-service";
+import { incomingAgentExchange } from "../conversation-snapshots";
 import { causeHelpers } from "../effect-boundary";
 import { channelLane, type DeliveryContext, laneChannelId, type MailboxStore } from "../mailbox-store";
 import type { MessagingThreads } from "../messaging/messaging-threads";
@@ -79,7 +80,10 @@ export interface DrainHooks {
    * back. `continueWork` keeps the assignment for a ready backup instead.
    */
   requeueChannelDelivery(deliveryId: string, continueWork?: boolean): Effect.Effect<boolean>;
-  /** Whether a ready backup in the agent's order continues work that a usage limit stopped after it started. */
+  /**
+   * Whether a ready backup in the agent's order, or the ready model the agent left, continues work that a
+   * usage limit stopped after it started.
+   */
   mayContinueOnBackup(agentId: string): boolean;
   /**
    * Starts the move of this agent to another model for a usage limit, if one is due: back to its own
@@ -207,6 +211,17 @@ export class DrainScheduler {
    */
   readonly #requeuedAtLimit = new Set<string>();
   readonly #settingsHolds = new Map<string, number>();
+  /**
+   * Lanes whose last start found the provider in a turn of its own, by lane key. OpenBot's snapshot
+   * can show no turn then, so without this the drain asked again at once, with no end. The next
+   * `scheduleDrain` of the agent, which the end of any of its turns calls, lets the lane try again.
+   */
+  readonly #providerTurnHolds = new Set<string>();
+  /**
+   * The `scheduleDrain` calls of each agent. A start that a call overtook is not held: the call can
+   * be the end of the provider's turn, and no later one would come.
+   */
+  readonly #drainCalls = new Map<string, number>();
   /** The last hold `#reportHold` logged per lane, so a waiting queue logs once per reason. */
   readonly #reportedHolds = new Map<string, string>();
   /**
@@ -339,6 +354,7 @@ export class DrainScheduler {
     if (this.#hooks.isDeleting(agentId)) return "deleting";
     if (this.#settingsHolds.has(agentId)) return "session-settings";
     if (this.#laneTurnActive(lane)) return "active-turn";
+    if (this.#providerTurnHolds.has(laneKey(lane))) return "provider-turn";
     // The provider has one turn of the agent at a time, so each lane waits for the turn of any other.
     if (
       this.#tasks.oneTurnAtATime(agentId) &&
@@ -420,6 +436,9 @@ export class DrainScheduler {
 
   /** `followUsageLimit` is false after a move that failed, so that the drain does not try it again. */
   scheduleDrain(agentId: string, followUsageLimit = true): void {
+    this.#drainCalls.set(agentId, (this.#drainCalls.get(agentId) ?? 0) + 1);
+    for (const key of [...this.#providerTurnHolds])
+      if (laneOf(key).agentId === agentId) this.#providerTurnHolds.delete(key);
     this.#scheduleDrain(agentId, followUsageLimit);
     this.retrySlotWaiters();
   }
@@ -516,11 +535,12 @@ export class DrainScheduler {
 
   forgetAgent(agentId: string): void {
     const ofAgent = (key: string) => laneOf(key).agentId === agentId;
-    for (const keys of [this.#drainingLanes, this.#scheduledDrains, this.#slotWaiters])
+    for (const keys of [this.#drainingLanes, this.#scheduledDrains, this.#slotWaiters, this.#providerTurnHolds])
       for (const key of [...keys]) if (ofAgent(key)) keys.delete(key);
     for (const key of [...this.#reportedHolds.keys()]) if (ofAgent(key)) this.#reportedHolds.delete(key);
     for (const key of [...this.#turnModels.keys()]) if (ofAgent(key)) this.#turnModels.delete(key);
     this.#requeuedAtLimit.delete(agentId);
+    this.#drainCalls.delete(agentId);
     this.retrySlotWaiters();
   }
 
@@ -691,6 +711,7 @@ export class DrainScheduler {
     const messagingDelivery = this.#messaging?.ownsDelivery(delivery.id) ?? false;
     const taskId = this.#mailbox.taskIdForDelivery(delivery.id);
     const laneId = this.#mailbox.laneIdForDelivery(delivery.id);
+    const drainCallsAtStart = this.#drainCalls.get(delivery.recipientAgentId) ?? 0;
     const ownSession = this.#runsInOwnSession(context);
     // The teammate answers that start in this turn too. A channel task, an external message and a
     // routine run in its own session always run alone; a teammate's answer in an external
@@ -893,7 +914,7 @@ export class DrainScheduler {
         );
       };
 
-      for (const { delivery: item } of batch) {
+      for (const { delivery: item, senderTaskId } of batch) {
         if (snapshot.messages.some((message) => message.id === item.id)) continue;
         snapshot.messages.push({
           id: item.id,
@@ -907,9 +928,12 @@ export class DrainScheduler {
           createdAt: item.createdAt,
           status: "completed",
           // Marked as the mailbox marks it, so no client shows the setup message, and a message
-          // between agents does not make a side thread unread (#5794).
+          // between agents does not make a side thread unread (#5794) and shows as one (#5812).
           ...(item.sender.kind === "agent"
-            ? { itemType: AGENT_EXCHANGE_ITEM_TYPE }
+            ? {
+                itemType: AGENT_EXCHANGE_ITEM_TYPE,
+                exchange: incomingAgentExchange(item, item.sender.agentId, senderTaskId),
+              }
             : this.#mailbox.isWelcomeDelivery(item.id)
               ? { itemType: AGENT_WELCOME_ITEM_TYPE }
               : {}),
@@ -1059,6 +1083,11 @@ export class DrainScheduler {
             error instanceof ProviderTurnActiveError ||
             (recipient && this.#providers.signInRequired(providerForAgent(recipient)) && this.#waitsForSignIn(delivery))
           ) {
+            if (
+              error instanceof ProviderTurnActiveError &&
+              (this.#drainCalls.get(delivery.recipientAgentId) ?? 0) === drainCallsAtStart
+            )
+              this.#providerTurnHolds.add(laneKey({ agentId: delivery.recipientAgentId, taskId: laneId }));
             for (const item of batch) yield* this.#mailbox.restoreQueued(item.delivery.id).pipe(toDeliveryStartFailed);
             this.#mailboxSync.emitQueue(delivery.recipientAgentId);
             return;

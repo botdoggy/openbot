@@ -200,6 +200,7 @@ export const messages = {
   "error.provider.opencodeNoAnswer": "OpenCode 模型结束本轮对话时没有给出回答。请重试或改用其他模型。",
   "error.provider.opencodeReasoningWithoutAnswer":
     "OpenCode 模型给出推理过程后结束本轮对话，但没有回答。请重试或改用其他模型。",
+  "error.provider.acpNoAnswer": "{provider} 结束本轮对话时没有给出回答。请重新发送消息，或开始新对话。",
   "error.provider.chatgptPageFailed": "OpenBot 无法打开 ChatGPT 连接页面。",
   "error.provider.noneReady": "没有可用的助手服务商。",
   "error.provider.claudeTurnActive": "请等待当前 Claude 对话结束，再刷新其上下文。",
@@ -371,6 +372,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse 需要文本或图片。",
   "error.provider.museMethodUnsupported": "Muse 不支持 {method}。",
   "error.provider.museTurnFailed": "Muse 本轮对话失败。",
+  "error.provider.museModelUnavailable":
+    "Muse 无法使用此模型。Muse 可能在此智能体运行的国家或地区不可用，或者此账号无权访问该模型。请选择其他模型，然后重试。\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse 在无法使用外部工具时无法生成资料。请改用其他服务商生成资料，然后为该助手选择 Muse。",
   "error.provider.museAuthUnverified": "Muse 身份验证尚未确认。请在主机电脑上连接，或设置 Meta API 密钥。",

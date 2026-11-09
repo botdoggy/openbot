@@ -959,6 +959,10 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
           orElse: () => Effect.fail(providerFailure(new RequestTimeoutError("Claude", "account/rateLimits/read"))),
         }),
       );
+      // When the CLI cannot get a subscriber's limits, such as after HTTP 429, it sends no limits. That is a
+      // failed read, not a login with no plan usage, so the last reading stays and the next read waits (#5922).
+      if (isDynamicRecord(usage) && usage.rate_limits_available === true && !isDynamicRecord(usage.rate_limits))
+        return yield* providerFailure(new Error("Claude could not read the plan usage."));
       if (model === defaultProviderModel("claude") && isDynamicRecord(usage) && isDynamicRecord(usage.rate_limits))
         this.#weeklyLimitKey = claudeWeeklyKey(usage.rate_limits, model);
       return yield* providerSync(() => claudeRateLimits(usage, model));
@@ -1163,9 +1167,9 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       config.workspaceOnly && stateDirectory ? yield* claudeWorkspaceSkillPlugin(stateDirectory, config.cwd) : null;
     const configDirectory =
       this.#agentEnvironment?.().CLAUDE_CONFIG_DIR ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-    // A profile generation loads no settings at all; the user setup brings the whole user settings file.
-    const signInSettings: Settings =
-      config.profileGeneration || userSetup ? {} : yield* claudeSignInSettings(configDirectory);
+    // The user setup brings the whole user settings file. A profile generation loads no settings
+    // files, but it still needs the sign-in keys: without them a gateway set in `env` is lost (#6025).
+    const signInSettings: Settings = userSetup ? {} : yield* claudeSignInSettings(configDirectory);
     const homeSkillPlugin =
       stateDirectory && userSetup
         ? yield* claudeHomeSkillPlugin(stateDirectory, configDirectory, config.cwd).pipe(

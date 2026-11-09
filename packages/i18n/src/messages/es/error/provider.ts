@@ -234,6 +234,8 @@ export const messages = {
     "El modelo de OpenCode terminó el turno sin respuesta. Inténtalo de nuevo o elige otro modelo.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "El modelo de OpenCode terminó el turno después de razonar, sin respuesta. Inténtalo de nuevo o elige otro modelo.",
+  "error.provider.acpNoAnswer":
+    "{provider} terminó el turno sin respuesta. Envía el mensaje de nuevo o empieza un nuevo chat.",
   "error.provider.chatgptPageFailed": "OpenBot no pudo abrir la página de conexión de ChatGPT.",
   "error.provider.noneReady": "Ningún proveedor de agentes está listo.",
   "error.provider.claudeTurnActive": "Espera a que termine el turno activo de Claude antes de actualizar su contexto.",
@@ -431,6 +433,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse necesita texto o una imagen.",
   "error.provider.museMethodUnsupported": "Muse no admite {method}.",
   "error.provider.museTurnFailed": "Falló el turno de Muse.",
+  "error.provider.museModelUnavailable":
+    "Muse no puede usar este modelo. Es posible que Muse no esté disponible en el país donde se ejecuta este agente, o que esta cuenta no tenga acceso al modelo. Elige otro modelo y vuelve a intentarlo.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse no puede generar un perfil sin acceso a herramientas externas. Usa otro proveedor para generar el perfil y luego selecciona Muse para el agente.",
   "error.provider.museAuthUnverified":

@@ -236,6 +236,8 @@ export const messages = {
     "Das OpenCode-Modell hat den Durchlauf ohne Antwort beendet. Versuche es erneut oder wähle ein anderes Modell.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "Das OpenCode-Modell hat den Durchlauf nach seinem Nachdenken ohne Antwort beendet. Versuche es erneut oder wähle ein anderes Modell.",
+  "error.provider.acpNoAnswer":
+    "{provider} hat den Durchlauf ohne Antwort beendet. Sende die Nachricht erneut oder starte einen neuen Chat.",
   "error.provider.chatgptPageFailed": "OpenBot konnte die ChatGPT-Verbindungsseite nicht öffnen.",
   "error.provider.noneReady": "Kein Agentenanbieter ist bereit.",
   "error.provider.claudeTurnActive":
@@ -444,6 +446,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse benötigt Text oder ein Bild.",
   "error.provider.museMethodUnsupported": "Muse unterstützt {method} nicht.",
   "error.provider.museTurnFailed": "Der Muse-Durchlauf ist fehlgeschlagen.",
+  "error.provider.museModelUnavailable":
+    "Muse kann dieses Modell nicht verwenden. Muse ist im Land, in dem dieser Agent läuft, möglicherweise nicht verfügbar, oder dieses Konto hat keinen Zugriff auf das Modell. Wähle ein anderes Modell und versuche es dann erneut.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse kann ohne Zugriff auf externe Werkzeuge kein Profil erstellen. Verwende einen anderen Anbieter, um das Profil zu erstellen, und wähle dann Muse für den Agenten.",
   "error.provider.museAuthUnverified":

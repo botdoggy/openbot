@@ -232,6 +232,8 @@ export const messages = {
     "OpenCode のモデルが、回答がないままターンを終了しました。もう一度お試しいただくか、別のモデルを選択してください。",
   "error.provider.opencodeReasoningWithoutAnswer":
     "OpenCode のモデルが、推論のあと回答がないままターンを終了しました。もう一度お試しいただくか、別のモデルを選択してください。",
+  "error.provider.acpNoAnswer":
+    "{provider} が回答なしでターンを終了しました。メッセージをもう一度送信するか、新しいチャットを開始してください。",
   "error.provider.chatgptPageFailed": "OpenBot は ChatGPT の接続ページを開けませんでした。",
   "error.provider.noneReady": "準備ができているエージェントのプロバイダーがありません。",
   "error.provider.claudeTurnActive": "コンテキストを更新する前に、実行中の Claude のターンが終わるまでお待ちください。",
@@ -438,6 +440,8 @@ export const messages = {
   "error.provider.museEmptyInput": "Muse にはテキストまたは画像が必要です。",
   "error.provider.museMethodUnsupported": "Muse は {method} に対応していません。",
   "error.provider.museTurnFailed": "Muse のターンに失敗しました。",
+  "error.provider.museModelUnavailable":
+    "Muse はこのモデルを使用できません。このエージェントが動作している国では Muse を利用できないか、このアカウントにモデルへのアクセス権がない可能性があります。別のモデルを選択してから、もう一度お試しください。\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse は外部ツールにアクセスできないため、プロフィールを生成できません。別のプロバイダーでプロフィールを生成してから、エージェントに Muse を選択してください。",
   "error.provider.museAuthUnverified":

@@ -118,6 +118,10 @@ export const messages = {
   "settings.agentDefaults.setAllLabel": "{setting}: tüm ajanlar için ayarla",
   "settings.agentDefaults.agentLabel": "{setting}: {agent}",
   "settings.agentDefaults.loadFailed": "Ajanlar okunamadı.",
+  "settings.commitCoAuthor.sectionTitle": "Git commit'leri",
+  "settings.commitCoAuthor.title": "Commit'lerde OpenBot'u belirt",
+  "settings.commitCoAuthor.description":
+    "Ajanlar yaptıkları commit'lere OpenBot'u ortak yazar olarak ekler. Yazar siz kalırsınız.",
   "settings.planStart.title": "İşi başlat",
   "settings.planStart.wait": "Başlat'a bastığımda",
   "settings.planStart.after": "{time} sonra",
@@ -196,6 +200,7 @@ export const messages = {
   "settings.soundTheme.play": "{name} sesini çal",
   "settings.notch.title": "Davranış",
   "settings.notch.show.title": "Durumu MacBook çentiğinde göster",
+  "settings.notch.show.titleTopOfScreen": "Durumu ekranın üst kısmında göster",
   "settings.notch.show.description": "Ajan etkinliğini ve dikkat gerektiren öğeleri her ekranın üst kısmında gösterin.",
   "settings.notch.idle.title": "Boştaki adayı göster",
   "settings.notch.idle.description": "Hiçbir durum etkin olmadığında OpenBot logosunu ve selamlamasını gösterin.",
