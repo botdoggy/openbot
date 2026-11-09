@@ -6,6 +6,12 @@ All notable changes to OpenBot will be documented here. The project follows
 
 ## [Unreleased]
 
+## [0.65.0-bd.2] - 2026-11-09
+
+### Fixed
+
+- Fork: correct the composer import order so release lint passes. This does not change agent behavior.
+
 ## [0.65.0-bd.1] - 2026-11-09
 
 ### Added

@@ -8,11 +8,11 @@ import {
 import { fileQuoteTarget } from "@openbot/contracts/chat-tag-references";
 import { ATTACHMENT_LIMITS, INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import {
-  agentSteers as savedAgentSteers,
   type AttachmentDataInput,
   type DraftAttachment,
   LOCAL_SERVER_ID,
   type QueueDelivery,
+  agentSteers as savedAgentSteers,
 } from "@openbot/contracts/ipc";
 import { TEAM_MESSAGE_CLIENT_ID_CAPABILITY } from "@openbot/contracts/team-protocol/current";
 import { isQueueEditRejected, TEAM_QUEUE_EDIT_CAPABILITY } from "@openbot/contracts/team-protocol/queue-edit-v1";
