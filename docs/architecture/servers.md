@@ -234,6 +234,20 @@ gets the existing skill and the result warns. `POST /v1/agent-import/discard` re
 desktop, main opens the dialog, reads the file and sends it (`agent-import:choose` is server-scoped);
 the web client uses the browser chooser and ships the export skill in its bundle.
 
+`agent-import-v2` (protocol 9 only) removes the 100 MB limit: the client sends the export in parts.
+`POST /v1/agent-import/v2/open` takes `{ size }` and answers `{ uploadId }`; the host refuses a size
+that its free disk space cannot hold (`error.import.uploadDiskSpace`). `POST /v1/agent-import/v2/chunk?upload=<id>&offset=<n>`
+takes the next part, at most 8 MiB, as the raw body, and answers `{ received }`; the offset must be the
+bytes the host has, so a part is never written twice or out of order. `POST /v1/agent-import/v2/stage`
+takes `{ uploadId }` and answers the v1 preview; `apply` and `discard` stay the v1 routes. Every part
+is far under the 100 MB WebRTC file limit, so the transport does not change. The upload holds one of the
+four upload slots, the same member keeps one upload or export, and an upload that gets no part for
+10 minutes is released. A complete upload has the limits of a local import (200,000 files, no byte
+limit, and the free disk space check of each agent's files). Desktop main reads the file one part at a
+time; the web client slices the `File`, and the phone reads parts with an `expo-file-system` file
+handle. A client sends v1 to an older host, and refuses a file over 100 MB there with
+`error.import.remoteZipTooLargeOldHost`.
+
 ### Instance transfer with a joined server
 
 `instance-transfer-v1` moves a server's agents and server settings to or from an OpenBot transfer file
@@ -247,12 +261,40 @@ removes it. `POST /v1/instance-transfer/stage` takes the raw `.zip` and answers 
 avatars, under a token that only the caller can apply or discard; an upload nobody applies is removed
 after 30 minutes. `POST /v1/instance-transfer/apply` takes `{ token, keys, includeSettings, timezone }`
 and answers the new agents by id and name, which the client reads with the agent list.
-`POST /v1/instance-transfer/discard` releases the token. On desktop, main opens both dialogs and moves
+`POST /v1/instance-transfer/discard` releases the token. `instance-transfer-v1` export has no chat
+history; the desktop export screen offers "Include chat history" only for this computer's server and
+a host with `instance-transfer-chunks-v1`. On desktop, main opens both dialogs and moves
 the file (`instance-transfer:*` is server-scoped). The web client does not show the Transfer section: its
 downloads are limited to 10 MB.
 
+`instance-transfer-chunks-v1` moves the same file in parts of 8 MiB (`INSTANCE_TRANSFER_CHUNK_BYTES`),
+so a file can be up to the 2 GB limit of a computer's own server. It is protocol 9 only, and the
+desktop app uses it when the host has both capabilities; the phone stays on `instance-transfer-v1`.
+The rules for an owner or admin are the same, and each upload or export id is bound to the member
+who started it: another member's id gets the same error as an id that does not exist.
+`POST /v1/instance-transfer-chunks/upload/begin` takes `{ size, sha256 }`, checks the size and the free
+disk space of the host (the size and 256 MiB), creates `<uploadId>.part` with mode 0600 and answers
+`{ uploadId, chunkBytes, received }`. The same member with the same size and SHA-256 gets the same
+upload again with the parts that the host has, so a client that failed sends only the rest. A member
+has one upload: a new file ends the one before. `POST /v1/instance-transfer-chunks/upload/chunk` takes
+`uploadId`, `index` and the part's `sha256` in the query and the raw part as the body, checks its length
+and SHA-256 and writes it at `index * chunkBytes`. `POST /v1/instance-transfer-chunks/upload/finish`
+checks that every part is there and the SHA-256 of the whole file, renames it to `.zip` and stages it
+as `stage` does, with the local limits. It answers the `stage` preview; `apply` and `discard` of
+`instance-transfer-v1` take its token. `POST /v1/instance-transfer-chunks/upload/abort` ends an upload.
+`POST /v1/instance-transfer-chunks/export/begin` takes the `export` input with an optional
+`includeHistory`, which `instance-transfer-v1` export drops, writes the file with the local
+limits and answers `{ exportId, size, sha256, chunkBytes, chunks, warnings }`, where `chunks` is the
+SHA-256 of each part and `warnings` is what a local export would show. `POST /v1/instance-transfer-chunks/export/chunk` takes `{ exportId, index }` and sends that
+byte range as an attachment. `POST /v1/instance-transfer-chunks/export/done` removes the file. An
+upload or export with no request for 30 minutes is removed. The desktop client reads and writes one
+part at a time, checks each part it gets, and sends or reads a part again up to three times when the
+connection fails; it does not send a part again when the host refuses it. A download appears only
+when it is complete.
+
 After a restart, the first upload or export removes old files from `instance-transfer-uploads/`,
-including unfinished `.part` files, before it writes a new file. Concurrent uploads and exports wait
+including unfinished `.part` files and the parts of `instance-transfer-chunks-v1`, before it writes a
+new file. Concurrent uploads and exports wait
 for this cleanup. If cleanup fails, the operation fails; the next upload or export retries it.
 Later operations keep the current process's files. Local files selected by the user are kept.
 
@@ -598,6 +640,7 @@ host advertises a capability only when its `TeamApiAdmin` member exists.
 | `agent-publish-v1` | Preview, publish and unpublish an agent's share link. The host builds the template, checks it for secrets and publishes it with its own account; the client sends only the share card | `agentAdmin` |
 | `providers-v1` | Code sign-in, provider API keys, managed runtimes, custom endpoints | `providerAdmin` |
 | `instance-transfer-v1` | Export and import the server's agents and server settings as a transfer file | `instanceTransfer` |
+| `instance-transfer-chunks-v1` | Send and get the transfer file of `instance-transfer-v1` in parts of 8 MiB, up to 2 GB; `apply` and `discard` of `instance-transfer-v1` take the token of an upload | `instanceTransfer` |
 | `providers-v3` | Code sign-in for Codex, Claude and Grok; send the code a Claude sign-in page shows | `providerAdmin` |
 | `providers-v4` | Code or link sign-in and managed runtimes, Cursor and Cline included | `providerAdmin` |
 | `custom-provider-harness-v1` | List, add and remove custom endpoints as `providers-v1` does; each endpoint in a response names its harness (`opencode` or `pi`). A save names no harness: a new endpoint runs on OpenCode | `providerAdmin` |
@@ -615,12 +658,14 @@ host advertises a capability only when its `TeamApiAdmin` member exists.
 | `local-servers-v1` | List the servers that the desktop app runs on the host computer, create one, and delete one. Owner only: an admin gets 403. Only the desktop app's own server advertises it | none: only the mobile app sends it |
 | `agent-memory-limit-v1` | Read and set how many memories each agent keeps | `hostAdmin` |
 | `memory-review-v1` | Read and set how often the host's agents review their memories in the background, or Off | `hostAdmin` |
+| `browsing-memory-v1` | Read and set whether the host records what a person does in an agent's browser tab that they hold, for the memory review of that agent. Protocol 9 only | `hostAdmin` |
 | `skill-learning-v1` | Read and set whether the memory reviews of the host's agents save the skills they learn, ask first, or do not look for skills. Sends the skill name of a skill question in chat messages, and saves that skill on Save (any member with chat level). Protocol 9 only | `hostAdmin`, `agent.saveSkillSuggestion` |
 | `agent-notification-levels-v1` | Read and set the member's own notification level of the server and of each agent | none: each member, own levels only |
 | `sidebar-pins-v1` | Read, replace and seed the member's own ordered list of pinned agents and channels | none: each member, own pins only |
 | `live-voice-v1` | Start and stop Codex live voice with an agent, with the host's Codex sign-in; the `live-voice` event goes to the member who started it. Protocol 9 only | none: each member who can chat with the agent |
 | `machine-resources-v1` | Read the disk, memory and CPU use of the host machine; read and set the alert levels and the owner or admin who gets the `machine-alert` event | `storage`, `hostAdmin` |
 | `prompt-cache-ttl-v1` | Read and set how long Claude keeps the prompt cache of the host's agents | `hostAdmin` |
+| `claude-compact-window-v1` | Read and set the size at which Claude Code compacts the chats of the host's agents. Protocol 9 only | `hostAdmin` |
 | `model-visibility-v1` | Read every model of one provider of the host, and set which of them the model picker shows. Every member reads which models the picker folds under Older models or labels New. Protocol 9 only | `hostAdmin` |
 | `provider-default-v1` | Read and set the provider that a new agent of the host starts on | none: only the mobile app sends it |
 | `agent-access-v1` | Read and set the roles that give members access to agents (see [Roles](#roles)) | `hostAdmin` |
@@ -719,6 +764,15 @@ client shows an unknown mode from a later host as its raw value. The agent servi
 at each review. Server settings → General → Agents → Skill learning sets it for this computer
 (`hostAdmin.setSkillLearning`, local handler) and for a joined server.
 
+`browsing-memory-v1` reads and sets "Learn from my browsing" (`openbot-browsing-memory-v1.json`,
+`{ enabled }`, off by default) at `POST /v1/admin/host/browsing-memory` and
+`POST /v1/admin/host/browsing-memory/update` (owner or admin). While it is on, the host records the
+pages and the controls that a person uses in an agent tab that they hold, and the next memory review
+of that agent reads them (see [browser.md](browser.md)). Turning it off deletes the recorded steps.
+A connection without the capability gets `error.team.browsingMemoryUnsupported`. Server settings →
+General → Agents → Learn from my browsing sets it for this computer (`hostAdmin.setBrowsingMemory`,
+local handler) and for a joined server.
+
 The capability also carries the skill question card (see [providers.md](providers.md#skill-suggestions)).
 A skill question message (`itemType` `skill-suggestion:*`) gets `skillSuggestion: { name }` on the
 wire. The frozen protocol 9 projection drops it, so the host adds it after the projection, for a
@@ -784,6 +838,17 @@ in the Claude settings or `CLAUDE_CODE_PROMPT_CACHE_TTL` on the host still wins.
 the next Claude process, not to a running one; an idle thread starts a new process when it resumes.
 The Cache section of the Claude page in Server settings → Providers sets it for this computer and
 for a joined server.
+
+`claude-compact-window-v1` reads and sets the size at which Claude Code compacts the chats of the
+host's agents (`openbot-claude-compact-window-v1.json`; `tokens` is a whole number from 100,000 to
+1,000,000, or `null`, the default). With a size the host starts each Claude process with
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` set to it. Claude Code reads this variable before the
+`autoCompactWindow` of the Claude settings, and lowers it to the context window of a smaller model.
+With `null` it sets nothing, so Claude Code uses its own size for each model, and the Claude settings
+and the environment of the host still apply. An environment value of the agent still wins. Automatic
+compaction stays on. A change applies to the next Claude process, not to a running one. The Context
+section of the Claude page in Server settings → Providers sets it for this computer, for a joined
+server, on the web client and in the mobile app.
 
 `model-visibility-v1` reads every model that one provider of the host lists, and sets which of them
 the model picker shows. The file `openbot-model-visibility-v1.json` keeps, for each provider, only the

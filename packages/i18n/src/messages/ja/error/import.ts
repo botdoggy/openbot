@@ -49,8 +49,14 @@ export const messages = {
   "error.import.remoteZipTooLarge":
     "参加しているサーバーにインポートするには、エクスポートは 100 MB 未満の .zip である必要があります。",
   "error.import.hostBusy": "サーバーは他のエクスポートを読み込み中です。数分後にもう一度お試しください。",
+  "error.import.uploadDiskSpace":
+    "このエクスポートにはサーバーに {size} GB の空き容量が必要ですが、空きは {free} GB です。サーバーの空き容量を増やしてから、もう一度エクスポートを選んでください。",
+  "error.import.remoteZipTooLargeOldHost":
+    "このサーバーが受け付けるエクスポートは 100 MB までです。より大きなエクスポートをインポートするには、サーバーの OpenBot をアップデートしてください。",
   "error.import.skillKept":
     "{name}: サーバーにはすでにスキル「{skill}」があるため、エージェントはそのスキルを使います。更新は管理者に依頼してください。",
+  "error.import.skillRenamed":
+    "{name}: スキル「{skill}」の名前は別のスキルの名前に似すぎているため、「{renamed}」として保存されます。",
   "error.import.transferRemoteTooLarge":
     "参加しているサーバーの移行ファイルは 100 MB 未満である必要があります。ワークスペースのファイルをオフにするか、エクスポートするエージェントを減らしてください。",
   "error.import.transferNotFile": "このファイルは OpenBot の移行ファイルではありません。",

@@ -22,6 +22,7 @@ import { useText } from "@openbot/ui/text";
 import type { JSX } from "@solidjs/web";
 import { type Accessor, createStore, Show, snapshot } from "solid-js";
 import { actionToast } from "../../action-toast";
+import { ServerBrowsingMemorySetting } from "./ServerBrowsingMemorySetting";
 import { ServerMemoryLimitSetting } from "./ServerMemoryLimitSetting";
 import { ServerMemoryReviewSetting } from "./ServerMemoryReviewSetting";
 import { ServerSkillLearningSetting } from "./ServerSkillLearningSetting";
@@ -106,6 +107,7 @@ export function createServerGeneralSection(host: ServerSettingsSectionHost): Ser
   const canSetMemoryLimit = () => serverCanAdminister(props.server, "agent-memory-limit-v1") && actionsAvailable();
   const canSetMemoryReview = () => serverCanAdminister(props.server, "memory-review-v1") && actionsAvailable();
   const canSetSkillLearning = () => serverCanAdminister(props.server, "skill-learning-v1") && actionsAvailable();
+  const canSetBrowsingMemory = () => serverCanAdminister(props.server, "browsing-memory-v1") && actionsAvailable();
   const trimmedName = () => panels.identity.name.trim();
   const nameError = () => {
     if (!canEditIdentity()) return null;
@@ -120,8 +122,11 @@ export function createServerGeneralSection(host: ServerSettingsSectionHost): Ser
   const canLeave = () => Boolean(props.onLeaveServer) && !local() && props.server.role !== "owner";
   /** The owner removes the server from the account instead. The host does not need to be online. */
   const canRemove = () => Boolean(props.onRemoveServer) && !local() && props.server.role === "owner";
-  /** The key handover goes through the account service, so the server must be published. */
-  const canRotateKey = () => Boolean(props.onRotateHostKey) && local() && published();
+  /**
+   * The key handover goes through the account service, so this computer's server must be published.
+   * A joined server's owner asks the host while it is online.
+   */
+  const canRotateKey = () => Boolean(props.onRotateHostKey) && (local() ? published() : actionsAvailable());
   /** The last key change that the previous and the new key both signed. Every member sees it. */
   const keyChangedAt = () => props.server.keyChangedAt;
   const identityDirty = () =>
@@ -394,7 +399,8 @@ export function createServerGeneralSection(host: ServerSettingsSectionHost): Ser
             (canSetTimezone() && props.hostTimezone) ||
             (canSetMemoryLimit() && props.hostMemoryLimit) ||
             (canSetMemoryReview() && props.memoryReview) ||
-            (canSetSkillLearning() && props.skillLearning)
+            (canSetSkillLearning() && props.skillLearning) ||
+            (canSetBrowsingMemory() && props.browsingMemory)
           }
         >
           <SettingsSection title={t("server.settings.agents")}>
@@ -439,6 +445,16 @@ export function createServerGeneralSection(host: ServerSettingsSectionHost): Ser
                     serverId={props.server.id}
                     disabled={Boolean(busy())}
                     menuMount={host.menuMount()}
+                    run={run}
+                  />
+                )}
+              </Show>
+              <Show when={canSetBrowsingMemory() && props.browsingMemory}>
+                {(options) => (
+                  <ServerBrowsingMemorySetting
+                    {...options()}
+                    serverId={props.server.id}
+                    disabled={Boolean(busy())}
                     run={run}
                   />
                 )}

@@ -570,6 +570,19 @@ does not record message text, files, request bodies or headers, and it masks tok
 addresses. The app never sends the log. **Settings → Support** shows it and lets you save the file or
 clear it.
 
+The mobile app asks an update server for a newer JavaScript bundle each time it starts, and when
+you come back to it, at most one time in 15 minutes. App versions after 1.4.8 ask OpenBot's server
+`updates.openbot.run`, a Cloudflare Worker; version 1.4.8 and earlier versions ask Expo's server
+`u.expo.dev`. The request has the platform, the runtime version of the build, the build channel, the
+ID of the bundle that runs, a random ID that the update client made for this install, the IDs of
+updates that failed on the phone a short time ago and, after a crash at start, the first 1,024
+characters of the error text. It does not have your account, your servers or your content. OpenBot's
+server uses the random ID only to decide if the install is in a part rollout. It does not store or
+log the request, and Cloudflare sees it in transit as for each request to a Worker. The phone then
+downloads the bundle and its files from the same server. Each update is signed, and the app refuses
+a bundle that the certificate in the app does not accept. A development build and Expo Go ask no
+update server.
+
 Mobile chat, like desktop and web chat, shows the icon of the linked site beside a web link. To get
 it, the phone requests `/favicon.ico` from the site of the link when it shows the message. The request
 contains no conversation text. When the site has no icon, a local symbol shows. Mobile chat does not
@@ -765,6 +778,16 @@ provider's lower-priced default model, which proposes memory changes. Nothing el
 Server settings > General > Memory review sets the number of turns (10, 20 or 40) for the agents of
 the server, or turns these reviews off; off, no review sends anything. An owner or admin of a joined
 server can change it.
+
+Server settings > General > Learn from my browsing is off by default. When it is on, and you or a
+team member control a page of an agent's browser, OpenBot records the address of each page (the host
+and the path, without the query or the hash, and with each path part that looks like a code or an id
+replaced), its title, and the kind and the label of each control
+you click. It does not record what you type, field values, password fields, card or one-time code
+fields, secret tabs, or private sign-ins. The steps stay on this computer in
+`openbot-browsing-steps-v1.json`. The next memory review of that agent sends them, with secrets
+redacted, to the agent's own provider, as part of the review above, and then deletes them. Steps that
+no review reads are deleted after 30 days. Turning the setting off deletes all recorded steps.
 
 - `~/OpenBot/Agents` contains one workspace per agent. A profile written by a release before the
   bot-to-agent rename holds them under `~/OpenBot/Bots`; the application moves them on first launch.
@@ -1169,9 +1192,8 @@ Network traffic can also occur when:
   user's agents, conversations or files is sent to Link;
 - an installed build checks GitHub Releases for updates;
 - OpenBot checks for new provider CLI releases when it starts, once an hour, and when you select
-  `Check for updates`. It asks `api.github.com` for Codex, Kimi, GitHub Copilot and Mistral, `registry.npmjs.org` for Claude,
-  OpenCode and Cline, `x.ai/cli` for Grok, and `raw.githubusercontent.com/agentclientprotocol/registry` and
-  `dl.google.com` (for the download size) for Gemini, and the same registry and
+  `Check for updates`. It asks `api.github.com` for Codex, Kimi, GitHub Copilot, Mistral and Gemini, `registry.npmjs.org` for Claude,
+  OpenCode and Cline, `x.ai/cli` for Grok, `raw.githubusercontent.com/agentclientprotocol/registry` and
   `downloads.cursor.com` (for the download size) for Cursor, `static.devin.ai` (the manifest, and the
   download size) for Devin, and it reads a list of blocked
   versions from `raw.githubusercontent.com/nightly-labs/openbot`. These requests contain no account, agent,
@@ -1602,22 +1624,29 @@ files. OpenCode manages its own login and resume state.
 
 ### Gemini
 
-OpenBot downloads Google's Antigravity ACP server from `dl.google.com` when you select Download on
-the Gemini row. Each provider update check also asks `dl.google.com` for the size of the newest
-download, also when you do not use Gemini. Google's license does not let OpenBot include it in the application. OpenBot
-starts the server as a local process. Prompts, attachments, and tool results go to that process,
+OpenBot downloads Google's Antigravity CLI from its GitHub releases (`github.com`) when you select
+Download on the Gemini row. Google's license does not let OpenBot include it in the application. OpenBot
+starts the CLI's `acp` server as a local process. Prompts, attachments, and tool results go to that process,
 and the server sends them to Google. Connect opens Google's sign-in page in your browser. On this
 computer, Sign in saves a Gemini API key instead: OpenBot encrypts it in its existing provider
 credential store, gives it to the server as `GEMINI_API_KEY`, and redacts it from logs. The server
-sends the key to Google. The server keeps its login and session files in `~/.gemini`, or in `$GEMINI_HOME`. Each Gemini
+sends the key to Google. The server keeps its login and session files in `~/.gemini/antigravity-acp`, or in the same folder of
+`$GEMINI_HOME`. OpenBot tells it to keep the Google token in a file there, not in the macOS Keychain. Each Gemini
 account that you add after the first keeps them in a folder of its own in OpenBot's data folder, and gets no saved API key;
-Remove deletes that folder. OpenBot does not read, copy, or upload these files. Google's terms apply: <https://antigravity.google/terms>.
+Remove deletes that folder. Once, when an account still has the token file of the earlier Antigravity server
+(`acp_token.json`), OpenBot copies its refresh token into the new token file in the same folder, so you do not
+sign in again. The old file stays. The CLI's own log in that folder names your Google account. OpenBot does
+not upload these files and does not put them in a diagnostics export. Reconnect and Remove delete the token file but
+do not revoke the sign-in at Google; remove Antigravity's access in your Google account to do that. Google's terms
+apply: <https://antigravity.google/terms>.
 Gemini agents stay on this computer: OpenBot does not show them to team members.
 
-To show the remaining Gemini quota in Usage, OpenBot sends the server's `/usage` command in a
-session that no agent uses. The server asks Google for the quota of the signed-in account; the
-command contains no conversation, file, or model data. The server keeps that session with its other
-session files in `~/.gemini`. OpenBot does not send that usage to its maintainer.
+To show the remaining Gemini quota in Usage, OpenBot reads the access token from the server's token file
+and asks Google's Code Assist service (`cloudcode-pa.googleapis.com`) for the account's project and
+quota, as the CLI does. The requests carry that token and a User-Agent with the CLI's version, your
+operating system and processor type. They contain no conversation, file, or model data. With an API key
+sign-in, or an expired token, OpenBot sends nothing and shows no Gemini usage. OpenBot does not send that
+usage to its maintainer.
 
 ### Cursor
 
@@ -1876,7 +1905,9 @@ host.
 ## iPhone notifications
 
 The iPhone app can show a notification when an agent finishes a task, stops with an error, or needs
-an answer, an approval, or a step in the browser, while the app is not on screen. The host does not
+an answer, an approval, or a step in the browser, while the app is not on screen. This includes the
+side threads of an agent, unless you turn Thread replies off in the app; the phone then tells each
+host that choice, and the host keeps it with the other notification choices of the phone. The host does not
 send one while the member uses a desktop app or the computer that it runs on. For this, it keeps in
 memory the time of the last send, answer or typing of each session, and on its own computer it reads
 whether the OpenBot window has focus and how long the computer has had no input. The desktop app also

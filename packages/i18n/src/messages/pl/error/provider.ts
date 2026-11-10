@@ -234,9 +234,6 @@ export const messages = {
   "error.provider.stoppedBeforeAgentProcess": "{provider} zatrzymał się przed uruchomieniem procesu agenta.",
   "error.provider.archiveUnreadable":
     "Nie można odczytać archiwum środowiska uruchomieniowego lub ma ono nieobsługiwany format.",
-  "error.provider.antigravityArchivePath": "Archiwum Gemini zawiera nieoczekiwany plik.",
-  "error.provider.antigravityChecksum": "Niezgodna suma kontrolna środowiska uruchomieniowego Gemini.",
-  "error.provider.antigravityReleaseShape": "Wydanie Gemini ma nieoczekiwaną strukturę.",
   "error.provider.antigravityMissing": "Gemini nie jest pobrany. Pobierz go w OpenBot, aby kontynuować.",
   "error.provider.antigravityNotStarted": "Znaleziono serwer Gemini, ale nie można odczytać jego wersji.",
   "error.provider.antigravityOverrideInvalid":
@@ -251,6 +248,10 @@ export const messages = {
     "Gemini nie może teraz użyć tego modelu. Wybierz inny model i spróbuj ponownie.\n{detail}",
   "error.provider.antigravityServiceFailure":
     "Usługa Gemini od Google nie ukończyła żądania. Spróbuj ponownie za kilka minut.\n{detail}",
+  "error.provider.antigravityConnectionLost":
+    "Gemini utracił połączenie ze swoim agentem i się zatrzymał. Wyślij wiadomość, aby kontynuować.",
+  "error.provider.antigravityRemoteWindowsSignIn":
+    "Na hoście z Windows Gemini otwiera stronę Google na samym hoście. Połącz Gemini na komputerze hosta.",
   "error.provider.cursorArchivePath": "Archiwum Cursor zawiera nieoczekiwany plik.",
   "error.provider.cursorChecksum": "Niezgodna suma kontrolna środowiska uruchomieniowego Cursor.",
   "error.provider.cursorReleaseShape": "Wydanie Cursor ma nieoczekiwaną strukturę.",
@@ -288,6 +289,10 @@ export const messages = {
     "Klucz API Anthropic nie ma środków API. Plan Claude nie płaci za zapytania z kluczem API. Doładuj środki w Anthropic Console albo zaloguj się do Claude w Ustawieniach i wybierz konto Claude w menu modeli agenta.",
   "error.provider.foreignReasoning":
     "Dostawca {provider} nie przyjął wcześniejszego rozumowania z tego czatu, ponieważ otrzymało je inne konto lub inny klucz API. OpenBot rozpoczął nową sesję {provider} z historią czatu. Spróbuj ponownie.",
+  "error.provider.imageTooSmall":
+    "Model nie przyjął obrazu z tego czatu, ponieważ obraz jest za mały. OpenBot rozpoczął nową sesję {provider} z historią czatu. Spróbuj ponownie.",
+  "error.provider.imageTooLarge":
+    "Model nie przyjął obrazu z tego czatu, ponieważ obraz jest za duży. OpenBot rozpoczął nową sesję {provider} z historią czatu. Spróbuj ponownie.",
   "error.provider.opencodeSessionRejected":
     "OpenCode odrzucił żądanie i nie podał przyczyny. Może się to zdarzyć w długim czacie lub po zmianie modelu. OpenBot rozpoczął nową sesję OpenCode z historią czatu. Spróbuj ponownie. Jeśli błąd się powtarza, wybierz inny model lub niższy wysiłek.",
   "error.provider.acpContextOverflow":

@@ -4,8 +4,12 @@ import type { messages as source } from "../../en/error/agent";
 export const messages = {
   "error.agent.historyUnavailable":
     "L’historique n’est pas disponible pour cette demande. Relisez l’historique récent, ou utilisez channel_history pour le travail dans un canal.",
+  "error.agent.historyArgumentsInvalid":
+    "Arguments d’historique incorrects : {detail} Corrige les arguments et réessaie. openbot.tool_describe donne le schéma.",
   "error.agent.toolRequestInvalid":
     "Arguments de découverte d’outils non valides. Utilisez le schéma déclaré et un nom d’outil qualifié d’origine.",
+  "error.agent.toolCallArgumentsNotObject":
+    "L’outil ne s’est pas exécuté. Dans tool_call, arguments doit être un objet JSON, pas du texte. Renvoyez l’appel avec arguments sous forme d’objet.",
   "error.agent.approvalWhileDeleting": "Impossible d’accorder l’approbation pendant la suppression de l’agent.",
   "error.agent.accessLocalOnly": "L’accès à l’agent ne peut être modifié que sur l’ordinateur qui exécute l’agent.",
   "error.agent.duplicateCleanupFailed":
@@ -51,6 +55,8 @@ export const messages = {
     "Aucun modèle {provider} n’est disponible pour le moment. Appelez list_models pour voir les modèles disponibles.",
   "error.agent.reasoningEffortUnsupported":
     "Le modèle « {model} » ne prend pas en charge l’effort de raisonnement « {effort} ». Efforts pris en charge : {efforts}.",
+  "error.agent.reasoningEffortNotConfigurable":
+    "Le modèle « {model} » n’a pas de réglage d’effort de raisonnement : vous ne pouvez pas le modifier.",
   "error.agent.noStartingModelInSettings":
     "{provider} ne propose aucun modèle disponible, et aucun autre fournisseur connecté non plus. Connectez-vous à un fournisseur ou changez le fournisseur par défaut dans Réglages du serveur → Fournisseurs.",
   "error.agent.noStartingModel":

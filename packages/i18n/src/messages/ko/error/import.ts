@@ -43,8 +43,14 @@ export const messages = {
   "error.import.empty": "내보내기 파일이 비어 있어요.",
   "error.import.remoteZipTooLarge": "참여 중인 서버로 가져오려면 내보내기 파일이 100 MB 이하의 .zip이어야 해요.",
   "error.import.hostBusy": "서버가 다른 내보내기 파일을 읽고 있어요. 몇 분 후 다시 시도해 주세요.",
+  "error.import.uploadDiskSpace":
+    "내보낸 파일에는 서버 디스크 여유 공간이 {size}GB 필요하지만 {free}GB만 비어 있어요. 서버의 공간을 확보한 다음 내보낸 파일을 다시 선택해 주세요.",
+  "error.import.remoteZipTooLargeOldHost":
+    "이 서버는 100MB까지의 내보낸 파일만 받아요. 더 큰 파일을 가져오려면 서버의 OpenBot을 업데이트해 주세요.",
   "error.import.skillKept":
     '{name}: 서버에 이미 스킬 "{skill}"이(가) 있어서 에이전트가 그 스킬을 사용해요. 관리자에게 업데이트를 요청해 주세요.',
+  "error.import.skillRenamed":
+    '{name}: 스킬 "{skill}"의 이름이 다른 스킬의 이름과 너무 비슷해서 "{renamed}"(으)로 저장돼요.',
   "error.import.hermesNoProfiles":
     "이 폴더에는 Hermes 프로필이 없어요. config.yaml 또는 SOUL.md가 있는 Hermes 폴더를 선택해 주세요.",
   "error.import.hermesClosed": "Hermes 프로필이 더 이상 열려 있지 않아요. 다시 읽어 주세요.",

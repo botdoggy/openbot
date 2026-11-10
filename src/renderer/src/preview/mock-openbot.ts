@@ -58,9 +58,11 @@ import {
   type BackgroundProcess,
   type BrowserProfileSummary,
   type BrowserProxySummary,
+  type BrowsingMemoryPreference,
   type BusyMessageModePreference,
   browserProxyAddressText,
   type CentralAuthState,
+  type ClaudeCompactWindowSetting,
   type ClaudeUserSetupSetting,
   type ClientAgentModelOption,
   type ClientAgentSummary,
@@ -82,7 +84,9 @@ import {
   DEFAULT_APP_INTERFACE_SIZE,
   DEFAULT_APP_LOGO_COLOR,
   DEFAULT_APPROVAL_AUTOMATION_PREFERENCE,
+  DEFAULT_BROWSING_MEMORY_PREFERENCE,
   DEFAULT_BUSY_MESSAGE_MODE,
+  DEFAULT_CLAUDE_COMPACT_WINDOW,
   DEFAULT_CLAUDE_USER_SETUP,
   DEFAULT_CUSTOM_PROVIDER_HARNESS,
   DEFAULT_DYNAMIC_ISLAND_PREFERENCE,
@@ -110,10 +114,12 @@ import {
   type HostedSiteSummary,
   type HostStatus,
   hostAgentMemoryLimit,
+  hostBrowsingMemory,
   hostMemoryReview,
   hostSkillLearning,
   isAgentMemoryLimit,
   isAgentSummary,
+  isClaudeCompactWindowTokens,
   isMemoryReviewInterval,
   isPromptCacheTtl,
   isReleasedRoutineSchedule,
@@ -419,6 +425,24 @@ function mockWorkspaceDirectory(path: string): WorkspaceDirectory {
   };
 }
 
+/** Fonts that most Macs have, so the preview draws each choice in its real font. */
+const STORY_INSTALLED_FONTS = [
+  "Al Bayan",
+  "Arial",
+  "Avenir Next",
+  "Baghdad",
+  "Courier New",
+  "Geeza Pro",
+  "Georgia",
+  "Helvetica Neue",
+  "Menlo",
+  "Monaco",
+  "Noto Nastaliq Urdu",
+  "Tahoma",
+  "Times New Roman",
+  "Verdana",
+];
+
 /** What each story server answers with when it is tested, so a story reads the same way twice. */
 const PREVIEW_BROWSERS: ExternalLinkBrowsers = {
   defaultBrowser: { name: "Safari", path: "/Applications/Safari.app" },
@@ -478,10 +502,12 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
   let agentMemoryLimit: AgentMemoryLimitPreference = { limit: DEFAULT_AGENT_MEMORY_LIMIT };
   let memoryReview: MemoryReviewPreference = { interval: DEFAULT_MEMORY_REVIEW_INTERVAL };
   let skillLearning: SkillLearningPreference = { mode: DEFAULT_SKILL_LEARNING_MODE };
+  let browsingMemory: BrowsingMemoryPreference = { ...DEFAULT_BROWSING_MEMORY_PREFERENCE };
   // The disk level is below the preview disk use (82%), so Storage shows a passed level.
   let machineAlerts: MachineAlertSettings = { ...DEFAULT_MACHINE_ALERT_SETTINGS, diskPercent: 80 };
   let promptCacheTtl: PromptCacheTtlSetting = { ...DEFAULT_PROMPT_CACHE_TTL };
   let claudeUserSetup: ClaudeUserSetupSetting = { ...DEFAULT_CLAUDE_USER_SETUP };
+  let claudeCompactWindow: ClaudeCompactWindowSetting = { ...DEFAULT_CLAUDE_COMPACT_WINDOW };
   /** The models each provider's picker shows, after the user changed the list. Unchanged providers show all. */
   const shownModels = new Map<string, readonly string[]>();
   let agentAccess: AgentAccessChange = { revision: 0, everyone: {}, roles: [] };
@@ -509,6 +535,8 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
     palettes: [],
     chatBackgroundLight: null,
     chatBackgroundDark: null,
+    interfaceFont: null,
+    codeFont: null,
   };
   const appearanceListeners = new Set<(preference: AppAppearancePreference) => void>();
   let interfaceSizePreference: AppInterfaceSizePreference = { percent: DEFAULT_APP_INTERFACE_SIZE };
@@ -1312,6 +1340,7 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       for (const listener of appearanceListeners) listener(clone(appearancePreference));
       return clone(appearancePreference);
     },
+    listInstalledFonts: async () => [...STORY_INSTALLED_FONTS],
     onAppAppearancePreference: (listener) => {
       appearanceListeners.add(listener);
       return () => appearanceListeners.delete(listener);
@@ -1351,6 +1380,8 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       performAction: async () => undefined,
       onAction: () => () => undefined,
       setInteractive: async () => undefined,
+      setInputRegion: async () => undefined,
+      setXWayland: async () => undefined,
       onCloseChat: () => () => undefined,
       listDisplays: async () => [{ id: 1, label: "Built-in Retina Display", primary: true, internal: true }],
       drag: async () => undefined,
@@ -1374,6 +1405,8 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       performHaptic: async () => undefined,
       onAction: () => () => undefined,
       setInteractive: async () => undefined,
+      setInputRegion: async () => undefined,
+      setXWayland: async () => undefined,
     },
     // The preview has no Apple apps to ask, so every app answers as allowed.
     macAutomation: {
@@ -1555,12 +1588,6 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       provider,
       status: providerApiKeys.has(provider) ? "saved" : "missing",
     }),
-    getClaudeUserSetup: async () => clone(claudeUserSetup),
-    setClaudeUserSetup: async (enabled) => {
-      if (typeof enabled !== "boolean") throw new Error("Invalid Claude setup setting.");
-      claudeUserSetup = { enabled };
-      return clone(claudeUserSetup);
-    },
     providerRuntimes: mockProviderRuntimes.providerRuntimes,
     openUrl: async () => undefined,
     voice: mockVoice.voice,
@@ -1844,6 +1871,10 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       saveCustomProvider: (input) => api.customProviders.save(input),
       updateCustomProvider: (input) => api.customProviders.update(input),
       deleteCustomProvider: (input) => api.customProviders.delete(input),
+      // The preview host's switch is the one of this computer.
+      providerUse: async () => (agentStatus.providers ?? []).filter((row) => row.off).map((row) => row.id),
+      setProviderUse: async (input) =>
+        ((await api.setProviderOn(input)).providers ?? []).filter((row) => row.off).map((row) => row.id),
     },
     agentTemplates: {
       // One published template per local agent. The preview shows the agent's own identity with the
@@ -2567,6 +2598,7 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       updateAgent: async (input: UpdateAgentInput) => {
         const current = agents.find((agent) => agent.id === input.agentId);
         if (!current) throw new Error("Agent not found");
+        if (input.ultrafast !== undefined && input.fastMode === undefined) throw new Error("Invalid fast mode value.");
         const {
           agentId: _agentId,
           busyMessageMode,
@@ -2599,6 +2631,9 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
         else if (taskLimit) updated.taskLimit = taskLimit;
         if (chatColor === null) delete updated.chatColor;
         else if (chatColor) updated.chatColor = chatColor;
+        // As the store does: each fast mode change names the tier, and Ultrafast needs fast mode.
+        if (updates.fastMode !== undefined && !(updates.fastMode && updates.ultrafast)) delete updated.ultrafast;
+        if (!updated.fastMode) delete updated.ultrafast;
         agents = agents.map((agent) => (agent.id === updated.id ? updated : agent));
         emitAgentEvent({ type: "agents-changed", agents });
         emitTasks(updated.id);
@@ -3462,6 +3497,9 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
         if (!server) throw new Error("Server not found");
         return server;
       },
+      rotateHostKey: async () => {
+        await mockTeam.host.rotateIdentityKey();
+      },
       ...createMockHostUpdate(options),
       ...createMockHostTimezone(),
       ...createMockHostPersonality(),
@@ -3485,6 +3523,11 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
         skillLearning = { mode };
         return hostSkillLearning(skillLearning);
       },
+      getBrowsingMemory: async () => hostBrowsingMemory(browsingMemory),
+      setBrowsingMemory: async (enabled) => {
+        browsingMemory = { enabled };
+        return hostBrowsingMemory(browsingMemory);
+      },
       // Preview has one host, so every server shares one set of machine alerts.
       getMachineAlerts: async () => clone(machineAlerts),
       setMachineAlerts: async (settings) => {
@@ -3497,6 +3540,19 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
         if (!isPromptCacheTtl(ttl)) throw new Error("Prompt cache time is required.");
         promptCacheTtl = { ttl };
         return clone(promptCacheTtl);
+      },
+      // Preview has one host, so every server shares one switch.
+      getClaudeUserSetup: async () => clone(claudeUserSetup),
+      setClaudeUserSetup: async (enabled) => {
+        if (typeof enabled !== "boolean") throw new Error("Invalid Claude setup setting.");
+        claudeUserSetup = { enabled };
+        return clone(claudeUserSetup);
+      },
+      getClaudeCompactWindow: async () => clone(claudeCompactWindow),
+      setClaudeCompactWindow: async (tokens) => {
+        if (!isClaudeCompactWindowTokens(tokens)) throw new Error("Invalid Claude compaction size.");
+        claudeCompactWindow = { tokens };
+        return clone(claudeCompactWindow);
       },
       // Preview has one host, so every server shares one model list.
       getModelVisibility: async (provider) => modelVisibility(provider),

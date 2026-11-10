@@ -135,6 +135,8 @@ export const messages = {
     "Ajoutez un point de terminaison compatible OpenAI : un serveur de modèles sur cet ordinateur, ou tout service avec une URL de base et une clé.",
   "provider.picker.customPending":
     "Les modèles de vos points de terminaison ne sont pas encore chargés. Le fournisseur les lit quand sa tâche en cours s’arrête.",
+  "provider.picker.customUnlisted": "{name} ne liste pas les modèles de vos points de terminaison.",
+  "provider.picker.editEndpoints": "Modifier",
   "provider.picker.defaultModelLabel": "{name}, par défaut",
   "provider.picker.usageLimit": "Limite d’utilisation atteinte",
   "provider.picker.usageLimitWindow": "Limite ({window})",
@@ -145,7 +147,12 @@ export const messages = {
   "provider.picker.effortLabel": "Effort de raisonnement de l’agent",
   "provider.picker.effortFixed": "{effort}, fixé par {provider}",
   "provider.picker.fast": "Rapide",
-  "provider.picker.fastLabel": "Mode rapide",
+  "provider.picker.fastText": "Réponses plus rapides, utilisation accrue",
+  "provider.picker.speed": "Vitesse",
+  "provider.picker.standard": "Standard",
+  "provider.picker.standardText": "Vitesse par défaut",
+  "provider.picker.ultrafast": "Ultrarapide",
+  "provider.picker.ultrafastText": "Les réponses les plus rapides, utilisation bien plus élevée",
   "provider.picker.selectEffort": "Choisir l’effort",
   "provider.picker.custom": "Personnalisé",
   "provider.picker.cliReady": "{cli} prêt",
@@ -246,7 +253,16 @@ export const messages = {
   "provider.settings.claudeUserSetup": "Utiliser ma configuration Claude Code",
   "provider.settings.claudeUserSetupDescription":
     "Les agents chargent votre CLAUDE.md, vos skills, agents, hooks et plugins depuis ~/.claude. Désactivé, chaque tour envoie un prompt plus court. Les fichiers de l’espace de travail restent chargés.",
+  "provider.settings.claudeUserSetupServerDescription":
+    "Les agents chargent CLAUDE.md, les skills, agents, hooks et plugins depuis ~/.claude sur le serveur. Désactivé, chaque tour envoie un prompt plus court. Les fichiers de l’espace de travail restent chargés.",
   "provider.settings.claudeUserSetupLoadFailed": "Impossible de charger le réglage Claude Code.",
+  "provider.settings.context": "Contexte",
+  "provider.settings.compactWindow": "Compacter les chats à",
+  "provider.settings.compactWindowDescription":
+    "Claude Code résume les anciens tours d’un chat quand le chat atteint cette taille. Plus bas garde des tours rapides et économiques. Plus haut garde plus de détails. Un modèle avec une fenêtre plus petite compacte à sa propre limite.",
+  "provider.settings.compactWindowDefault": "Défaut de Claude Code",
+  "provider.settings.compactWindowTokens": "{size} jetons",
+  "provider.settings.compactWindowLoadFailed": "Impossible de charger la taille de compactage de ce serveur.",
   "provider.settings.models": "Modèles",
   "provider.settings.modelsDescription": {
     one: "{shown} modèle sur {count} apparaît dans le sélecteur de modèle.",

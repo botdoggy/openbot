@@ -66,7 +66,7 @@ import {
   providerResetDelayMs,
 } from "./provider-diagnostics";
 import type { ProviderRuntime } from "./provider-runtime";
-import { isNoUpdateAnswer, settleQuietRoutineTurn } from "./routine-quiet-runs";
+import { isNoUpdateAnswer, quietTeammateDelivery, settleQuietRoutineTurn } from "./routine-quiet-runs";
 import { type SkillLoad, skillLoads, skillLoadTokens } from "./skill-loads";
 import {
   foldCodexChildItem,
@@ -392,6 +392,8 @@ export class TurnLifecycle {
   readonly #refusedRetries = new Set<string>();
   /** Running turns whose agent called the no-update tool. The completion of the turn takes the entry. */
   readonly #noUpdateTurns = new Set<string>();
+  /** Quiet routine turns whose provider failed with no answer after the no-update call. The completion takes the entry. */
+  readonly #quietEmptyAnswers = new Set<string>();
   /** Running turns whose agent reported that its routine run failed, with the reason. The completion takes it. */
   readonly #reportedFailures = new Map<string, string>();
   /**
@@ -525,6 +527,7 @@ export class TurnLifecycle {
     this.#failoverRetries.clear();
     this.#runningTurns.clear();
     this.#noUpdateTurns.clear();
+    this.#quietEmptyAnswers.clear();
     this.#reportedFailures.clear();
     this.#endedTurns.clear();
     this.#refusedRetries.clear();
@@ -966,13 +969,16 @@ export class TurnLifecycle {
         const turnId = getString(turn, "id");
         if (!turnId) return;
         const reported = getString(turn, "status") ?? "completed";
-        // The compaction deadline stopped this turn, not the user: it failed.
+        // The compaction deadline stopped this turn, not the user: it failed. A quiet routine turn that
+        // failed only because it gave no answer after the no-update call completed.
         const status =
-          reported === "interrupted" &&
-          this.#compactionFailures.get(turnId)?.stalled &&
-          !this.#hooks.turnStopped(agentId, this.#taskForThread(agentId, threadId), turnId)
-            ? "failed"
-            : reported;
+          reported === "failed" && this.#quietEmptyAnswers.has(turnId) && !this.#turnErrors.has(turnId)
+            ? "completed"
+            : reported === "interrupted" &&
+                this.#compactionFailures.get(turnId)?.stalled &&
+                !this.#hooks.turnStopped(agentId, this.#taskForThread(agentId, threadId), turnId)
+              ? "failed"
+              : reported;
         if (status === "failed" && !this.#turnErrors.has(turnId)) {
           this.#hooks.emitFailure?.({
             code: "agent_error",
@@ -1084,6 +1090,28 @@ export class TurnLifecycle {
         }
         // A usage limit shows no banner, but the failed delivery still keeps it as the reason.
         const errorTurnId = getString(params, "turnId");
+        // The no-update tool tells the model to end its turn, and a model that then sends only its
+        // reasoning makes Grok fail the prompt with no answer. The run had nothing to report, so it
+        // ends quiet and shows no error (#6247).
+        if (
+          notification.method === "error" &&
+          causeCode === "empty_answer" &&
+          agentId &&
+          threadId &&
+          errorTurnId &&
+          this.#runningTurns.has(errorTurnId) &&
+          this.#noUpdateTurns.has(errorTurnId) &&
+          !this.#reportedFailures.has(errorTurnId) &&
+          this.#quietRoutineTurn(agentId, threadId, this.#mailbox.findDeliveriesByTurn(agentId, errorTurnId))
+        ) {
+          this.#quietEmptyAnswers.add(errorTurnId);
+          logger.info("A quiet turn ended with no answer after its no-update call.", {
+            agentId,
+            turnId: errorTurnId,
+            provider: source.provider,
+          });
+          return;
+        }
         if (notification.method === "error" && errorTurnId && this.#runningTurns.has(errorTurnId)) {
           this.#turnErrors.set(errorTurnId, message);
           // The turn's completion runs it again or reports it in words the user can act on.
@@ -1240,14 +1268,16 @@ export class TurnLifecycle {
   }
 
   /**
-   * Records a call to the no-update tool. `quiet` when the turn runs only quiet routine runs, so
-   * its completion keeps the text answers as quiet answers; `shown` when a person waits for the answer, as in a Test
-   * run; null when no routine run started the turn. The completion decides again, because a message
-   * can join the turn after the call.
+   * Records a call to the no-update tool. `quiet` when the turn runs only quiet routine runs and
+   * teammate updates, so its completion keeps the text answers as quiet answers; `shown` when a
+   * person waits for the answer, as in a Test run; null when neither a routine run nor a teammate
+   * update started the turn. The completion decides again, because a message can join the turn after
+   * the call.
    */
   requestNoUpdate(agentId: string, threadId: string, turnId: string): "quiet" | "shown" | null {
     const deliveries = this.#mailbox.findDeliveriesByTurn(agentId, turnId);
-    if (!deliveries.some(({ delivery }) => delivery.sender.kind === "routine")) return null;
+    if (!deliveries.some(({ delivery }) => delivery.sender.kind === "routine" || quietTeammateDelivery(delivery)))
+      return null;
     this.#noUpdateTurns.add(turnId);
     // A failed run is never quiet, so its answer must still be written.
     if (this.#reportedFailures.has(turnId)) return "shown";
@@ -1266,8 +1296,8 @@ export class TurnLifecycle {
   }
 
   /**
-   * Only a turn that runs nothing but quiet routine runs, in the agent's own chat or in a routine's
-   * side thread: not in a channel, a messaging thread or another task.
+   * Only a turn that runs nothing but quiet routine runs and teammate updates, in the agent's own
+   * chat or in a routine's side thread: not in a channel, a messaging thread or another task.
    */
   #quietRoutineTurn(agentId: string, threadId: string | null, deliveries: readonly DeliveryContext[]): boolean {
     const publicThreadId = threadId === null ? null : this.#conversation.publicThreadId(agentId, threadId);
@@ -1276,7 +1306,9 @@ export class TurnLifecycle {
       (!this.#conversation.isExecutionThread(publicThreadId) ||
         (publicThreadId !== null && this.#hooks.isRoutineThread(publicThreadId))) &&
       deliveries.every(
-        ({ delivery }) => delivery.sender.kind === "routine" && this.#hooks.quietRoutineDelivery(delivery.id),
+        ({ delivery }) =>
+          quietTeammateDelivery(delivery) ||
+          (delivery.sender.kind === "routine" && this.#hooks.quietRoutineDelivery(delivery.id)),
       )
     );
   }
@@ -1290,6 +1322,7 @@ export class TurnLifecycle {
       // A turn that runs again below starts a new trace, so each path takes this one.
       const trace = this.#traces.take(turnId, new Date().toISOString());
       const noUpdateCalled = this.#noUpdateTurns.delete(turnId);
+      this.#quietEmptyAnswers.delete(turnId);
       const reportedFailure = this.#reportedFailures.get(turnId);
       this.#reportedFailures.delete(turnId);
       if (running) {
@@ -1542,8 +1575,9 @@ export class TurnLifecycle {
       if (deliveries.some((delivery) => delivery.delivery.sender.kind === "agent")) {
         dropPlaceholderAnswers(snapshot, turnId);
       }
-      // Only a turn that ran nothing but scheduled, script or webhook runs: a person who wrote in the
-      // same turn, or who started a Test run, waits for the answer. A failed run is never quiet.
+      // Only a turn that ran nothing but scheduled, script or webhook runs and teammate updates: a
+      // person who wrote in the same turn, or who started a Test run, waits for the answer. A failed
+      // run is never quiet.
       const quiet =
         outcome === "completed" &&
         reportedFailure === undefined &&
@@ -1608,14 +1642,9 @@ export class TurnLifecycle {
         }
         // A turn can start with the answers of several teammates. `#relayAgentResult` skips each one
         // that wants no answer, so only a teammate that asked for a result gets one.
-        if (
-          !continuation &&
-          !this.#conversation.isExecutionThread(snapshot.threadId) &&
-          terminal === "completed" &&
-          latestAssistant
-        ) {
+        if (!continuation && !this.#conversation.isExecutionThread(snapshot.threadId) && terminal === "completed") {
           for (const delivery of deliveries)
-            yield* this.#relayAgentResult(agentId, turnId, delivery, deliveries, latestAssistant.text);
+            yield* this.#relayAgentResult(agentId, turnId, delivery, deliveries, latestAssistant?.text);
         }
         // A failed turn sends no result, so the agent that asked gets the failure as its answer.
         if (!continuation && terminal === "failed") {
@@ -1749,6 +1778,7 @@ export class TurnLifecycle {
     if (running) this.#keepTurnTiming(turnId, running);
     this.#runningTurns.delete(turnId);
     this.#reportedFailures.delete(turnId);
+    this.#quietEmptyAnswers.delete(turnId);
     this.#markEnded(turnId);
     this.#instructions.dropTurn(agentId, turnId);
     const trace = this.#traces.take(turnId, new Date().toISOString());
@@ -1939,7 +1969,11 @@ export class TurnLifecycle {
   /** Sends the agent that asked the note that its request failed. A failed note does not stop the turn's end. */
   #answerFailedRequest(agentId: string, deliveryId: string): Effect.Effect<void> {
     return this.#mailbox
-      .answerFailedRequest(deliveryId, (taskId) => this.#hooks.taskOpen(taskId))
+      .answerFailedRequest(
+        deliveryId,
+        (taskId) => this.#hooks.taskOpen(taskId),
+        (id) => this.#store.list().some((agent) => agent.id === id),
+      )
       .pipe(
         Effect.match({
           onFailure: (failure) => this.#hooks.emitError("failed_request_answer_failed", failure.cause, agentId),
@@ -1956,12 +1990,14 @@ export class TurnLifecycle {
     turnId: string,
     delivery: DeliveryContext,
     turnDeliveries: readonly DeliveryContext[],
-    text: string,
+    text: string | undefined,
   ) {
     if (delivery.delivery.sender.kind !== "agent") return;
     const messageId = delivery.delivery.messageId;
     const originAgentId = this.#mailbox.chainOriginAgentId(messageId);
     const recipientAgentId = delivery.delivery.sender.agentId;
+    // The user deleted the agent that asked. A result for it would make the agent again (#6106).
+    if (!this.#store.list().some((agent) => agent.id === recipientAgentId)) return;
     // The requests of this sender that the turn read. A reply to one of them answers only that one.
     const requestIds = new Set(
       turnDeliveries
@@ -1980,7 +2016,9 @@ export class TurnLifecycle {
       // this the sender is woken for an echo of work it only wanted to know about.
       !this.#mailbox.expectsReply(messageId) ||
       this.#mailbox.hasReplyFrom(agentId, messageId) ||
-      this.#mailbox.hasAgentMessageFromTurnTo(agentId, turnId, recipientAgentId, requestIds)
+      this.#mailbox.hasAgentMessageFromTurnTo(agentId, turnId, recipientAgentId, requestIds) ||
+      // A turn with no answer that passed work on to a teammate waits for that answer: its result comes later.
+      (text === undefined && this.#mailbox.hasRequestFromTurn(agentId, turnId))
     )
       return;
 
@@ -1991,7 +2029,9 @@ export class TurnLifecycle {
       .enqueue({
         sender: { kind: "agent", agentId },
         recipientAgentIds: [recipientAgentId],
-        text,
+        // A turn that ended with no answer still answers, so the agent that asked does not wait for a
+        // result that never comes (#6044).
+        text: text ?? NO_RESULT_NOTE,
         replyToMessageId: messageId,
         ...(taskId ? { taskId } : {}),
         // The requested result, not a new request. The chain-origin guard above already stops a
@@ -2357,6 +2397,14 @@ export class TurnOperationFailed extends Schema.TaggedError<TurnOperationFailed>
 }) {}
 
 const { sync: turnStep, rewrap: toTurnOperationFailed } = causeHelpers(TurnOperationFailed);
+
+/** The answer for a teammate request when the turn ended with no answer, in the reply format. */
+const NO_RESULT_NOTE = [
+  "Status: blocked",
+  "Result: OpenBot note, not written by this teammate: the teammate's turn ended with no result and no error. The requested work can be unfinished.",
+  "Evidence: none",
+  "Unblock: Check what is done, then finish the rest yourself or send the teammate a narrower request.",
+].join("\n");
 
 /**
  * Whether running the turn again would repeat this item: a tool step, or answer text. Thinking and

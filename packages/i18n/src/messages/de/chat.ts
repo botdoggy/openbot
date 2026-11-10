@@ -155,11 +155,16 @@ export const messages = {
   "chat.marker.instructionsUndo": "Rückgängig",
   "chat.marker.instructionsUndone": "Rückgängig gemacht",
   "chat.usageLimit.title": "Nutzungslimit von {provider} erreicht",
+  "chat.usageLimit.modelTitle": "Nutzungslimit von {model} erreicht",
   "chat.usageLimit.onHold": "Nachricht wartet",
   "chat.usageLimit.bodyReset":
     "Die Arbeit an deiner Nachricht hat noch nicht begonnen. Sende sie jetzt an ein anderes Modell oder warte bis {reset}.",
   "chat.usageLimit.body":
     "Die Arbeit an deiner Nachricht hat noch nicht begonnen. Sende sie jetzt an ein anderes Modell oder warte, bis das Limit endet.",
+  "chat.usageLimit.channelBodyReset":
+    "{name} hat mit dieser Arbeit noch nicht begonnen. Wechsle {name} jetzt zu einem anderen Modell oder warte bis {reset}.",
+  "chat.usageLimit.channelBody":
+    "{name} hat mit dieser Arbeit noch nicht begonnen. Wechsle {name} jetzt zu einem anderen Modell oder warte, bis das Limit endet.",
   "chat.usageLimit.sendTo": "Senden an",
   "chat.usageLimit.remember": "Nächstes Mal ohne Nachfrage wechseln",
   "chat.usageLimit.wait": "Auf das Zurücksetzen warten",
@@ -167,6 +172,7 @@ export const messages = {
   "chat.usageLimit.failed": "Das Modell konnte nicht geändert werden. Versuche es erneut.",
   "chat.marker.marketplaceSuggestion": "Marketplace-App vorgeschlagen",
   "chat.marker.skillSuggestion": "Fähigkeit vorgeschlagen",
+  "chat.marker.serverInstall": "Hat einen Befehl zum Installieren eines Servers erstellt",
   "chat.marker.skill.created": "Fähigkeit erstellt",
   "chat.marker.skill.revised": "Fähigkeit überarbeitet",
   "chat.marker.skill.installed": "Fähigkeit installiert",
@@ -332,6 +338,9 @@ export const messages = {
   "chat.image.preview": "Vorschau von {name}",
   "chat.image.previewGenerated": "Vorschau des erstellten Bildes",
   "chat.image.download": "{name} herunterladen",
+  "chat.image.copy": "Bild kopieren",
+  "chat.image.copied": "Bild kopiert",
+  "chat.image.copyFailed": "Das Bild konnte nicht kopiert werden.",
   "chat.image.downloadGenerated": "Erstelltes Bild herunterladen",
   "chat.image.attachedFallback": "angehängtes Bild",
   "chat.image.attachment": "Bildanhang",
@@ -447,6 +456,8 @@ export const messages = {
   "chat.suggestion.undo": "Rückgängig",
   "chat.suggestion.localOnly": "Verbinde {name} in OpenBot auf deinem eigenen Computer.",
   "chat.suggestion.unavailable": "Dieser Server kann {name} nicht verbinden.",
+  "chat.serverInstall.title": "Neuer Server",
+  "chat.serverInstall.expired": "Der Befehl ist abgelaufen. Bitte den Agenten um einen neuen.",
   "chat.compaction.running": "Kontext wird komprimiert",
   "chat.compaction.completed": "Kontext komprimiert",
   "chat.compaction.failed": "Kontext konnte nicht komprimiert werden",

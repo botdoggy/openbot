@@ -200,7 +200,7 @@ import {
   startingModel,
   workflowProvider,
 } from "./agent/model-choice";
-import { type AgentFeedback, OpenBotToolRouter } from "./agent/openbot-tool-router";
+import { type AgentFeedback, type AgentServerClaims, OpenBotToolRouter } from "./agent/openbot-tool-router";
 import { PlanContinuation } from "./agent/plan-continuation";
 import { ProfileClients } from "./agent/profile-clients";
 import {
@@ -242,6 +242,13 @@ import type { WebhookRoutineWriter } from "./agent/webhook-routine-tool";
 import type { AgentApiKeys } from "./agent-api-keys";
 import type { AgentProvider } from "./agent-client";
 import type { AgentTables } from "./agent-data/agent-tables";
+import {
+  AgentHistoryTransfer,
+  AgentHistoryTransferFailed,
+  HISTORY_IMPORTED_EVENT,
+  type HistoryThread,
+  type ImportHistoryThreadInput,
+} from "./agent-history-transfer";
 import type { AgentStore } from "./agent-store";
 import { type AgentTaskBranchFailed, AgentTasks } from "./agent-tasks/agent-tasks";
 import { type AgentThreadRecord, AgentThreadStore } from "./agent-threads/agent-thread-store";
@@ -265,6 +272,7 @@ import type { McpSignInOpener } from "./mcp-oauth-provider";
 import { McpServerStore } from "./mcp-server-store";
 import type { MessageDeleteAccess, MessageDeleteRefused } from "./message-delete";
 import { isAnswer, MessagingThreads, toMessagingThreadFailed } from "./messaging/messaging-threads";
+import type { CustomProviderConfig } from "./opencode-config";
 import type { PasswordVault } from "./password-vault";
 import { canConfineProcesses } from "./process-confinement";
 import { decodeRecordResponse, getString } from "./protocol";
@@ -277,6 +285,7 @@ import type { RoutineHoldWindow } from "./routine-store";
 import { type RoutineDueSource, RoutineTimer } from "./routine-timer";
 import type { SidebarLayoutStore } from "./sidebar-layout-store";
 import { shortenDiagnostic } from "./stderr-diagnostics";
+import type { UserBrowsingLog } from "./user-browsing-log";
 import type { VaultItems } from "./vault-items";
 import type { WorkflowTools } from "./workflows/workflow-tools";
 import type { WorkflowRunEnd } from "./workflows/workflows";
@@ -355,6 +364,8 @@ export interface AgentServiceOptions {
   feedbackFacts?: FeedbackFacts | null;
   /** Sends approved `send_feedback` text to the account service. */
   feedback?: AgentFeedback | null;
+  /** Makes one-time claims for `create_server_install_command` with the account session. */
+  serverClaims?: AgentServerClaims | null;
   sidebarLayout?: AgentSidebar | null;
   /**
    * What a spawned CLI is given beyond its own binary: the stored keys, and the user's own model
@@ -377,6 +388,11 @@ export interface AgentServiceOptions {
    * for them. The main process owns the preference. Omitted, the review asks first.
    */
   skillLearning?: (() => SkillLearningMode) | undefined;
+  /**
+   * What people did in agent tabs they held ("Learn from my browsing"). The memory review reads it to
+   * learn how sites work, and deletes the steps it read.
+   */
+  userBrowsing?: Pick<UserBrowsingLog, "pending" | "reviewed" | "forgetAgent"> | undefined;
   /** Saves a skill that a memory review finds. Built after the service, so read at each use. */
   skillLearner?: (() => SkillLearner) | undefined;
   /** Built after the service, so read when a tool call needs it. */
@@ -467,6 +483,11 @@ export interface AgentServiceOptions {
    * while memory is low, and only a fixed number of turns run at the same time.
    */
   hostMemory?: HostMemory | null;
+  /**
+   * The plan storage in GB of a hosted server, or null elsewhere and until the account server answers.
+   * The agent instructions name the limit.
+   */
+  hostedStorageGb?: () => number | null;
   /** When an idle Codex session is unloaded, and how many idle sessions one app server keeps. Tests make it short. */
   codexIdleSessions?: { releaseAfterMs: number; idleLimit: number };
 }
@@ -523,6 +544,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #memoryReview: MemoryReview;
   readonly #waits: AgentWaits;
   readonly #tasks: AgentTasks;
+  readonly #history: AgentHistoryTransfer;
   readonly #messageDeletion: MessageDeletion;
   readonly #tables: AgentTables | null;
   readonly #routines: RoutineScheduler;
@@ -652,6 +674,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       (event) => this.#emit(event),
       () => this.listAgents(),
     );
+    this.#history = new AgentHistoryTransfer({
+      database: store.database,
+      threads: new AgentThreadStore(store.database),
+      mailbox,
+      mainThread: (agentId) => store.ensureThreadIdNow(agentId),
+      registerTaskThread: (agentId, threadId) => this.#conversation.registerTaskThread(agentId, threadId),
+    });
     this.#tasks = new AgentTasks({
       store: new AgentThreadStore(store.database),
       mailbox,
@@ -736,6 +765,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           : this.#appendSystemMessage(agentId, message, "thread.memory-reviewed"),
       ...(reviewSkills ? { skills: reviewSkills } : {}),
       ...(options.skillLearning ? { skillLearning: options.skillLearning } : {}),
+      ...(options.userBrowsing ? { browsing: options.userBrowsing } : {}),
       ...(skillLearner
         ? {
             skillLearner: {
@@ -946,9 +976,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         isAgentBusy: (agentId) => this.#runsTurn(agentId),
         isProviderAssigned: (provider) => this.#store.list().some((agent) => providerForAgent(agent) === provider),
         captureConfigRevision: () => this.#endpoints.committedRevision(),
+        endpointsPending: (harness) => this.#endpoints.pending(harness),
         onProviderActivated: (provider, configRevision) =>
           Effect.gen({ self: this }, function* () {
-            if (isCustomProviderHarness(provider)) this.#endpoints.clearReleased(provider, configRevision);
+            if (isCustomProviderHarness(provider)) {
+              this.#endpoints.clearReleased(provider, configRevision);
+              logUnlistedEndpoints(
+                provider,
+                credentials.customProviders().filter((endpoint) => !this.#endpoints.waits(provider, endpoint.id)),
+                this.#providers.listModels(),
+              );
+            }
             // A CLI that can list part of its models at start is asked once more, outside the lock,
             // before an agent leaves a model. A second list that is not fresh moves nobody, and
             // neither does one from a process that replaced this one: its own activation decides.
@@ -1202,12 +1240,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       }),
       // Only a server has a memory reading.
       serverHost: hostMemory !== null,
+      ...(options.hostedStorageGb ? { hostedStorageGb: options.hostedStorageGb } : {}),
       ...(options.responseStyle ? { responseStyle: options.responseStyle } : {}),
       memoryReview: () => this.#memoryReview.running(),
       skillRevision: () => options.skillLearning?.() === "automatic",
       sectionTeammates: (agentId) => this.sectionTeammates(agentId),
       channelThread: (threadId) => this.channels.store.channelForThread(threadId) !== null,
       branchThread: (threadId) => this.#tasks.isBranchThread(threadId),
+      importedHistory: (threadId) => store.database.threadHasEvent(threadId, HISTORY_IMPORTED_EVENT),
       routineThread: (threadId) => this.#tasks.isRoutineThreadId(threadId),
       hooks: {
         logRecovery: (agentId, provider, outcome) =>
@@ -1249,6 +1289,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           const run = this.#routines.runForDelivery(deliveryId);
           return run === null || quietRoutineRun(run);
         },
+        isRoutineThread: (threadId) => this.#tasks.isRoutineThreadId(threadId),
         executionThreads: () => [...this.channels.store.executionThreads(), ...this.messaging.store.executionThreads()],
         taskThreads: () => this.#tasks.executionThreads(),
         deliveryThreadId: (deliveryId) => this.#deliveryThreadId(deliveryId),
@@ -1303,19 +1344,26 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
               ? { ...model, defaultReasoningEffort: selected.reasoningEffort }
               : model;
           const client = this.#providers.createProfileClient(selected.provider, selected.providerAccountId);
+          // A routing turn uses the one try that a person's message gave the lead, before it starts, so the
+          // other lanes stay held. The member that it picks gets its own. A summary is not that turn.
+          if (!background) this.#usageLimits.tryStarted(selected.id);
           return yield* this.#profileClients
             .run(client, (cancelled) => generateTextWithoutTools(client, turnModel, prompt, cancelled))
             .pipe(
               // A routing turn can be the first one a spent plan refuses: in its completion, or as the
               // error of the `turn/start` request. It holds the model that ran it the way a refused member turn
               // does, and the channel keeps the task queued for the reset.
-              Effect.tapError((failure) =>
-                failure instanceof GenerationUsageLimitError
-                  ? this.#usageLimits.reached(selected.id, failure.resetsAt, selected.model)
-                  : failure.cause instanceof Error && isPlanLimitDiagnostic(failure.cause.message)
-                    ? this.#usageLimits.reached(selected.id, null, selected.model)
-                    : Effect.void,
-              ),
+              Effect.tapError((failure) => {
+                const resetsAt =
+                  failure instanceof GenerationUsageLimitError
+                    ? failure.resetsAt
+                    : failure.cause instanceof Error && isPlanLimitDiagnostic(failure.cause.message)
+                      ? null
+                      : undefined;
+                return resetsAt === undefined
+                  ? Effect.void
+                  : this.#usageLimits.reached(selected.id, resetsAt, selected.model);
+              }),
             );
         }).pipe(toChannelOperationError),
       schedule: (agentId) => this.#drain.scheduleDrain(agentId),
@@ -1340,14 +1388,15 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       // no turn ID yet, and it makes such an agent busy: otherwise the assignment waits as
       // "starting" for that turn (#4761).
       busy: (agentId) =>
-        !this.#usageLimits.mayDrain(agentId) ||
+        this.#channelHeld(agentId) ||
         this.#mailbox.channelLanes(agentId).length > 0 ||
         this.#conversation.workingChannelSnapshots(agentId).length > 0 ||
         (this.#tasks.oneTurnAtATime(agentId) &&
           (Boolean(this.#conversation.workingSnapshot(agentId)?.activeTurnId || this.#mailbox.nextQueued(agentId)) ||
             this.#mailbox.laneActive(agentId, null) ||
             this.#conversation.workingTaskSnapshots(agentId).some((snapshot) => snapshot.activeTurnId))),
-      usageLimited: (agentId) => !this.#usageLimits.mayDrain(agentId),
+      usageLimited: (agentId) => this.#channelHeld(agentId),
+      retry: (agentId) => this.#usageLimits.retry(agentId),
       skipAtLimit: (task) => this.#channelRoutines.skipAtLimit(task.channelId, task.requestMessageId),
       usageLimitBackup: (agentId) => this.#usageLimitBackup(agentId) !== undefined,
       steer: (agentId, threadId, turnId, messageId, text) =>
@@ -1780,14 +1829,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       ...(options.videoReader === undefined ? {} : { videoReader: options.videoReader }),
       mcpServers: mcpServersFromGateway(this.#mcp, options.prepareMcpTest),
       ...(options.marketplaceAppServer === undefined ? {} : { marketplaceAppServer: options.marketplaceAppServer }),
+      githubConnected: () => Boolean(githubConnector?.mcpServer()),
       feedbackFacts: options.feedbackFacts ?? null,
       feedback: options.feedback ?? null,
+      serverClaims: options.serverClaims ?? null,
       apiKeys: options.agentApiKeys ?? null,
       vaultItems: options.vaultItems ?? null,
       hooks: {
         listAgents: () => this.listAgents(),
         listModels: () => this.listModels(),
+        agentModels: (choice) => this.#agentModels(choice),
         providerAccounts: (provider) => this.getStatus().providers?.find((row) => row.id === provider)?.accounts,
+        providerStatuses: () => this.getStatus().providers ?? [],
         preferredProvider: () => this.preferredProvider(),
         createAgent: (input, configure) =>
           this.createAgent(
@@ -3367,6 +3420,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
                 ...previousChoice,
                 reasoningEffort: previous.reasoningEffort,
                 ...(failingOver ? { cause: "provider-error" as const } : {}),
+                // The provider change turns fast mode off, so the return turns it on again.
+                ...(previous.fastMode ? { fastMode: true } : {}),
+                ...(previous.fastMode && previous.ultrafast ? { ultrafast: true } : {}),
               }))
         : undefined;
     const usageLimitReturn =
@@ -3498,7 +3554,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       };
     };
     if (agent.usageLimitReturn && this.#usageLimitReady(agent.usageLimitReturn))
-      return { input: move(agent.usageLimitReturn, agent.usageLimitReturn.reasoningEffort), move: "return" };
+      return {
+        input: {
+          ...move(agent.usageLimitReturn, agent.usageLimitReturn.reasoningEffort),
+          ...(agent.usageLimitReturn.fastMode ? { fastMode: true } : {}),
+          ...(agent.usageLimitReturn.fastMode && agent.usageLimitReturn.ultrafast ? { ultrafast: true } : {}),
+        },
+        move: "return",
+      };
     const limited = !this.#usageLimits.mayDrain(agentId);
     const failed = !limited && this.#usageLimits.isFailed(usageLimitOf(agentModelChoice(agent)));
     if (!limited && !failed) return null;
@@ -3510,6 +3573,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     if (!this.#mailbox.nextQueued(agentId) && !taskWork() && !this.channels.ownsWaitingWork(agentId)) return null;
     const next = this.#usageLimitBackup(agentId, this.#queuedContinuation(agentId));
     return next ? { input: { ...move(next), leaveUsageLimit: true }, move: failed ? "provider-error" : null } : null;
+  }
+
+  /** Whether a spent plan holds this agent's channel work: it is held, and no person's message gave it a try. */
+  #channelHeld(agentId: string): boolean {
+    return !this.#usageLimits.mayDrain(agentId) && !this.#usageLimits.mayTry(agentId);
   }
 
   /**
@@ -4071,7 +4139,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }).bind(this);
 
   /**
-   * The local user can open files outside a workspace when access is unrestricted. `exactPath` does not
+   * The local user can open files outside a workspace when access is unrestricted, and in the agent's
+   * added folders in Workspace only. `exactPath` does not
    * use a file with the same name from the thread's tool history, so an inline image shows no older file.
    */
   readonly resolveLocalWorkspaceFile = Effect.fn("AgentService.resolveLocalWorkspaceFile")(function* (
@@ -4082,7 +4151,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   ) {
     const agent = yield* lifecycleStep("find workspace agent", () => this.#agentForFile(agentId));
     return yield* resolveWorkspaceFile(agent, inputPath, {
-      allowOutside: !workspaceAccessEnforced(agent),
+      ...localWorkspaceAccess(agent),
       ...(options.exactPath ? {} : { fileHistory: this.#turn.fileHistory.paths(agent.id, agent.threadId) }),
     }).pipe(
       Effect.mapError(
@@ -4105,14 +4174,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     );
   }).bind(this);
 
-  /** The local user can list folders outside a workspace when access is unrestricted. */
+  /** The local user can list the same folders as {@link resolveLocalWorkspaceFile} opens. */
   readonly listLocalWorkspaceDirectory = Effect.fn("AgentService.listLocalWorkspaceDirectory")(function* (
     this: AgentService,
     agentId: string,
     inputPath: string,
   ) {
     const agent = yield* lifecycleStep("find workspace agent", () => this.#agentForFile(agentId));
-    return yield* listWorkspaceDirectory(agent, inputPath, { allowOutside: !workspaceAccessEnforced(agent) }).pipe(
+    return yield* listWorkspaceDirectory(agent, inputPath, localWorkspaceAccess(agent)).pipe(
       Effect.mapError(
         (failure) => new AgentLifecycleFailed({ operation: "list local workspace directory", cause: failure.cause }),
       ),
@@ -5021,7 +5090,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   /**
    * The end of a request that live voice gave to the agent: the answer of the delivery's last turn,
-   * or why it has none. The text goes to the voice model, which says it in the user's language.
+   * or why it has none. The text goes to the relay of the voice, which shortens a long answer, and
+   * then to the voice model, which says it in the user's language.
    */
   #liveVoiceReply(agentId: string, deliveryId: string): LiveVoiceReply | null {
     const delivery = this.#mailbox.getDelivery(deliveryId)?.delivery;
@@ -6033,6 +6103,46 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#emit({ type: "runtime-snapshot", snapshot: this.getRuntimeSnapshot() });
   }
 
+  /** The agent's chats for an instance transfer: its own chat, then each side thread. */
+  readTransferHistory(agentId: string): HistoryThread[] {
+    const agent = this.#store.list().find((candidate) => candidate.id === agentId);
+    if (!agent) return [];
+    return this.#history
+      .readThreads(agentId, agent.threadId)
+      .map((thread) => (thread.main && agent.preview ? { ...thread, preview: agent.preview } : thread));
+  }
+
+  /** The stored file of a message's attachment, or null when it is gone. */
+  resolveTransferFile(attachmentId: string) {
+    return this.#history.resolveFile(attachmentId);
+  }
+
+  /**
+   * Writes one chat of an imported agent, then tells the open views to read the agent again. The
+   * history was read on the other computer, so it does not arrive unread for `readerId`.
+   */
+  readonly importTransferHistory = Effect.fn("AgentService.importTransferHistory")(function* (
+    this: AgentService,
+    input: ImportHistoryThreadInput,
+    readerId: string,
+  ): Effect.fn.Return<void, AgentHistoryTransferFailed> {
+    const { threadId, lastMessageId } = yield* this.#history.importThread(input);
+    if (lastMessageId) this.#reader.markThreadRead(readerId, threadId, lastMessageId);
+    if (!input.thread.main) this.#tasks.changed(input.agentId);
+    else if (input.thread.preview) {
+      // The sidebar shows the last message that the other computer showed.
+      yield* this.#store
+        .updatePreview(input.agentId, input.thread.preview)
+        .pipe(Effect.mapError((failure) => new AgentHistoryTransferFailed({ cause: failure.cause })));
+      this.#emit({ type: "agents-changed", agents: this.listAgents() });
+    }
+    this.#emit({
+      type: "conversation-invalidated",
+      agentId: input.agentId,
+      revision: this.#store.database.readConversationRevision(input.agentId, threadId),
+    });
+  });
+
   #emit(event: AgentEvent, memberId?: string): void {
     recordAgentRestartActivity(event);
     this.#liveVoice?.observe(event);
@@ -6102,6 +6212,31 @@ function agentModelChoice(agent: AgentSummary): AgentModelChoice {
   };
 }
 
+/**
+ * Logs each saved endpoint, of those the activated process read, that it lists no model of. The provider left it out
+ * itself: OpenCode drops a provider that the user's own `enabled_providers`, `disabled_providers` or
+ * policies deny (#6013). The model picker says only that the models are not listed; the cause is here.
+ */
+function logUnlistedEndpoints(
+  harness: CustomProviderHarness,
+  endpoints: readonly CustomProviderConfig[],
+  catalog: readonly AgentModelOption[],
+): void {
+  const unlisted = endpoints
+    .filter(
+      (endpoint) => (endpoint.harness ?? DEFAULT_CUSTOM_PROVIDER_HARNESS) === harness && endpoint.models.length > 0,
+    )
+    .filter(
+      (endpoint) => !catalog.some((option) => option.provider === harness && option.id.startsWith(`${endpoint.id}/`)),
+    )
+    .map((endpoint) => endpoint.id);
+  if (unlisted.length === 0) return;
+  logger.warn("The provider lists no model of a saved custom endpoint. Its own config can deny the endpoint id.", {
+    provider: harness,
+    endpointIds: unlisted,
+  });
+}
+
 /** Whether Workspace only cannot run on `provider` here: its own process needs a sandbox that this computer lacks. */
 function workspaceOnlyUnavailable(provider: AgentProvider): boolean {
   return agentProviderDescriptor(provider).workspaceEnforcement === "confined-process" && !canConfineProcesses();
@@ -6146,4 +6281,12 @@ function failureMessages(error: unknown): string[] {
     cause = cause instanceof Error ? cause.cause : undefined;
   }
   return messages;
+}
+
+/**
+ * Where the local user, or an owner or admin through the Team API, may open an agent's file links:
+ * anywhere in Full access, else in the workspace and the added folders.
+ */
+function localWorkspaceAccess(agent: AgentSummary): { allowOutside: boolean; allowedRoots: readonly string[] } {
+  return { allowOutside: !workspaceAccessEnforced(agent), allowedRoots: agent.additionalFolders ?? [] };
 }

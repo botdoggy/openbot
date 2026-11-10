@@ -217,11 +217,16 @@ export const messages = {
   "chat.marker.instructionsUndo": "Cofnij",
   "chat.marker.instructionsUndone": "Cofnięto",
   "chat.usageLimit.title": "Osiągnięto limit użycia dostawcy {provider}",
+  "chat.usageLimit.modelTitle": "Osiągnięto limit użycia modelu {model}",
   "chat.usageLimit.onHold": "Wiadomość wstrzymana",
   "chat.usageLimit.bodyReset":
     "Praca nad twoją wiadomością jeszcze się nie zaczęła. Wyślij ją teraz do innego modelu albo poczekaj do {reset}.",
   "chat.usageLimit.body":
     "Praca nad twoją wiadomością jeszcze się nie zaczęła. Wyślij ją teraz do innego modelu albo poczekaj, aż limit się skończy.",
+  "chat.usageLimit.channelBodyReset":
+    "{name} jeszcze nie zaczął tej pracy. Przełącz {name} teraz na inny model albo poczekaj do {reset}.",
+  "chat.usageLimit.channelBody":
+    "{name} jeszcze nie zaczął tej pracy. Przełącz {name} teraz na inny model albo poczekaj, aż limit się skończy.",
   "chat.usageLimit.sendTo": "Wyślij do",
   "chat.usageLimit.remember": "Następnym razem przełącz bez pytania",
   "chat.usageLimit.wait": "Poczekaj na reset",
@@ -229,6 +234,7 @@ export const messages = {
   "chat.usageLimit.failed": "Nie udało się zmienić modelu. Spróbuj ponownie.",
   "chat.marker.marketplaceSuggestion": "Zaproponowano aplikację z Marketplace",
   "chat.marker.skillSuggestion": "Zaproponowano umiejętność",
+  "chat.marker.serverInstall": "Utworzył polecenie instalacji serwera",
   "chat.marker.skill.created": "Utworzono umiejętność",
   "chat.marker.skill.revised": "Zmieniono umiejętność",
   "chat.marker.skill.installed": "Zainstalowano umiejętność",
@@ -412,6 +418,9 @@ export const messages = {
   "chat.image.preview": "Podgląd: {name}",
   "chat.image.previewGenerated": "Podgląd wygenerowanego obrazu",
   "chat.image.download": "Pobierz {name}",
+  "chat.image.copy": "Kopiuj obraz",
+  "chat.image.copied": "Skopiowano obraz",
+  "chat.image.copyFailed": "Nie udało się skopiować obrazu.",
   "chat.image.downloadGenerated": "Pobierz wygenerowany obraz",
   "chat.image.attachedFallback": "załączony obraz",
   "chat.image.attachment": "Załącznik obrazu",
@@ -531,6 +540,8 @@ export const messages = {
   "chat.suggestion.undo": "Cofnij",
   "chat.suggestion.localOnly": "Połącz {name} w OpenBot na swoim komputerze.",
   "chat.suggestion.unavailable": "Ten serwer nie może połączyć {name}.",
+  "chat.serverInstall.title": "Nowy serwer",
+  "chat.serverInstall.expired": "Polecenie wygasło. Poproś agenta o nowe.",
   "chat.compaction.running": "Kompaktowanie kontekstu",
   "chat.compaction.completed": "Skompaktowano kontekst",
   "chat.compaction.failed": "Nie udało się skompaktować kontekstu",

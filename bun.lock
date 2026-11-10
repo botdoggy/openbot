@@ -129,7 +129,7 @@
     },
     "apps/mobile": {
       "name": "@openbot/mobile",
-      "version": "1.4.8",
+      "version": "1.4.9",
       "dependencies": {
         "@config-plugins/react-native-webrtc": "15.0.2",
         "@expo/metro-runtime": "~58.0.15",
@@ -219,6 +219,18 @@
         "@types/react-dom": "~19.3.0",
         "expo-device-hub": "0.18.0",
         "typescript": "catalog:",
+      },
+    },
+    "apps/mobile-updates": {
+      "name": "@openbot/mobile-updates",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "catalog:",
+        "typescript": "catalog:",
+        "wrangler": "catalog:",
       },
     },
     "apps/site-router": {
@@ -1147,6 +1159,8 @@
     "@openbot/logging": ["@openbot/logging@workspace:packages/logging"],
 
     "@openbot/mobile": ["@openbot/mobile@workspace:apps/mobile"],
+
+    "@openbot/mobile-updates": ["@openbot/mobile-updates@workspace:apps/mobile-updates"],
 
     "@openbot/remote-api": ["@openbot/remote-api@workspace:remote/api"],
 

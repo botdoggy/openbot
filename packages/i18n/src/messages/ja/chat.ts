@@ -152,11 +152,16 @@ export const messages = {
   "chat.marker.instructionsUndo": "元に戻す",
   "chat.marker.instructionsUndone": "元に戻しました",
   "chat.usageLimit.title": "{provider} の使用量の上限に達しました",
+  "chat.usageLimit.modelTitle": "{model} の使用量の上限に達しました",
   "chat.usageLimit.onHold": "メッセージを保留中",
   "chat.usageLimit.bodyReset":
     "メッセージはまだ開始されていません。今すぐ別のモデルに送信するか、{reset} までお待ちください。",
   "chat.usageLimit.body":
     "メッセージはまだ開始されていません。今すぐ別のモデルに送信するか、上限が解除されるまでお待ちください。",
+  "chat.usageLimit.channelBodyReset":
+    "{name} はまだこの作業を開始していません。今すぐ {name} を別のモデルに切り替えるか、{reset} までお待ちください。",
+  "chat.usageLimit.channelBody":
+    "{name} はまだこの作業を開始していません。今すぐ {name} を別のモデルに切り替えるか、上限が解除されるまでお待ちください。",
   "chat.usageLimit.sendTo": "送信先",
   "chat.usageLimit.remember": "次回から確認せずに切り替える",
   "chat.usageLimit.wait": "リセットを待つ",
@@ -164,6 +169,7 @@ export const messages = {
   "chat.usageLimit.failed": "モデルを変更できませんでした。もう一度お試しください。",
   "chat.marker.marketplaceSuggestion": "マーケットプレイスのアプリを提案しました",
   "chat.marker.skillSuggestion": "スキルを提案しました",
+  "chat.marker.serverInstall": "サーバーをインストールするコマンドを作成しました",
   "chat.marker.skill.created": "スキルを作成しました",
   "chat.marker.skill.revised": "スキルを改訂しました",
   "chat.marker.skill.installed": "スキルをインストールしました",
@@ -301,6 +307,9 @@ export const messages = {
   "chat.image.preview": "{name} をプレビュー",
   "chat.image.previewGenerated": "生成された画像をプレビュー",
   "chat.image.download": "{name} をダウンロード",
+  "chat.image.copy": "画像をコピー",
+  "chat.image.copied": "画像をコピーしました",
+  "chat.image.copyFailed": "画像をコピーできませんでした。",
   "chat.image.downloadGenerated": "生成された画像をダウンロード",
   "chat.image.attachedFallback": "添付画像",
   "chat.image.attachment": "画像の添付ファイル",
@@ -416,6 +425,8 @@ export const messages = {
   "chat.suggestion.undo": "元に戻す",
   "chat.suggestion.localOnly": "{name} は自分のコンピューターの OpenBot で接続してください。",
   "chat.suggestion.unavailable": "このサーバーでは {name} を接続できません。",
+  "chat.serverInstall.title": "新しいサーバー",
+  "chat.serverInstall.expired": "コマンドの有効期限が切れました。エージェントに新しいコマンドを頼んでください。",
   "chat.compaction.running": "コンテキストを圧縮しています",
   "chat.compaction.completed": "コンテキストを圧縮しました",
   "chat.compaction.failed": "コンテキストを圧縮できませんでした",
