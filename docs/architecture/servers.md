@@ -34,6 +34,14 @@ surface asks for an update; a change is refused before any request. The desktop 
 the phone Library (the server drawer) read the same `host` scope. The file types, the type filter
 and the order of both are in `@openbot/team-client/stored-files`.
 
+The optional `storage-channel-v1` capability adds `POST /v1/storage/channel-files`
+(`team-protocol/storage-channel-v1.ts`), with `channelId` and an optional `force`. It answers the file
+rows of the `channel` scope: the files of that channel's messages, with the message that carries each
+one. Every member who sees the channel can read them, as the channel routes decide; a channel that the
+member cannot see, or that the host does not have, gets 404. A delete stays on
+`/v1/storage/delete-file`, for an owner or an admin. The channel Files pane is shown only on a host
+with the capability.
+
 The optional `storage-disk-v1` capability adds `POST /v1/storage/disk` (`team-protocol/storage-disk-v1.ts`).
 It answers the free and total bytes of the disk that holds the host data, from one `statfs` call
 with no scan, so it is a passive route. Every member can read it. The sidebar storage card
@@ -404,6 +412,10 @@ in words on a block that has one, is for the owner and admins only; the host ans
 resolution leave it out. The provider transcript of the tool call can keep it, and the agent can
 repeat it in a reply or a thought, which the conversation stores as any other message.
 
+The `ask_ui` tool gives agents only the `confirm` block, to approve an action or a draft; a question
+with options goes to `ask_user`. The contract and every client keep `choice` and `form`: OpenBot
+builds forms itself, such as the API key and Vault cards, and older messages hold both.
+
 `agent-task-ui-blocks-v1` (`team-protocol/agent-task-ui-blocks-v1.ts`) adds the same `uiBlock`, with
 the same normalization and wire budget, to the task conversations of `agent-tasks-v1`: the response
 of `POST /v1/agent-tasks/read` and the `snapshot` of the `agent-task-conversation` event. A client
@@ -523,6 +535,13 @@ browser tool calls on it wait until the release. The host refuses a take while a
 active on the tab, and releases the holds of a session when it ends. Each change sends
 `browser-user-control-changed { tabIds }`.
 
+`browser-teach-v1` (protocol 9 only) lets a member show a task in an agent's tab that they can see:
+`POST /v1/browser/teach/start` (`{ tabId }`, answers `{}`) takes the tab for the member and starts
+the recording, and `POST /v1/browser/teach/stop` (`{ tabId, save }`) gives the tab back and answers
+`{ steps }`, at most 200. Only the session that started the recording can end it; another session
+gets no step and changes nothing. A client shows the action only when the host also has
+`browser-user-control-v1`.
+
 `browser-page-state-v1` adds `POST /v1/browser/page-state` (empty body) and `POST /v1/browser/stop`
 (`{ tabId }`). Both answer with `{ tabs: [{ tabId, canGoBack, canGoForward }] }`, and each change
 sends `browser-page-state-changed` with the same list. A stop ends the load at once, before the queued
@@ -614,8 +633,8 @@ the host computer needs no report: the host reads `powerMonitor` itself (`hostCo
 An owner or admin of a joined server manages its host through optional `POST /v1/admin/...` routes.
 Each capability has a frozen codec in `team-protocol/<name>-v1.ts`, registered in
 `team-protocol/optional-routes.ts`, and both transports use it. Every route calls `requireAdmin`,
-except those that also answer a member: `/v1/browser/tab-profiles`, `storage-disk-v1` and
-`agent-fast-mode-v1`. The
+except those that also answer a member: `/v1/browser/tab-profiles`, `storage-disk-v1`,
+`storage-channel-v1` and `agent-fast-mode-v1`. The
 host advertises a capability only when its `TeamApiAdmin` member exists.
 
 | Capability | Grants | IPC group |
@@ -659,6 +678,7 @@ host advertises a capability only when its `TeamApiAdmin` member exists.
 | `agent-memory-limit-v1` | Read and set how many memories each agent keeps | `hostAdmin` |
 | `memory-review-v1` | Read and set how often the host's agents review their memories in the background, or Off | `hostAdmin` |
 | `browsing-memory-v1` | Read and set whether the host records what a person does in an agent's browser tab that they hold, for the memory review of that agent. Protocol 9 only | `hostAdmin` |
+| `browser-teach-v1` | Start and stop the recording of a task that a member shows in an agent's browser tab. The steps go only to the session that started it. Protocol 9 only | none: each member, for a tab they can see |
 | `skill-learning-v1` | Read and set whether the memory reviews of the host's agents save the skills they learn, ask first, or do not look for skills. Sends the skill name of a skill question in chat messages, and saves that skill on Save (any member with chat level). Protocol 9 only | `hostAdmin`, `agent.saveSkillSuggestion` |
 | `agent-notification-levels-v1` | Read and set the member's own notification level of the server and of each agent | none: each member, own levels only |
 | `sidebar-pins-v1` | Read, replace and seed the member's own ordered list of pinned agents and channels | none: each member, own pins only |
@@ -666,6 +686,7 @@ host advertises a capability only when its `TeamApiAdmin` member exists.
 | `machine-resources-v1` | Read the disk, memory and CPU use of the host machine; read and set the alert levels and the owner or admin who gets the `machine-alert` event | `storage`, `hostAdmin` |
 | `prompt-cache-ttl-v1` | Read and set how long Claude keeps the prompt cache of the host's agents | `hostAdmin` |
 | `claude-compact-window-v1` | Read and set the size at which Claude Code compacts the chats of the host's agents. Protocol 9 only | `hostAdmin` |
+| `provider-account-models-v1` | Read the models that each account after the first of the host's providers serves and the provider's own sign-in does not, for the model picker of that account. Protocol 9 only | `hostAdmin` |
 | `model-visibility-v1` | Read every model of one provider of the host, and set which of them the model picker shows. Every member reads which models the picker folds under Older models or labels New. Protocol 9 only | `hostAdmin` |
 | `provider-default-v1` | Read and set the provider that a new agent of the host starts on | none: only the mobile app sends it |
 | `agent-access-v1` | Read and set the roles that give members access to agents (see [Roles](#roles)) | `hostAdmin` |
@@ -1525,7 +1546,18 @@ and replaces it when the host answers (`src/renderer/src/features/servers/remote
   from the host, so no host request starts before the connection.
 - Web applies the frame in `connectWorkspace` when it does not keep a loaded workspace of the same
   host. It does not seed capabilities, so the capability-gated reads wait for the connection, and
-  agent avatars load only when the host is online. The web connect starts before the frame renders.
+  an agent avatar with no saved copy loads only when the host is online. The web connect starts
+  before the frame renders.
+- The frame names each picture by a host URL, which only the host can answer. Each client thus keeps
+  a copy of the pictures that it loaded, and shows the agent pictures while the host is offline. The
+  frame keeps no channel picture URL, so a channel copy only saves a download while the host is online. Desktop keeps agent
+  and channel pictures on disk in the main process (`src/main/remote-picture-cache.ts`, folder
+  `remote-pictures` in `userData`, one account, 400 pictures for each server). Web keeps agent
+  pictures in the browser's Cache storage
+  (`src/renderer/src/features/web-client/web-agent-pictures.ts`). A picture URL names a version, so
+  a new picture is a miss and replaces the copy. Sign-out, a change of account, server removal and
+  the end of access (`authentication_required`, a revoked session) delete the copies; a download
+  that started before the delete stores nothing.
 - A frame agent's row shows no preview: the last message is not known, so it does not say that
   there are no messages. Until the host lists channels, the sidebar sets `channelPreviewsPending`,
   and a channel row with no last message shows no preview and no time.

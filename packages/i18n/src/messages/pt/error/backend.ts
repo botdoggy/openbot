@@ -50,6 +50,10 @@ export const messages = {
     "Este computador anfitrião remoto não oferece suporte à navegação pela barra de endereços em uma aba existente.",
   "error.backend.browserUserControlBusy":
     "Esta aba do navegador está esperando um segredo. Responda primeiro ao pedido do segredo.",
+  "error.backend.browserTeachBusy": "Outra pessoa controla esta aba do navegador. Tente novamente quando ela terminar.",
+  "error.backend.browserTeachUnavailable":
+    "Este separador do navegador não tem um agente que possa aprender uma tarefa.",
+  "error.backend.browserTeachUnsupported": "Este anfitrião remoto não suporta a gravação de uma tarefa.",
   "error.backend.browserUserControlUnsupported":
     "Este computador anfitrião remoto não oferece suporte para assumir o controle de uma aba do navegador.",
   "error.backend.browserSignInUnsupported": "Este host remoto não pode receber um início de sessão deste computador.",
@@ -161,6 +165,10 @@ export const messages = {
     "O estado da caixa de mensagens está corrompido ou é de uma versão mais recente do OpenBot; ele não será sobrescrito.",
   "error.backend.recipientDeleting": "O destinatário está sendo excluído. Tente novamente quando a exclusão terminar.",
   "error.backend.recipientHidden": "Este agente está oculto. Restaure-o para enviar mensagens.",
+  "error.backend.agentIdUnknown":
+    "Nenhum agente tem o ID {id}. Obtenha os IDs com openbot.list_agents e tente novamente.",
+  "error.backend.agentIdNear":
+    "Nenhum agente tem o ID {id}. O agente {name} tem o ID {nearId}, quase igual. Se você quer esse agente, tente novamente com o ID dele.",
   "error.backend.attachBetween": "Anexe de 1 a {limit} arquivos.",
   "error.backend.attachmentNotFile": "O anexo não é um arquivo: {path}",
   "error.backend.generatedImageTooLarge": "A imagem gerada excede o limite de 100 MB.",

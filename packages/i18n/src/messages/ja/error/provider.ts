@@ -14,6 +14,8 @@ export const messages = {
     "{provider} のプランの利用上限に達しました。別のモデルを選ぶか、{provider} のプランをアップグレードしてください。",
   "error.provider.acpMcpNotLoaded":
     "{provider} が OpenBot のツールを読み込まなかったため、このエージェントはツールを使えず、チームメイトにも連絡できません。{provider} のチームポリシーがローカル MCP サーバーをブロックしている可能性があります。チーム管理者に許可を依頼してから、もう一度お試しください。",
+  "error.provider.acpOwnMcpServerFailed":
+    "{provider} が MCP サーバー {name} を起動できなかったため、応答が止まりました。このサーバーは OpenBot ではなく、ご自身の {provider} の設定にあります。そこでサーバーを削除するか修復してから、新しいチャットを始めてください。",
   "error.provider.endpointsReadOnly":
     "保存されたエンドポイントは新しいバージョンの OpenBot で書き込まれたか、ファイルを読み取れません。変更するには OpenBot を更新してください。",
   "error.provider.endpointNoSecureStorage":
@@ -200,6 +202,8 @@ export const messages = {
     "OpenCode はモデルプロバイダー「{provider}」にサインインしていません。「無料」ラベルのモデルを選択するか、プロバイダーを接続してください。OpenCode の設定に OpenCode Go のキーを貼り付けるか、ターミナルで `opencode auth login` を実行します。その後、もう一度お試しください。",
   "error.provider.opencodeAuthRequiredUnknown":
     "OpenCode はこのモデルのプロバイダーにサインインしていません。「無料」ラベルのモデルを選択するか、プロバイダーを接続してください。OpenCode の設定に OpenCode Go のキーを貼り付けるか、ターミナルで `opencode auth login` を実行します。その後、もう一度お試しください。",
+  "error.provider.opencodeFreeModelRefused":
+    "OpenCode がこの無料モデルを拒否しました。一部の無料モデルは、国によっては利用できません。「無料」ラベルの別のモデルを選択するか、OpenCode の設定に OpenCode Go のキーを貼り付けて OpenCode Go のモデルを選択してください。",
   "error.provider.customEndpointKeyRefused":
     "エンドポイント「{provider}」が API キーまたはヘッダーを拒否しました。サーバー設定 → プロバイダーでもう一度入力してから、もう一度お試しください。",
   "error.provider.customEndpointKeyMissing":
@@ -220,12 +224,18 @@ export const messages = {
     "OpenCode の無料モデルが使用量の上限に達しました。この上限はすべての無料モデルで共有されます。続けるには、OpenCode の設定に OpenCode Go のキーを貼り付けるか、別のプロバイダーのモデルを選択してください。",
   "error.provider.opencodeProviderFailed":
     "モデルプロバイダー側で障害が発生しました。お使いの接続は原因ではありません。後でもう一度試すか、別のモデルを選んでください。\n{detail}",
+  "error.provider.opencodeIncompleteReply":
+    "モデルの応答が途中で切れたか、無効でした。メッセージをもう一度送信するか、別のモデルを選んでください。\n{detail}",
   "error.provider.opencodeNetwork":
     "OpenCode がモデルプロバイダーに接続できませんでした。OpenBot を実行しているコンピューターのネットワーク接続を確認してから、もう一度お試しください。\n{detail}",
   "error.provider.codexStateBusy":
     "ChatGPT は前回の起動後、まだローカル履歴を準備しています。数分待ってから、もう一度お試しください。",
+  "error.provider.codexThreadInUse":
+    "別の Codex アプリ (Codex デスクトップアプリ、Codex CLI、IDE 拡張機能など) がこのチャットを開いています。Codex のチャットに書き込めるアプリは一度に 1 つだけです。そのアプリでチャットを閉じてから、メッセージをもう一度送信してください。",
   "error.provider.realtimeLimitZero":
     "OpenBot のリアルタイム CPU 制限が 0 のため、Linux がプロバイダーを停止しました。この制限はシステムから来ています。rtkit をインストールして起動し (`rtkit-daemon`)、`systemctl --user restart xdg-desktop-portal` を実行してから OpenBot を再起動してください。rtkit がない間は、xdg-desktop-portal を再起動するだけでは解決しません。",
+  "error.provider.cpuUnsupported":
+    "このコンピューターのプロセッサーでは、このプロバイダーを実行できません。別のプロバイダーを使用してください。",
   "error.provider.opencodeDatabaseNewer":
     "新しいバージョンの OpenCode がデータベースを変更したため、OpenCode はデータベースを開けませんでした。OpenCode をバージョン 2 以降に更新してから、もう一度お試しください。",
   "error.provider.opencodeNoAnswer":
@@ -259,6 +269,8 @@ export const messages = {
     "Gemini は現在このモデルを使用できません。別のモデルを選んでから、もう一度お試しください。\n{detail}",
   "error.provider.antigravityServiceFailure":
     "Google の Gemini サービスがリクエストを完了しませんでした。数分後にもう一度お試しください。\n{detail}",
+  "error.provider.antigravityRequestRejected":
+    "Gemini がこのリクエストを拒否しました。別のモデルを選んでから、メッセージをもう一度送信してください。再び失敗する場合は、新しいチャットを始めてください。\n{detail}",
   "error.provider.antigravityConnectionLost":
     "Gemini はエージェントとの接続が切れたため停止しました。続けるには、メッセージを送信してください。",
   "error.provider.antigravityRemoteWindowsSignIn":
@@ -301,6 +313,8 @@ export const messages = {
   "error.provider.hermesSignIn":
     "Hermes を使うには、Nous Portal でサインインするか、ターミナルで `hermes setup` を実行してください。",
   "error.provider.usageLimitReached": "アカウントが使用量の上限に達しました。",
+  "error.provider.claudeContextFull":
+    "このチャットは Claude には長くなりすぎました。OpenBot はチャット履歴を引き継いだ新しい Claude Code セッションを開始しました。もう一度お試しください。",
   "error.provider.claudeApiKeyNoCredit":
     "Anthropic API キーに API クレジットがありません。Claude のプランは API キーでのリクエストには使われません。Anthropic Console でクレジットを追加するか、設定で Claude にサインインして、エージェントのモデルメニューで Claude アカウントを選択してください。",
   "error.provider.foreignReasoning":
@@ -309,6 +323,8 @@ export const messages = {
     "画像が小さすぎるため、モデルはこのチャットの画像を受け付けませんでした。OpenBot はチャット履歴を引き継いだ新しい {provider} セッションを開始しました。もう一度お試しください。",
   "error.provider.imageTooLarge":
     "画像が大きすぎるため、モデルはこのチャットの画像を受け付けませんでした。OpenBot はチャット履歴を引き継いだ新しい {provider} セッションを開始しました。もう一度お試しください。",
+  "error.provider.imageCountLimit":
+    "画像が多すぎるため、モデルはこのチャットを受け付けませんでした。OpenBot はチャット履歴を引き継いだ新しい {provider} セッションを開始しました。もう一度お試しください。",
   "error.provider.opencodeSessionRejected":
     "OpenCode がリクエストを拒否しましたが、原因は示されていません。長いチャットやモデルの変更後に起こることがあります。OpenBot はチャット履歴を引き継いだ新しい OpenCode セッションを開始しました。もう一度お試しください。エラーが続く場合は、別のモデルを選ぶか推論レベルを下げてください。",
   "error.provider.acpContextOverflow":
@@ -339,6 +355,10 @@ export const messages = {
     "{provider} は保存された API キーを拒否しました。設定でキーを置き換えるか削除してから、もう一度お試しください。",
   "error.provider.keyProviderNoBalance":
     "保存された API キーの {provider} アカウントに残高がありません。アカウントにクレジットを追加してから、もう一度お試しください。",
+  "error.provider.modelServiceRefused":
+    "モデルサービスがリクエストを拒否しました。別のモデルを選択するか、サービスでこのモデルへのアクセス権を確認してください。",
+  "error.provider.modelServiceRefusedReason":
+    "モデルサービスがリクエストを拒否しました: {reason}。別のモデルを選択するか、サービスでこのモデルへのアクセス権を確認してください。",
   "error.provider.messageTooLarge":
     "{limit} MB を超えるメッセージを送信したため、OpenBot は {provider} を停止しました。",
   "error.provider.customAgentIdInvalid":

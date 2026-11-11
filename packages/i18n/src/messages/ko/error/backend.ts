@@ -47,6 +47,10 @@ export const messages = {
   "error.backend.channelDeleteUnsupported": "이 서버는 채널 삭제를 지원하지 않아요.",
   "error.backend.browserNavigateUnsupported": "이 원격 호스트는 기존 탭에서 주소 표시줄 이동을 지원하지 않아요.",
   "error.backend.browserUserControlBusy": "이 브라우저 탭이 비밀 값을 기다리고 있어요. 먼저 비밀 값 요청에 답하세요.",
+  "error.backend.browserTeachBusy":
+    "다른 사용자가 이 브라우저 탭을 제어하고 있습니다. 상대방이 마친 후 다시 시도하세요.",
+  "error.backend.browserTeachUnavailable": "이 브라우저 탭에는 작업을 배울 수 있는 에이전트가 없습니다.",
+  "error.backend.browserTeachUnsupported": "이 원격 호스트는 작업 기록을 지원하지 않습니다.",
   "error.backend.browserUserControlUnsupported": "이 원격 호스트는 브라우저 탭 제어권 가져오기를 지원하지 않아요.",
   "error.backend.browserSignInUnsupported": "이 원격 호스트는 이 컴퓨터에서 로그인을 받을 수 없어요.",
   "error.backend.browserSignInOpenFailed": "OpenBot이 로그인 창을 열 수 없었어요.",
@@ -147,6 +151,10 @@ export const messages = {
   "error.backend.mailboxStateCorrupt": "메일함 상태가 손상되었거나 더 새로운 OpenBot 버전의 것이에요. 덮어쓰지 않아요.",
   "error.backend.recipientDeleting": "받는 사람을 삭제하는 중이에요. 삭제가 끝난 후 다시 시도해 주세요.",
   "error.backend.recipientHidden": "이 에이전트는 숨겨져 있어요. 메시지를 보내려면 복원하세요.",
+  "error.backend.agentIdUnknown":
+    "ID가 {id}인 에이전트가 없어요. openbot.list_agents에서 ID를 가져온 후 다시 시도해 주세요.",
+  "error.backend.agentIdNear":
+    "ID가 {id}인 에이전트가 없어요. 에이전트 {name}의 ID {nearId}가 거의 같아요. 이 에이전트를 말한 거라면 해당 ID로 다시 시도해 주세요.",
   "error.backend.attachBetween": "파일을 1개에서 {limit}개 사이로 첨부하세요.",
   "error.backend.attachmentNotFile": "첨부 파일이 파일이 아니에요: {path}",
   "error.backend.generatedImageTooLarge": "생성된 이미지가 100MB 한도를 넘었어요.",

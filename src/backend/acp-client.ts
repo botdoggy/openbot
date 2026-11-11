@@ -70,6 +70,7 @@ import { runCauseEffect } from "./effect-boundary";
 import { IdleThreadPool } from "./idle-thread-pool";
 import { type DynamicToolNamespace, LocalMcpBridge, type LocalMcpSession } from "./local-mcp-bridge";
 import {
+  acpMcpServerName,
   acpMcpServers,
   agentMcpServers,
   computerUseParam,
@@ -78,7 +79,6 @@ import {
   type McpServerSource,
   type McpToolRuntimeSource,
   mcpAgentParam,
-  providerMcpServerName,
   usableMcpServers,
 } from "./mcp-provider-shapes";
 import { PendingServerRequests } from "./pending-server-requests";
@@ -205,6 +205,8 @@ interface AcpTurn {
   receivedOutput: boolean;
   /** The model sent reasoning text. An empty OpenCode turn then names reasoning without an answer. */
   reasoned: boolean;
+  /** The turn showed a plan or a compaction, which can be the whole answer of a turn with no text. */
+  showedPlanOrCompaction: boolean;
   /**
    * The partial reply and the harness error that cut it. It becomes the answer when no text comes
    * after the error, because then the harness did not retry.
@@ -236,6 +238,12 @@ interface AcpTurn {
   toolKinds: Map<string, string>;
   /** The latest durable shape of each tool call until ACP reports its terminal status. */
   toolItems: Map<string, ThreadItem>;
+  /** Approved edits that no call under another id ran yet, with their files (`approvedEditSweep`). */
+  approvedEdits: { id: string; paths: readonly string[] }[];
+  /** The approved edit that each call under another id runs. */
+  approvedEditRuns: Map<string, string>;
+  /** Approved edits whose call under another id completed. */
+  approvedEditsRan: Set<string>;
   /** The user stopped the turn. */
   stopped: boolean;
   /** Aborts when the user stops the turn: a permission request that waits gets its answer then. */
@@ -545,9 +553,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     // A session with a process of its own closes when that process ends.
     // A watched session stays open: a closed one would not report the end of its background task.
     canRelease: (thread) =>
-      this.#loadsSessions &&
-      (thread.transport !== null || Boolean(this.#initialization?.agentCapabilities?.sessionCapabilities?.close)) &&
-      thread.backgroundUntil === 0,
+      this.#loadsSessions && (thread.transport !== null || this.#closesSessions) && thread.backgroundUntil === 0,
     snapshot: ({ cwd, developerInstructions, dynamicTools, workspaceRoots, computerUse, agentId }) => ({
       cwd,
       developerInstructions,
@@ -904,7 +910,10 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
    */
   #compacted(thread: AcpThread): void {
     // A compaction is the whole answer of a `/compact` turn.
-    if (thread.activeTurn) thread.activeTurn.answered = true;
+    if (thread.activeTurn) {
+      thread.activeTurn.answered = true;
+      thread.activeTurn.showedPlanOrCompaction = true;
+    }
     thread.instructionsSent = null;
     this.#turnContext.resend(thread.id);
     this.emit("notification", {
@@ -1507,6 +1516,11 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     return this.#initialization?.agentCapabilities?.loadSession === true;
   }
 
+  /** Whether the agent answers `session/close`, which it advertises in its initialization. */
+  get #closesSessions(): boolean {
+    return Boolean(this.#initialization?.agentCapabilities?.sessionCapabilities?.close);
+  }
+
   /** Whether the agent takes audio blocks in a prompt. Antigravity does; Grok and OpenCode do not. */
   get #acceptsAudio(): boolean {
     return this.#initialization?.agentCapabilities?.promptCapabilities?.audio === true;
@@ -1586,6 +1600,18 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     this.#startingThreads.set(requestedThreadId, completion);
     // A session's own process ends with its harness, which can still run the stopped turn.
     if (recovering && held.transport) yield* held.transport.stop(Effect.void).pipe(Effect.ignore);
+    // A shared process that still holds the session can refuse to load it again: GitHub Copilot CLI
+    // 1.0.108 answers "Session <id> is already loaded" to each load (#6962). `session/close` also
+    // cancels the stopped turn, and the load then opens the session as after an idle release. A resume
+    // keeps the held session until it succeeds, and a watched session stays open, as `canRelease` says.
+    // As at each close, its subagents end here: the agent sends no end for them after it (#6448).
+    else if (recovering && this.#closesSessions && !this.#supportsSessionResume && held.backgroundUntil === 0) {
+      this.#stopThreadSubagents(requestedThreadId);
+      yield* providerCall(() => this.#requireConnection().closeSession({ sessionId: requestedThreadId })).pipe(
+        this.#backgroundTimeout("session/close"),
+        Effect.ignore,
+      );
+    }
     const exit = yield* Effect.exit(this.#openThread(params, true));
     // session/resume closes the old Antigravity harness and restores its saved trajectory.
     // Keep its bridge until the replacement succeeds, so a failure can be retried in this session.
@@ -1660,6 +1686,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
                   ).pipe(toProviderClientOperationError),
                 ),
               ),
+              this.#ownMcpServerNames(cwd),
             );
             this.options.reportMcpDrops?.(this.provider, handoff.dropped);
             const mcpServers = [...handoff.servers, ...mcp.servers];
@@ -2237,6 +2264,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       thoughtStarted: false,
       receivedOutput: false,
       reasoned: false,
+      showedPlanOrCompaction: false,
       interruptedAnswer: null,
       providerError: null,
       signInLost: false,
@@ -2249,6 +2277,9 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       toolNames: new Map(),
       toolKinds: new Map(),
       toolItems: new Map(),
+      approvedEdits: [],
+      approvedEditRuns: new Map(),
+      approvedEditsRan: new Set(),
       stopped: false,
       stop: new AbortController(),
       completing: false,
@@ -2352,7 +2383,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
           if (!((turn.receivedOutput || turn.answerOptional) && sdkHarness.emptyOutputFailure?.test(detail))) {
             turn.accountLink = sdkHarness.accountLink?.(detail) ?? null;
             turn.failureCause = turn.accountLink ? "authentication" : classifyFailure(detail);
-            turn.providerError = sdkHarness.turnFailure(detail);
+            turn.providerError = this.#mcpLoadFailureMessage(thread, detail) ?? sdkHarness.turnFailure(detail);
             turn.sessionLost = sdkHarness.sessionLost?.test(detail) === true;
           }
         }
@@ -2550,9 +2581,8 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         )
       : undefined;
     if (!failure || !server) return false;
-    const configured = this.options
-      .mcpServers?.()
-      .find((config) => providerMcpServerName(config.name) === failure.name);
+    const own = this.#ownMcpServerNames(thread.cwd);
+    const configured = this.options.mcpServers?.().find((config) => acpMcpServerName(config, own) === failure.name);
     this.options.reportMcpDrops?.(this.provider, [
       {
         name: configured?.name ?? failure.name,
@@ -2571,6 +2601,29 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     turn.lastChunkAt = null;
     return true;
   });
+
+  /** The names in the agent's own MCP files for `cwd`. A file that cannot be read gives no names. */
+  #ownMcpServerNames(cwd: string): readonly string[] {
+    return this.#flavor.ownMcpServerNames?.(cwd, this.options.argv) ?? [];
+  }
+
+  /**
+   * The message of a turn that an MCP server's failed start ended, or `null` for another failure.
+   * The server's own reason is runtime output, often a traceback with a Windows path, which the chat
+   * replaced with a message that names no cause (#7046). It goes to the diagnostics instead. A
+   * bridge server of OpenBot's own tools is in no settings that the user can change, so its failure
+   * keeps the server's text.
+   */
+  #mcpLoadFailureMessage(thread: AcpThread, detail: string): string | null {
+    const failure = this.#flavor.sdkHarness?.mcpLoadFailure(detail);
+    if (!failure || thread.mcp.servers.some((bridge) => bridge.name === failure.name)) return null;
+    this.emit("diagnostic", this.#redact(detail));
+    const own = this.#ownMcpServerNames(thread.cwd);
+    const configured = this.options.mcpServers?.().find((config) => acpMcpServerName(config, own) === failure.name);
+    return configured
+      ? sourceText("error.backend.mcpServerFailedForProvider", { provider: this.#label, name: configured.name })
+      : sourceText("error.provider.acpOwnMcpServerFailed", { provider: this.#label, name: failure.name });
+  }
 
   #sessionUpdate(notification: SessionNotification): void {
     if (notification.sessionId === this.#privateSession?.sessionId) {
@@ -2743,7 +2796,10 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       turn.toolNames.set(update.toolCallId, name);
       const toolKind = update.kind ?? turn.toolKinds.get(update.toolCallId) ?? "other";
       turn.toolKinds.set(update.toolCallId, toolKind);
-      const status = update.status ?? turn.toolItems.get(update.toolCallId)?.status;
+      // The approved edit ran under another id, so its failure is not true: the call completed.
+      const swept = this.#isApprovedEditSweep(turn, update, toolKind);
+      const reported = swept ? "completed" : update.status;
+      const status = reported ?? turn.toolItems.get(update.toolCallId)?.status;
       const item: ThreadItem = {
         ...(turn.toolItems.get(update.toolCallId) ?? {}),
         id: update.toolCallId,
@@ -2752,14 +2808,14 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         toolKind,
         ...(status === undefined ? {} : { status }),
         arguments: update.rawInput ?? turn.toolItems.get(update.toolCallId)?.arguments,
-        result: update.rawOutput ?? turn.toolItems.get(update.toolCallId)?.result,
+        result: (swept ? undefined : update.rawOutput) ?? turn.toolItems.get(update.toolCallId)?.result,
         // Gemini and others put the error of a failed tool only in the content, not in rawOutput.
-        ...(update.status === "failed" && update.content ? { error: update.content } : {}),
+        ...(reported === "failed" && update.content ? { error: update.content } : {}),
       };
       turn.toolItems.set(update.toolCallId, item);
       this.#foldSubagentTool(thread, turn, update.toolCallId, update.content, item);
       this.emit("notification", {
-        method: update.status === "completed" || update.status === "failed" ? "item/completed" : "item/started",
+        method: reported === "completed" || reported === "failed" ? "item/completed" : "item/started",
         params: {
           threadId: thread.id,
           turnId: turn.id,
@@ -2767,7 +2823,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
           item,
         },
       });
-      if (update.status === "completed" || update.status === "failed") {
+      if (reported === "completed" || reported === "failed") {
         turn.messages.push(item);
         turn.toolItems.delete(update.toolCallId);
       }
@@ -2776,6 +2832,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       return;
     }
     if (update.sessionUpdate === "plan") {
+      turn.showedPlanOrCompaction = true;
       this.emit("notification", {
         method: PLAN_UPDATED_METHOD,
         params: { threadId: thread.id, turnId: turn.id, explanation: null, plan: acpPlanSteps(update.entries) },
@@ -2882,10 +2939,12 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     thread: AcpThread,
     turn: AcpTurn,
   ) {
-    const limit = this.options.turnStallMs ?? ACP_TURN_STALL_MS;
+    const agentLimit = this.options.turnStallMs ?? ACP_TURN_STALL_MS;
     let answeredAt = 0;
     // A stopped turn ends by its stop, as interrupted, and not as a stall.
     while (thread.activeTurn === turn && !turn.completing && !turn.stopped) {
+      // Read on each pass: the model of the thread can change while the turn runs.
+      const limit = this.options.customEndpoint?.(thread.currentModelId)?.stallMs ?? agentLimit;
       if (this.#flavor.promptOpenForBackgroundTasks) {
         const silentFor = Date.now() - Math.max(turn.lastActivityAt, answeredAt);
         if (silentFor < limit) {
@@ -3335,6 +3394,34 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     if (this.#threads.get(thread.id) === thread) yield* this.#threads.markIdle(thread);
   }, Effect.uninterruptible);
 
+  /**
+   * Follows the edits that the user approved (`AcpFlavor.approvedEditSweep`). Tells whether this
+   * update is the failure that the agent sends for an approved edit that completed under another id.
+   */
+  #isApprovedEditSweep(turn: AcpTurn, update: AcpToolCallUpdate, toolKind: string): boolean {
+    const sweep = this.#flavor.approvedEditSweep;
+    if (!sweep) return false;
+    const id = update.toolCallId;
+    // The agent asks with a pending call. A call that it starts or ends at once runs an edit.
+    if (
+      update.sessionUpdate === "tool_call" &&
+      toolKind === "edit" &&
+      update.status !== "pending" &&
+      !turn.approvedEditRuns.has(id) &&
+      !turn.approvedEdits.some((edit) => edit.id === id)
+    ) {
+      const approved = claimApprovedEdit(turn.approvedEdits, toolCallPaths(update));
+      if (approved) turn.approvedEditRuns.set(id, approved);
+    }
+    if (update.status === "completed") {
+      const approved = turn.approvedEditRuns.get(id);
+      if (approved) turn.approvedEditsRan.add(approved);
+      // An approved edit that completed under its own id needs no other call.
+      turn.approvedEdits = turn.approvedEdits.filter((edit) => edit.id !== id);
+    }
+    return update.status === "failed" && turn.approvedEditsRan.has(id) && sweep.test(toolOutputText(update.rawOutput));
+  }
+
   readonly #requestPermission = Effect.fn("AcpAgentClient.requestPermission")(function* (
     this: AcpAgentClient,
     params: RequestPermissionRequest,
@@ -3353,6 +3440,22 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         : ["edit", "delete", "move"].includes(params.toolCall.kind ?? "")
           ? "file-change"
           : "permissions";
+    // A confined process is a Workspace only agent: the sandbox limits its writes, so a call to OpenBot's
+    // own tools is not a step outside that limit. The tools ask the user themselves where they must,
+    // and a Claude agent at Workspace only runs them without a card, too (#7086). Only once: an "always"
+    // answer stays in the agent's own state, also after the user chooses Ask first.
+    if (
+      this.options.confine &&
+      kind === "permissions" &&
+      thread &&
+      turn &&
+      !turn.stopped &&
+      !turn.completing &&
+      callsBridgeTool(thread, params.toolCall.title)
+    ) {
+      const option = params.options.find((candidate) => candidate.kind === "allow_once");
+      if (option) return { outcome: { outcome: "selected", optionId: option.optionId } };
+    }
     const requestedPermissions = kind === "permissions" ? { [params.toolCall.kind ?? "file-system"]: true } : null;
     const result = yield* this.#waitForUser(
       turn,
@@ -3383,6 +3486,16 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         result.decision === "approved" ||
         (isRecord(result.permissions) && Object.keys(result.permissions).length > 0));
     const option = bestPermissionOption(params.options, accepted);
+    const { toolCallId } = params.toolCall;
+    // Only an edit is claimed by a call that runs it, so only an edit is noted. The request can omit
+    // the kind that the pending call had.
+    const approvedKind = params.toolCall.kind ?? turn?.toolKinds.get(toolCallId);
+    if (turn && accepted && option && approvedKind === "edit" && this.#flavor.approvedEditSweep) {
+      turn.approvedEdits.push({
+        id: toolCallId,
+        paths: toolCallPaths(params.toolCall, turn.toolItems.get(toolCallId)?.arguments),
+      });
+    }
     return option
       ? { outcome: { outcome: "selected", optionId: option.optionId } }
       : { outcome: { outcome: "cancelled" } };
@@ -3394,18 +3507,38 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     params: DynamicRecord,
   ): Effect.fn.Return<DynamicRecord, ProviderClientOperationError> {
     const sessionId = getString(params, "sessionId") ?? [...this.#threads.ids()][0];
-    if (sessionId && this.#historyReplays.has(sessionId)) return {};
+    // The agent's own question method has questions without ids, and needs its own reply shape.
+    const own = this.#flavor.userQuestions;
+    const isOwn = own?.method === method.replace(/^_/u, "");
+    if (sessionId && this.#historyReplays.has(sessionId)) return own && isOwn ? own.reply([], {}) : {};
     const thread = sessionId ? this.#threads.get(sessionId) : undefined;
+    const asked = isOwn
+      ? getArray(params, "questions")
+          .filter(isRecord)
+          .map((question, index) => ({
+            ...question,
+            id: `question-${index}`,
+            question: getString(question, "question") ?? "",
+          }))
+      : null;
     const result = yield* this.#waitForUser(
       thread?.activeTurn,
       this.#serverRequests.call("item/tool/requestUserInput", {
         ...params,
+        ...(asked ? { questions: asked } : {}),
         threadId: sessionId,
         turnId: thread?.activeTurn?.id ?? randomUUID(),
         sourceMethod: method,
       }),
     ).pipe(toProviderClientOperationError);
-    return yield* providerSync(() => (isRecord(result) ? result : {}));
+    return yield* providerSync(() => {
+      if (!(own && asked)) return isRecord(result) ? result : {};
+      const answers = getRecord(result, "answers") ?? {};
+      return own.reply(
+        asked,
+        Object.fromEntries(asked.map(({ id }) => [id, getArray(answers[id], "answers").filter(isString)])),
+      );
+    });
   });
 
   readonly #createElicitation = Effect.fn("AcpAgentClient.createElicitation")(function* (
@@ -3530,9 +3663,59 @@ function printableInput(value: unknown): string | null {
   }
 }
 
+type AcpToolCallUpdate = Extract<SessionUpdate, { sessionUpdate: "tool_call" | "tool_call_update" }>;
+
+/** The files that a tool call names, with `/` and in lower case, as Windows paths can differ in both. */
+function toolCallPaths(
+  call: { readonly locations?: readonly { readonly path: string }[] | null; readonly rawInput?: unknown },
+  earlierInput?: unknown,
+): string[] {
+  const paths = (call.locations ?? []).map((location) => location.path);
+  for (const input of [call.rawInput, earlierInput]) {
+    if (!isRecord(input)) continue;
+    for (const key of ["TargetFile", "file_path", "path"]) {
+      const value = input[key];
+      if (isString(value)) paths.push(value);
+    }
+  }
+  return [...new Set(paths.map((path) => path.replace(/\\/g, "/").toLowerCase()))];
+}
+
+/**
+ * Takes the approved edit that a call under another id runs: one of the same file, else the only
+ * approved edit when one of the two names no file.
+ */
+function claimApprovedEdit(
+  approvedEdits: { id: string; paths: readonly string[] }[],
+  paths: readonly string[],
+): string | undefined {
+  let index = approvedEdits.findIndex((edit) => edit.paths.some((path) => paths.includes(path)));
+  if (index < 0 && approvedEdits.length === 1 && (paths.length === 0 || approvedEdits[0]?.paths.length === 0)) {
+    index = 0;
+  }
+  return index < 0 ? undefined : approvedEdits.splice(index, 1)[0]?.id;
+}
+
+function toolOutputText(rawOutput: unknown): string {
+  if (isString(rawOutput)) return rawOutput;
+  return isRecord(rawOutput) && isString(rawOutput.output) ? rawOutput.output : "";
+}
+
 function bestPermissionOption(options: PermissionOption[], accepted: boolean): PermissionOption | null {
   const kinds = accepted ? ["allow_once", "allow_always"] : ["reject_once", "reject_always"];
   return kinds.flatMap((kind) => options.filter((option) => option.kind === kind))[0] ?? null;
+}
+
+/**
+ * Whether a permission request names a tool that the session's OpenBot bridge servers give. Grok names
+ * an MCP tool `<server>__<tool>`, such as `openbot__tool_call`. Only the exact name of a bridge tool
+ * matches: a user's server cannot take a bridge server's name (`isReservedMcpServerName`), and a name
+ * such as `openbot__files` gives tools named `openbot__files__<tool>`.
+ */
+function callsBridgeTool(thread: AcpThread, title: string | null | undefined): boolean {
+  return thread.dynamicTools.some((namespace) =>
+    namespace.tools.some((tool) => title === `${namespace.name}__${tool.name}`),
+  );
 }
 
 function isDynamicToolResult(value: unknown): value is DynamicToolResult {

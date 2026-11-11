@@ -48,6 +48,10 @@ export const messages = {
     "Cet hôte distant ne prend pas en charge la navigation par la barre d’adresse dans un onglet existant.",
   "error.backend.browserUserControlBusy":
     "Cet onglet du navigateur attend un secret. Répondez d’abord à la demande de secret.",
+  "error.backend.browserTeachBusy":
+    "Une autre personne contrôle cet onglet du navigateur. Réessayez quand elle aura terminé.",
+  "error.backend.browserTeachUnavailable": "Cet onglet du navigateur n’a aucun agent qui peut apprendre une tâche.",
+  "error.backend.browserTeachUnsupported": "Cet hôte distant ne prend pas en charge l’enregistrement d’une tâche.",
   "error.backend.browserUserControlUnsupported":
     "Cet hôte distant ne permet pas de prendre le contrôle d’un onglet du navigateur.",
   "error.backend.browserSignInUnsupported":
@@ -164,6 +168,10 @@ export const messages = {
   "error.backend.recipientDeleting":
     "Le destinataire est en cours de suppression. Réessayez une fois la suppression terminée.",
   "error.backend.recipientHidden": "Cet agent est masqué. Restaurez-le pour envoyer des messages.",
+  "error.backend.agentIdUnknown":
+    "Aucun agent n’a l’identifiant {id}. Obtenez les identifiants avec openbot.list_agents, puis réessayez.",
+  "error.backend.agentIdNear":
+    "Aucun agent n’a l’identifiant {id}. L’agent {name} a l’identifiant {nearId}, presque identique. S’il s’agit de cet agent, réessayez avec son identifiant.",
   "error.backend.attachBetween": "Joignez entre 1 et {limit} fichiers.",
   "error.backend.attachmentNotFile": "La pièce jointe n’est pas un fichier : {path}",
   "error.backend.generatedImageTooLarge": "L’image générée dépasse la limite de 100 Mo.",

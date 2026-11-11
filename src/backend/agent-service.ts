@@ -200,7 +200,12 @@ import {
   startingModel,
   workflowProvider,
 } from "./agent/model-choice";
-import { type AgentFeedback, type AgentServerClaims, OpenBotToolRouter } from "./agent/openbot-tool-router";
+import {
+  type AgentFeedback,
+  type AgentMessageSteer,
+  type AgentServerClaims,
+  OpenBotToolRouter,
+} from "./agent/openbot-tool-router";
 import { PlanContinuation } from "./agent/plan-continuation";
 import { ProfileClients } from "./agent/profile-clients";
 import {
@@ -233,6 +238,7 @@ import {
 } from "./agent/thread-items";
 import { ThreadLifecycle } from "./agent/thread-lifecycle";
 import { ToolOperationFailed, toToolOperationFailed } from "./agent/tool-operation";
+import { TurnContext } from "./agent/turn-context";
 import { type AgentBrowserHost, TurnLifecycle } from "./agent/turn-lifecycle";
 import { sideSessionUsageObserver, workflowUsageObserver } from "./agent/usage-collection";
 import { toUsageReadFailed, UsageLimitGate, type UsageLimitKey } from "./agent/usage-limit-gate";
@@ -488,6 +494,8 @@ export interface AgentServiceOptions {
    * The agent instructions name the limit.
    */
   hostedStorageGb?: () => number | null;
+  /** OpenBot draws the Computer Use agent cursor, because the agents share the display of its windows. */
+  agentCursorDrawn?: boolean;
   /** When an idle Codex session is unloaded, and how many idle sessions one app server keeps. Tests make it short. */
   codexIdleSessions?: { releaseAfterMs: number; idleLimit: number };
 }
@@ -845,6 +853,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       hostedSites,
       emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
       isStopping: () => this.#stopping,
+      redact: (text) => this.#mcp.redact(text),
     });
     this.#providers = new ProviderRuntime({
       offProviders: options.offProviders ?? [],
@@ -1053,6 +1062,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         },
         // Of the clients that read this, only OpenCode runs custom endpoints.
         servesModel: (modelId) => this.#endpoints.serves(modelId, "opencode"),
+        // One for the service, not for each client: the idle release replaces the Codex client, and
+        // its threads hold the blocks that they were sent (#6963).
+        codexTurnContext: new TurnContext(),
         // Every MCP set that leaves for a provider is remembered, so its secrets stay redactable
         // after the user edits them. This is the second of the two ways one leaves; the other is
         // `enabledMcpServers`, which the Codex thread configuration reads.
@@ -1241,6 +1253,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       // Only a server has a memory reading.
       serverHost: hostMemory !== null,
       ...(options.hostedStorageGb ? { hostedStorageGb: options.hostedStorageGb } : {}),
+      ...(options.agentCursorDrawn ? { agentCursorDrawn: true } : {}),
       ...(options.responseStyle ? { responseStyle: options.responseStyle } : {}),
       memoryReview: () => this.#memoryReview.running(),
       skillRevision: () => options.skillLearning?.() === "automatic",
@@ -1596,19 +1609,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           if (this.#requestedNewChats.delete(agentId))
             logger.info(`Agent ${agentId} dropped its new chat request: a turn in its chat started first.`);
         },
+        followPendingRuntime: (agentId) => this.#startPendingRuntime(agentId),
         followUsageLimit: (agentId) => {
-          if (this.#pendingRuntimeDue(agentId)) {
-            Effect.runFork(
-              this.#followPendingRuntime(agentId).pipe(
-                // A change that is gone, applied or dropped, lets the next drain make a due usage-limit move.
-                Effect.andThen((moved) =>
-                  Effect.sync(() => this.#drain.scheduleDrain(agentId, moved || !this.#pendingRuntimeDue(agentId))),
-                ),
-                Effect.forkIn(this.#scope, { startImmediately: true }),
-              ),
-            );
-            return true;
-          }
+          if (this.#startPendingRuntime(agentId)) return true;
           if (!this.#usageLimitMove(agentId)) return false;
           Effect.runFork(
             this.#followUsageLimit(agentId).pipe(
@@ -1714,7 +1717,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         emitError: (code, error, agentId, context, link) => this.#emitError(code, error, agentId, context, link),
         emitRuntimeSnapshot: () => this.#emitRuntimeSnapshot(),
         scheduleDrain: (agentId) => this.#drain.scheduleDrain(agentId),
-        steerAgentMessage: (recipientAgentId, deliveryId) => this.#steerAgentMessage(recipientAgentId, deliveryId),
+        steerAgentMessage: (recipientAgentId, deliveryId) =>
+          this.#steerAgentMessage(recipientAgentId, deliveryId, false).pipe(Effect.asVoid),
         dropRefusedSession: (agentId, externalThreadId) =>
           this.#threads.dropRefusedProviderSession(agentId, externalThreadId),
         listAgents: () => this.listAgents(),
@@ -1725,7 +1729,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         mayContinueOnBackup: (agentId) => this.#mayContinueStoppedWork(agentId),
         requeueChannelDelivery: (deliveryId, continueWork) => this.#requeueChannelDelivery(deliveryId, continueWork),
         quietRoutineDelivery: (deliveryId) => this.#routines.quietRunForDelivery(deliveryId),
-        takeRoutinePreview: (deliveryId) => this.#routines.takePreviewBeforeRun(deliveryId),
         closeRoutineSession: (externalThreadId) => this.#threads.closeRoutineThread(externalThreadId),
         conversationTurnEnded: (agentId, sideThreadId, counts, memoryCommitted) =>
           this.#memoryReview.turnEnded(agentId, sideThreadId, counts, memoryCommitted),
@@ -1791,9 +1794,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           }).pipe(Effect.mapError((failure) => new AgentRemovalFailed({ cause: failure.cause }))),
         cancelMemoryReview: (agentId) => this.#memoryReview.cancel(agentId),
         stopAgentProcess: (agentId) =>
-          this.#providers
-            .stopAgentProcess(agentId)
-            .pipe(Effect.mapError((failure) => new AgentRemovalFailed({ cause: failure.cause }))),
+          Effect.gen({ self: this }, function* () {
+            yield* this.#providers
+              .stopAgentProcess(agentId)
+              .pipe(Effect.mapError((failure) => new AgentRemovalFailed({ cause: failure.cause })));
+            if (process.platform !== "win32") return;
+            const release = yield* Effect.try({
+              try: () => this.#releasesSharedOpenCode(agentId),
+              catch: (cause) => new AgentRemovalFailed({ cause }),
+            });
+            if (release) yield* this.#providers.releaseSharedProcess("opencode");
+          }),
         currentClient: (provider) => this.#providers.currentClient(provider),
         usageLimitHolds: (agentId) => !this.#usageLimits.mayDrain(agentId),
         // Both moves run under this lock and check the deletion there.
@@ -1870,11 +1881,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           lastEventAt: this.#turn.lastEventAt(agentId),
         }),
         requestNoUpdate: (agentId, threadId, turnId) => this.#turn.requestNoUpdate(agentId, threadId, turnId),
-        reportRoutineFailure: (agentId, turnId, reason) => this.#turn.reportRoutineFailure(agentId, turnId, reason),
+        reportRoutineFailure: (agentId, turnId, reason, channelRun) =>
+          this.#turn.reportRoutineFailure(agentId, turnId, reason, channelRun),
         requestNewChat: (agentId) => {
           this.#requestedNewChats.add(agentId);
         },
-        steerAgentMessage: (recipientAgentId, deliveryId) => this.#steerAgentMessage(recipientAgentId, deliveryId),
+        steerAgentMessage: (recipientAgentId, deliveryId) =>
+          this.#steerAgentMessage(recipientAgentId, deliveryId, true),
         searchWeb: (agentId, query) => this.#searchWeb(agentId, query),
         providerVersion: (provider) => this.getStatus().providers?.find((row) => row.id === provider)?.version ?? null,
       },
@@ -3563,6 +3576,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         move: "return",
       };
     const limited = !this.#usageLimits.mayDrain(agentId);
+    // A message from the user tries the held model first: the limit can have ended outside OpenBot.
+    // A refused try holds the agent again, and the drain after it moves (#7068).
+    if (limited && this.#usageLimits.mayTry(agentId) && this.#modelChoiceReady(agentModelChoice(agent))) return null;
     const failed = !limited && this.#usageLimits.isFailed(usageLimitOf(agentModelChoice(agent)));
     if (!limited && !failed) return null;
     const taskWork = () =>
@@ -3661,6 +3677,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   #pendingRuntimeDue(agentId: string): boolean {
     const agent = this.#store.list().find((candidate) => candidate.id === agentId);
     return Boolean(agent?.pendingRuntime) && !this.#runtimeHandoverBusy(agentId);
+  }
+
+  /** Starts `#followPendingRuntime` when the queued change is due. True when it started. */
+  #startPendingRuntime(agentId: string): boolean {
+    if (!this.#pendingRuntimeDue(agentId)) return false;
+    Effect.runFork(
+      this.#followPendingRuntime(agentId).pipe(
+        // A change that is gone, applied or dropped, lets the next drain make a due usage-limit move.
+        Effect.andThen((moved) =>
+          Effect.sync(() => this.#drain.scheduleDrain(agentId, moved || !this.#pendingRuntimeDue(agentId))),
+        ),
+        Effect.forkIn(this.#scope, { startImmediately: true }),
+      ),
+    );
+    return true;
   }
 
   /** Applies `pendingRuntime` once the agent is idle. True when the agent moved. */
@@ -4244,7 +4275,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         ),
       );
     yield* lifecycleStep("restore channel links", () => {
-      this.#mcp.migrateCatalogBridgesToHttp();
+      this.#mcp.migrateCatalogRows();
       this.channels.restoreDeliveryLinks();
       this.channels.removeDeletedMembers(new Set(this.#store.list().map((agent) => agent.id)));
     });
@@ -4787,6 +4818,26 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   #runsTurn(agentId: string): boolean {
     return this.#conversation.anyWorkingSnapshot(agentId) != null || !this.#compaction.mayDrain(agentId);
+  }
+
+  /**
+   * Whether the delete stops the shared OpenCode process, which can have worked in this agent's folder: the agent is set to it or
+   * has a session on it. False while another OpenCode agent's session settings are read: that read uses the process.
+   */
+  #releasesSharedOpenCode(agentId: string): boolean {
+    const agents = this.#store.list();
+    const agent = agents.find((candidate) => candidate.id === agentId);
+    if (!agent) return false;
+    if (
+      agents.some(
+        (candidate) => providerForAgent(candidate) === "opencode" && this.#drain.holdsSessionSettings(candidate.id),
+      )
+    )
+      return false;
+    if (providerForAgent(agent) === "opencode") return true;
+    return agent.threadId
+      ? this.#store.database.listProviderSessions(agent.threadId).some((session) => session.provider === "opencode")
+      : false;
   }
 
   /** Whether this provider reports a CLI that is installed, current, and signed in. */
@@ -5705,7 +5756,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             Effect.sync(() => this.#emitError("message_preview_failed", failure.cause, agent.id)),
           ),
         );
-    yield* this.#steerWhenBusy(agent, task, snapshot, delivery.delivery.id, true);
+    yield* this.#steerWhenBusy(agent, task, snapshot, delivery.delivery.id, true, false);
     // A turn that waits on a question in this chat reads no message until that question is answered,
     // so the person who wrote instead would wait for it. A stopped turn clears its own questions.
     const waitingTurnId = snapshot.activeTurnId;
@@ -5760,6 +5811,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    * Takes a message that arrives while the agent works into the running turn, when the agent's
    * busy-message mode is "steer". The message is from the user or from another agent. A provider
    * that cannot steer, or a routine run, keeps the message queued; `explain` says why on its row.
+   * With `wait`, the result says what became of the message; otherwise the steer runs in the
+   * background and the result is null.
    */
   readonly #steerWhenBusy = Effect.fn("AgentService.steerWhenBusy")(function* (
     this: AgentService,
@@ -5768,45 +5821,56 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     snapshot: ConversationSnapshot,
     deliveryId: string,
     explain: boolean,
-  ) {
-    // A turn the user stopped is ending, and a message steered into it would end with it.
-    const stoppedTurnId = this.#stoppedTurn(agent.id, task?.taskId ?? null);
-    const steerTurnId =
-      snapshot.activeTurnId &&
-      snapshot.activeTurnId !== stoppedTurnId &&
-      (agent.busyMessageMode ?? this.#busyMessageMode()) === "steer"
-        ? snapshot.activeTurnId
-        : null;
-    if (!steerTurnId) return;
+    wait: boolean,
+  ): Effect.fn.Return<AgentMessageSteer> {
+    const steerTurnId = this.#turnToSteer(agent.id, task?.taskId ?? null, snapshot);
+    if (!steerTurnId) return null;
+    // These reasons come first, so the sender is not told to select Steer when Steer would not help.
+    // Only a message sent to steer gets a reason on its row.
+    const steers = (agent.busyMessageMode ?? this.#busyMessageMode()) === "steer";
     // A custom ACP agent steers only when its saved, check-seeded flag says it answers
     // `_session/steering`; every other non-native provider keeps the message queued.
     if (!agentSteers(agent, this.#providers.savedCustomAgents())) {
-      if (explain) yield* this.#markSteerFallback(agent.id, deliveryId, "provider-unsupported");
+      if (explain && steers) yield* this.#markSteerFallback(agent.id, deliveryId, "provider-unsupported");
+      return "provider-unsupported";
     }
     // A routine run's own session ends with the run, so a chat message waits for the next turn.
-    else if (this.#routineRunsIn(agent, task?.threadId ?? null)) {
-      if (explain) yield* this.#markSteerFallback(agent.id, deliveryId, "steer-failed");
+    if (this.#routineRunsIn(agent, task?.threadId ?? null)) {
+      if (explain && steers) yield* this.#markSteerFallback(agent.id, deliveryId, "steer-failed");
+      return "routine-run";
     }
-    // Not awaited: the message is already queued, and the sender is answered without the wait for
-    // the provider.
-    else
-      yield* this.#steerSentMessage(agent, snapshot.threadId ?? agent.threadId, deliveryId, steerTurnId, explain).pipe(
-        Effect.forkIn(this.#scope),
-      );
+    if (!steers) return "recipient-queues";
+    const steer = this.#steerSentMessage(agent, snapshot.threadId ?? agent.threadId, deliveryId, steerTurnId, explain);
+    if (wait) return yield* steer;
+    // The message is already queued, and the sender is answered without the wait for the provider.
+    yield* steer.pipe(Effect.forkIn(this.#scope));
+    return null;
   });
 
   /**
-   * A message from another agent follows the recipient's busy-message mode, as a message from the
-   * user does. Only a message for the recipient's own chat can go into its running turn. The person
-   * did not send it, so a message that cannot steer waits with no reason on its row.
+   * The running turn that a new message can join. A turn the user stopped is ending, and a message
+   * steered into it would end with it.
    */
-  #steerAgentMessage(recipientAgentId: string, deliveryId: string): Effect.Effect<void> {
+  #turnToSteer(agentId: string, taskId: string | null, snapshot: ConversationSnapshot): string | null {
+    return snapshot.activeTurnId !== this.#stoppedTurn(agentId, taskId) ? snapshot.activeTurnId : null;
+  }
+
+  /**
+   * An answer, a requested result or a notice from another agent follows the recipient's
+   * busy-message mode, as a message from the user does. A request does not: it waits for a turn of
+   * its own in each mode (`MailboxStore.chatTurnSteer`). Only a message for the recipient's own chat
+   * can go into its running turn. The person did not send it, so a message that cannot steer waits
+   * with no reason on its row. With `wait`, the sender learns if the message joined the running
+   * turn, or why it waits (#6475).
+   */
+  #steerAgentMessage(recipientAgentId: string, deliveryId: string, wait: boolean): Effect.Effect<AgentMessageSteer> {
     const agent = this.#store.list().find((item) => item.id === recipientAgentId);
     // A recipient with no loaded chat runs no turn, so its page is not read for this.
     const snapshot = this.#conversation.snapshotToUpdate(recipientAgentId);
-    if (!agent || !snapshot || this.#store.isHidden(agent.id) || !this.#mailbox.steersChatTurn(deliveryId))
-      return Effect.void;
-    return this.#steerWhenBusy(agent, null, snapshot, deliveryId, false);
+    const steer = this.#mailbox.chatTurnSteer(deliveryId);
+    if (!agent || !snapshot || this.#store.isHidden(agent.id) || !steer) return Effect.succeed(null);
+    if (steer === "own-turn") return Effect.succeed(this.#turnToSteer(agent.id, null, snapshot) ? "own-turn" : null);
+    return this.#steerWhenBusy(agent, null, snapshot, deliveryId, false, wait);
   }
 
   /**
@@ -5822,8 +5886,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     deliveryId: string,
     turnId: string,
     explain: boolean,
-  ) {
-    yield* this.#queue.steer({ agentId: agent.id, deliveryId, expectedTurnId: turnId }).pipe(
+  ): Effect.fn.Return<AgentMessageSteer> {
+    return yield* this.#queue.steer({ agentId: agent.id, deliveryId, expectedTurnId: turnId }).pipe(
+      Effect.as("steered" as const),
       Effect.catch((failure) =>
         Effect.gen({ self: this }, function* () {
           logger.warn("A message sent to steer the running turn waits in the queue.", {
@@ -5832,9 +5897,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           });
           // When the turn ended in between, the message starts as the next turn or waits behind it
           // like any other, which is no fallback worth naming.
-          if (!explain || this.#conversation.ensureSnapshot(agent.id, threadId).activeTurnId !== turnId) return;
-          yield* this.#markSteerFallback(agent.id, deliveryId, "steer-failed");
-          this.#mailboxSync.emitQueue(agent.id);
+          if (this.#conversation.ensureSnapshot(agent.id, threadId).activeTurnId !== turnId) return null;
+          if (explain) {
+            yield* this.#markSteerFallback(agent.id, deliveryId, "steer-failed");
+            this.#mailboxSync.emitQueue(agent.id);
+          }
+          return "steer-failed" as const;
         }),
       ),
     );

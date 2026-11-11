@@ -20,13 +20,34 @@ export interface BrowserTab {
   canGoForward?: boolean;
 }
 
+/**
+ * One thing that a person did while they showed a task in an agent's tab: a page that loaded, or a
+ * click on a control. `path` has no query and no hash. No step has typed text.
+ */
+export interface BrowserTeachStep {
+  kind: "page" | "click";
+  host: string;
+  path: string;
+  /** The title of the page. */
+  title?: string;
+  /** The role and the name of the clicked control. */
+  role?: string;
+  name?: string;
+}
+
+/** Ends the recording of a tab. Without `save` the steps are deleted. */
+export interface BrowserTeachStopInput {
+  tabId: string;
+  save: boolean;
+}
+
 export type BrowserImageMode = "auto" | "always" | "never";
 
 export type BrowserTarget =
   | { kind: "ref"; ref: string; revision: number }
-  | { kind: "role"; role: string; name?: string | undefined; exact?: boolean | undefined }
-  | { kind: "text"; text: string; exact?: boolean | undefined }
-  | { kind: "css"; selector: string }
+  | { kind: "role"; role: string; name?: string | undefined; exact?: boolean | undefined; nth?: number | undefined }
+  | { kind: "text"; text: string; exact?: boolean | undefined; nth?: number | undefined }
+  | { kind: "css"; selector: string; nth?: number | undefined }
   | { kind: "point"; x: number; y: number };
 
 export interface BrowserViewport {

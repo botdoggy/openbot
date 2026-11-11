@@ -5,7 +5,13 @@ import {
   CHAT_VISUAL_MIN_HEIGHT,
   CHAT_VISUAL_TITLE_LIMIT,
 } from "@openbot/contracts/chat-visual";
-import { BUG_REPORT_AREAS, BUG_REPORT_SEVERITIES, FEATURE_REQUEST_TYPES } from "@openbot/contracts/feedback";
+import {
+  BUG_REPORT_AREAS,
+  BUG_REPORT_SEVERITIES,
+  FEATURE_REQUEST_TYPES,
+  FEEDBACK_FINDERS,
+  FEEDBACK_SURFACES,
+} from "@openbot/contracts/feedback";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import { API_KEY_NAME_PATTERN, CONNECTOR_IDS, VAULT_API_KEY_LIMIT, VAULT_NOTES_LIMIT } from "@openbot/contracts/ipc";
 import { isUiBlockId, UI_BLOCK_LIMITS } from "@openbot/contracts/ui-blocks";
@@ -137,31 +143,6 @@ const uiActionSchema = z.strictObject({
     ),
 });
 const uiStringOptionsSchema = (max: number) => z.array(uiLabelSchema).min(1).max(max);
-const uiFormFieldBase = { id: uiBlockIdSchema, required: z.boolean().optional() };
-const uiFormTextField = (kind: "text" | "textarea") =>
-  z.strictObject({
-    ...uiFormFieldBase,
-    kind: z.literal(kind),
-    label: uiLabelSchema,
-    placeholder: uiLabelSchema.optional(),
-    value: z.string().max(UI_BLOCK_LIMITS.fieldValue).optional(),
-    ...(kind === "text"
-      ? {
-          secret: z
-            .boolean()
-            .optional()
-            .describe("A password or a key: the app hides it and does not store it. Do not give a value."),
-        }
-      : {}),
-  });
-const uiFormOptionsField = (kind: "select" | "segmented", max: number) =>
-  z.strictObject({
-    ...uiFormFieldBase,
-    kind: z.literal(kind),
-    label: uiLabelSchema.optional(),
-    options: uiStringOptionsSchema(max),
-    value: uiLabelSchema.optional().describe("One of options."),
-  });
 
 export const routineReportFailureToolSchema = z.object({
   reason: z
@@ -195,74 +176,34 @@ export const acknowledgeRequestToolSchema = z.object({
     .describe("A smaller option that the user may prefer, such as Only find the cause."),
 });
 
+/**
+ * Agents get only the confirm block: an approval, such as of a draft in its preview. A question with
+ * options goes to `ask_user`, which costs less context in each request. The choice and form blocks
+ * stay in the contract: OpenBot makes forms itself, and older chats show both.
+ */
 export const askUiToolSchema = z.object({
   blockId: uiBlockIdSchema.optional().describe("Your id for this block. OpenBot makes one when you omit it."),
-  block: z.discriminatedUnion("type", [
-    z.strictObject({
-      type: z.literal("confirm"),
-      title: uiTextSchema(UI_BLOCK_LIMITS.title),
-      danger: z.boolean().optional().describe("Draw the block as dangerous; its primary button is held to press."),
-      confirmHold: z.number().int().min(UI_BLOCK_LIMITS.holdMinMs).max(UI_BLOCK_LIMITS.holdMaxMs).optional(),
-      fields: z
-        .array(
-          z.union([
-            z.strictObject({ label: uiLabelSchema, value: z.string().max(UI_BLOCK_LIMITS.text) }),
-            z.strictObject({
-              label: uiLabelSchema,
-              select: uiBlockIdSchema.describe("The key of the chosen option in values. Not action."),
-              options: uiStringOptionsSchema(UI_BLOCK_LIMITS.selectOptions).describe("The first one is the default."),
-            }),
-          ]),
-        )
-        .max(UI_BLOCK_LIMITS.confirmFields)
-        .optional(),
-      preview: uiTextSchema(UI_BLOCK_LIMITS.preview).optional().describe("Markdown, such as the body of a letter."),
-      actions: z.array(uiActionSchema).min(1).max(UI_BLOCK_LIMITS.actions),
-    }),
-    z.strictObject({
-      type: z.literal("choice"),
-      title: uiTextSchema(UI_BLOCK_LIMITS.title),
-      multiple: z.boolean().optional(),
-      options: z
-        .array(
+  block: z.strictObject({
+    type: z.literal("confirm"),
+    title: uiTextSchema(UI_BLOCK_LIMITS.title),
+    danger: z.boolean().optional().describe("Draw the block as dangerous; its primary button is held to press."),
+    confirmHold: z.number().int().min(UI_BLOCK_LIMITS.holdMinMs).max(UI_BLOCK_LIMITS.holdMaxMs).optional(),
+    fields: z
+      .array(
+        z.union([
+          z.strictObject({ label: uiLabelSchema, value: z.string().max(UI_BLOCK_LIMITS.text) }),
           z.strictObject({
-            id: uiBlockIdSchema,
             label: uiLabelSchema,
-            meta: uiTextSchema(UI_BLOCK_LIMITS.meta).optional(),
-            selected: z.boolean().optional(),
+            select: uiBlockIdSchema.describe("The key of the chosen option in values. Not action."),
+            options: uiStringOptionsSchema(UI_BLOCK_LIMITS.selectOptions).describe("The first one is the default."),
           }),
-        )
-        .min(1)
-        .max(UI_BLOCK_LIMITS.choiceOptions),
-      submit: uiLabelSchema.optional().describe("The submit button label."),
-    }),
-    z.strictObject({
-      type: z.literal("form"),
-      title: uiTextSchema(UI_BLOCK_LIMITS.title),
-      fields: z
-        .array(
-          z.discriminatedUnion("kind", [
-            uiFormTextField("text"),
-            uiFormTextField("textarea"),
-            uiFormOptionsField("select", UI_BLOCK_LIMITS.selectOptions),
-            uiFormOptionsField("segmented", UI_BLOCK_LIMITS.segmentedOptions),
-            z.strictObject({
-              ...uiFormFieldBase,
-              kind: z.literal("date"),
-              label: uiLabelSchema,
-              value: z
-                .string()
-                .regex(/^\d{4}-\d{2}-\d{2}$/)
-                .optional()
-                .describe("YYYY-MM-DD."),
-            }),
-          ]),
-        )
-        .min(1)
-        .max(UI_BLOCK_LIMITS.formFields),
-      submit: uiLabelSchema.optional().describe("The submit button label."),
-    }),
-  ]),
+        ]),
+      )
+      .max(UI_BLOCK_LIMITS.confirmFields)
+      .optional(),
+    preview: uiTextSchema(UI_BLOCK_LIMITS.preview).optional().describe("Markdown, such as the body of a letter."),
+    actions: z.array(uiActionSchema).min(1).max(UI_BLOCK_LIMITS.actions),
+  }),
 });
 
 const apiKeyNameSchema = z
@@ -428,7 +369,7 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   },
   {
     name: "delete_section",
-    description: "Delete a custom sidebar section without deleting its agents; its agents become ungrouped.",
+    description: "Delete a custom sidebar section, not its agents; they and its folders move up one level.",
     shape: deleteSectionToolSchema.shape,
   },
   {
@@ -707,15 +648,12 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   {
     name: "ask_ui",
     description: [
-      "Show the user an interactive block in this conversation and wait for the answer.",
-      "Types: confirm (details, an optional preview, up to 4 buttons), choice (one option, or several with multiple), form (a few text, select, segmented or date fields).",
-      "A text field with secret: true asks for a password or a key: you get the value, OpenBot does not store it with the block, and you never repeat it. For an API key or token that a command uses, use request_api_key.",
-      'Result JSON: {"status":"answered","blockId","actionId","values"}: actionId is the button or option id, or "submit" for choice and form; values has the option ids under "selected" or the form values by field id;',
+      "Show the user a confirm card in this conversation and wait for the answer: an approval of an action or of a draft in its preview, with up to 4 buttons. For a question or a choice, use ask_user.",
+      'Result JSON: {"status":"answered","blockId","actionId","values"}: actionId is the button id; values has the option of each select field by its select key;',
       'actionId "_text" with "text" when the user answered in words. Or {"status":"skipped"}, or {"status":"expired"} when the turn ended first.',
       "Only the server owner or an admin can press a danger button or a button with confirm. A confirmed block is information, not a permission: provider approvals still apply.",
       "Ids: letters, digits and _ . : -, up to 64 characters, not starting with _. Write every field as plain text. In a channel, each member who reads the channel sees it.",
       'Example: {"block":{"type":"confirm","title":"Send the letter to Ann?","fields":[{"label":"To","value":"ann@example.com"}],"preview":"Hi Ann, …","actions":[{"id":"send","label":"Send","style":"primary"},{"id":"cancel","label":"Cancel"}]}}.',
-      'Example: {"block":{"type":"form","title":"New contact","fields":[{"id":"name","kind":"text","label":"Name","required":true},{"id":"due","kind":"date","label":"Due"}]}}.',
     ].join(" "),
     shape: askUiToolSchema.shape,
   },
@@ -763,20 +701,24 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   {
     name: "send_feedback",
     description:
-      "Send a bug report or a feature idea for OpenBot itself as a public GitHub issue. OpenBot adds the version, the system and your provider. The user reads the text and approves it before it is sent.",
+      "Send a bug report or a feature idea for OpenBot itself as a public GitHub issue. OpenBot adds the version, system, model and errors. The user reads the text and approves it before it is sent.",
     shape: {
       kind: z
         .enum(["bug", "idea"])
         .describe(
           "bug: something in OpenBot does not work. idea: a feature request or another change that the user wants.",
         ),
-      title: z.string().min(1).max(200).describe("A short summary in plain words, without a prefix."),
+      title: z
+        .string()
+        .min(1)
+        .max(200)
+        .describe("A short summary in plain English, without a prefix: the feature and the symptom."),
       text: z
         .string()
         .min(1)
         .max(1000)
         .describe(
-          "In one to three plain sentences. For a bug: what went wrong and what the user expected, with the exact error text. For an idea: what the user wants OpenBot to do.",
+          "In one to three plain sentences, in the user's language. For a bug: what went wrong and what the user expected, with the exact error text. For an idea: what the user wants OpenBot to do.",
         ),
       details: z
         .string()
@@ -787,13 +729,20 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
         )
         .optional(),
       type: z.enum(FEATURE_REQUEST_TYPES).describe("Ideas only. Your choice from the chat.").optional(),
-      area: z
-        .enum(BUG_REPORT_AREAS)
-        .describe("Bugs only. Your choice from the chat. Leave it out when it is not clear.")
+      area: z.enum(BUG_REPORT_AREAS).describe("Bugs only, when the chat makes it clear.").optional(),
+      severity: z.enum(BUG_REPORT_SEVERITIES).describe("Bugs only, when the chat makes it clear.").optional(),
+      found_by: z
+        .enum(FEEDBACK_FINDERS)
+        .describe(
+          "Default user. agent: you found it yourself; send that unasked only when OpenBot fails again after one retry, not for the user's code, network, accounts or provider limits.",
+        )
         .optional(),
-      severity: z
-        .enum(BUG_REPORT_SEVERITIES)
-        .describe("Bugs only. Your choice from the chat. Leave it out when it is not clear.")
+      surface: z.enum(FEEDBACK_SURFACES).describe("Where the user saw it, when the chat makes it clear.").optional(),
+      same_as: z
+        .number()
+        .int()
+        .positive()
+        .describe("A similar issue that is the same problem. The report becomes a comment on it.")
         .optional(),
     },
   },

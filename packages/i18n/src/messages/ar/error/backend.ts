@@ -46,6 +46,9 @@ export const messages = {
   "error.backend.browserNavigateUnsupported":
     "لا يدعم هذا المضيف البعيد التنقل عبر شريط العنوان في علامة تبويب موجودة.",
   "error.backend.browserUserControlBusy": "علامة تبويب المتصفح هذه تنتظر سرًا. أجب عن طلب السر أولًا.",
+  "error.backend.browserTeachBusy": "يتحكم شخص آخر في علامة تبويب المتصفح هذه. حاول مرة أخرى عندما ينتهي.",
+  "error.backend.browserTeachUnavailable": "لا يوجد لعلامة تبويب المتصفح هذه وكيل يمكنه تعلّم مهمة.",
+  "error.backend.browserTeachUnsupported": "لا يدعم هذا المضيف البعيد تسجيل مهمة.",
   "error.backend.browserUserControlUnsupported": "لا يدعم هذا المضيف البعيد التحكم في علامة تبويب المتصفح.",
   "error.backend.browserSignInUnsupported": "لا يمكن لهذا المضيف البعيد استقبال تسجيل دخول من هذا الحاسوب.",
   "error.backend.browserSignInOpenFailed": "تعذّر على OpenBot فتح نافذة تسجيل الدخول.",
@@ -143,6 +146,10 @@ export const messages = {
   "error.backend.mailboxStateCorrupt": "حالة صندوق البريد تالفة أو من إصدار أحدث من OpenBot؛ تم رفض الكتابة فوقها.",
   "error.backend.recipientDeleting": "يتم حذف المستلم. أعد المحاولة بعد انتهاء الحذف.",
   "error.backend.recipientHidden": "هذا الوكيل مخفي. استعده لإرسال الرسائل.",
+  "error.backend.agentIdUnknown":
+    "لا يوجد وكيل بالمعرّف {id}. احصل على المعرّفات من openbot.list_agents، ثم حاول مرة أخرى.",
+  "error.backend.agentIdNear":
+    "لا يوجد وكيل بالمعرّف {id}. للوكيل {name} المعرّف {nearId}، وهو مشابه جدًا. إذا كنت تقصد هذا الوكيل، فحاول مرة أخرى بمعرّفه.",
   "error.backend.attachBetween": "أرفق من 1 إلى {limit} ملفات.",
   "error.backend.attachmentNotFile": "المرفق ليس ملفًا: {path}",
   "error.backend.generatedImageTooLarge": "تتجاوز الصورة المُنشأة حد 100 MB.",

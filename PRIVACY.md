@@ -124,6 +124,10 @@ except a side thread of the same agent that the agent names by its task id.
 A user can tag a browser tab or a side thread of the agent in a message. When OpenBot delivers the
 message, it sends the provider the tab's title and address, or the thread's title, state, and the start
 of its last answer. Card numbers and known secrets are removed first.
+When a user selects "Teach a task" and saves the recording, OpenBot sends the agent's provider a
+message with the steps in an attached text file: the host, path and title of each page, and the role and name of each control
+that the user clicked. The steps have no query, no typed text and no field value. A discarded
+recording is sent to nobody.
 Channel history keeps its existing membership and task checks. Messaging history stays within its
 current link. The full conversation stays in local SQLite storage. No history text is sent to the
 account service or analytics by these tools.
@@ -469,6 +473,13 @@ Settings → General → Fast connection to servers turns this off. Off, the app
 once, keeps nothing on disk, and ends each session when it quits. Turned on during a run, it keeps the
 sessions that are open at that time. The setting is on by default and is stored
 in `openbot-remote-session-reuse-preference-v1.json`.
+
+The desktop app and the web client keep a copy of the agent and channel pictures that they loaded
+from a joined server, so that the agent pictures show while the server is offline, for example during its
+restart for an update. The desktop app keeps the copies in the `remote-pictures` folder of its data
+folder; the web client keeps the agent pictures in the Cache storage of openbot.run in your browser.
+The copies stay on that computer or in that browser. They are deleted when you sign out, when
+another account signs in, when the server leaves your list, and when the server ends your access.
 
 Account avatar URLs are public, long-lived resources. A person who has the complete URL can request
 the avatar without an account session.
@@ -1170,12 +1181,19 @@ Network traffic can also occur when:
   tokens for those repositories. It does not store or log either token, and it gets no chats, files
   or commands. Agents reach the GitHub MCP server through a local server on `127.0.0.1`, which adds
   the right token to each call;
-- the user approves a bug report or a feature idea that an agent wrote. OpenBot shows the title and
+- the user approves a bug report or a feature idea that an agent wrote. Before the card, OpenBot
+  sends the title to the central account service (`api.openbot.run`) with the account session, and the
+  service gives the open issues of the OpenBot GitHub App with similar titles, from GitHub search. The service does not store or log the title. The
+  agent can then add the report to one of them as a comment. OpenBot shows the title and
   the agent's text first (what happened and the steps, or what the user wants and why). It then sends the text to the central account
-  service (`api.openbot.run`) with the account session: that text, the agent's choice of the form's
-  area and severity, or of the request type, when it gives them, the OpenBot version, the operating
-  system and processor architecture, and the agent's provider and CLI version. OpenBot removes known
-  secrets from the text before it shows it. The service opens it as a public issue in the
+  service with the account session: that text, the agent's choice of the form's
+  area and severity, or of the request type, when it gives them, where the user saw the problem when
+  the agent gives it, the OpenBot version, the operating system and processor architecture, whether
+  the agent runs in the desktop app, on a server or on a hosted server, and the agent's provider, CLI
+  version, model and reasoning effort. It also sends up to 5 error lines of the chat from the last
+  hour: the errors of failed tools other than shell commands, and of OpenBot tools. The card shows the
+  errors. OpenBot removes known secrets from the text and the errors before it shows them. The service opens it as a public
+  issue, or a comment on the issue that the agent chose, in the
   `nightly-labs/openbot` repository on GitHub, as the OpenBot GitHub App, so the issue does not show
   the account. The service does not store or log the text. For the limit of a few issues each minute and
   10 each day, it counts the issues of each account; D1 keeps the account ID, the UTC day and the

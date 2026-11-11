@@ -120,6 +120,7 @@ import {
   BrowserWindow,
   clipboard,
   desktopCapturer,
+  Menu,
   Notification,
   nativeImage,
   powerMonitor,
@@ -271,7 +272,7 @@ import { prepareToolRuntimeForTest } from "./ipc/mcp-server-handlers";
 import { LanguageService } from "./language-service";
 import { LinkAccountService } from "./link-account-service";
 import { LinkAccountStore } from "./link-account-store";
-import { aboveAppsWindowKind, ozonePlatformArguments } from "./linux-wayland-output";
+import { aboveAppsWindowKind, ozonePlatformArguments, setAboveAppsXWayland } from "./linux-wayland-output";
 import { localRoutineFeedDocument } from "./local-routine-calendar";
 import {
   formatLocalServerMembersRequest,
@@ -326,6 +327,7 @@ import { EncryptedRecordStore } from "./password-managers/encrypted-record-store
 import { PasswordManagersService } from "./password-managers/password-managers-service";
 import { managedProtonPassCli } from "./password-managers/proton-pass-cli-installer";
 import { ProtonPassDriver, protonPassRecordSchema } from "./password-managers/proton-pass-driver";
+import { PointerForwardingGate } from "./pointer-forwarding-gate";
 import { PromptCacheTtlPreferenceStore } from "./prompt-cache-ttl-preference-store";
 import { ProviderAccountsHost } from "./provider-accounts-host";
 import { createProviderCliAppVersionStore } from "./provider-cli-app-version-store";
@@ -392,6 +394,7 @@ import { SkillMarketplaceService } from "./skill-marketplace-service";
 import { SLACK_DEV_CALLBACK_PATH, startSlackDevCallbackServer } from "./slack-dev-callback-server";
 import { SpeechPreferenceStore } from "./speech-preference-store";
 import { StartupTiming } from "./startup-timing";
+import { AGENT_CERTIFICATES_FILE, agentCertificateEnvironment } from "./system-certificates";
 import { TeamStore } from "./team-store";
 import { TeamWebRtcBridge } from "./team-webrtc-bridge";
 import { TeamWebRtcClientTransport } from "./team-webrtc-client-transport";
@@ -547,7 +550,6 @@ const TEARDOWN_ORDER = {
   browserView: 45,
   providerDetection: 48,
   providerRuntimes: 50,
-  cuaDriver: 55,
   /** Before the remote servers: each child detaches from its entry when it stops. */
   localServers: 57,
   remoteServers: 60,
@@ -585,6 +587,9 @@ const TEARDOWN_ORDER = {
   automation: 108,
   storageUsage: 109,
   service: 110,
+  // After the agent service, which stops the provider processes and with them each `cua-driver mcp`
+  // proxy. A turn that starts while the service stops still finds the daemon (#6494).
+  cuaDriver: 110.5,
   mcpOAuth: 111,
   analytics: 112,
   // After all account consumers have stopped.
@@ -1081,6 +1086,15 @@ export async function createApplicationServices({
   let criticalActionTargets: { agents: AgentService; host: HostService; remoteServers: RemoteServerManager } | null =
     null;
   const windowKind = aboveAppsWindowKind(Boolean(hostedServer || serverModeEnvironment || localServerChild));
+  // Made here so the island menu can read it; it loads the saved language below, before the first window.
+  const language = new LanguageService({
+    path: join(app.getPath("userData"), LANGUAGE_PREFERENCE_FILE),
+    systemLocale: app.getLocale(),
+  });
+  // Windows: the dock and the island get the pointer moves only near them, not through a hook on each
+  // mouse move of the computer.
+  const pointerForwarding =
+    windowKind === "tool" ? new PointerForwardingGate(() => screen.getCursorScreenPoint()) : null;
   const dynamicIsland = new DynamicIslandWindowController({
     windowKind,
     preferencePath: join(app.getPath("userData"), DYNAMIC_ISLAND_PREFERENCE_FILE),
@@ -1096,6 +1110,24 @@ export async function createApplicationServices({
     ensureMainWindow: windows.ensureMainWindow,
     presentMainWindow: showMainWindow,
     performHaptic: () => macHapticFeedback.performAlignment(),
+    showContextMenu: (window) =>
+      Menu.buildFromTemplate([
+        {
+          label: language.translate("menu.hideDynamicIsland"),
+          // Linux: as the switch in Settings, an island that is off does not need XWayland at the next start.
+          click: () =>
+            void runCauseEffect(
+              dynamicIsland
+                .hide()
+                .pipe(
+                  Effect.andThen(
+                    setAboveAppsXWayland(app.getPath("userData"), "dynamic-island", false).pipe(Effect.ignore),
+                  ),
+                ),
+            ).catch((error: unknown) => logger.warn("The Dynamic Island did not turn off.", toLogValue(error))),
+        },
+      ]).popup({ window }),
+    pointerForwarding,
     performCriticalAction: (action) =>
       Effect.suspend(() => {
         if (!criticalActionTargets) {
@@ -1120,6 +1152,7 @@ export async function createApplicationServices({
     getMainWindow: windows.getMainWindow,
     ensureMainWindow: windows.ensureMainWindow,
     presentMainWindow: showMainWindow,
+    pointerForwarding,
     // The same send as a reply from the Dynamic Island: main sends it to the local or the remote agent.
     // A channel message is the same send command as in the channel view of the main window.
     sendMessage: (action) =>
@@ -1265,9 +1298,16 @@ export async function createApplicationServices({
     undefined,
     DATA_SKILL_SLUG,
   );
-  await Effect.runPromise(managedSkills.syncAll(store.list()));
-  await Effect.runPromise(skillCreator.syncAll(store.list()));
-  await Effect.runPromise(dataSkill.syncAll(store.list()));
+  // Together: each skill has its own folder in an agent's workspace, and a failed copy is only reported.
+  await Effect.runPromise(
+    Effect.all(
+      [managedSkills, skillCreator, dataSkill].map((skill) => skill.syncAll(store.list())),
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
+    ),
+  );
   performance.mark("openbot:services.skills");
   const hostedSites = new HostedSiteDesktopService(centralAuth, () => {
     // Read at request time: the team store is created later, and the server can register after launch.
@@ -1321,9 +1361,24 @@ export async function createApplicationServices({
   const cpuLimitModule = app.isPackaged
     ? join(process.resourcesPath, "agent-runtime", "cpu-limit.cjs")
     : resolve(__dirname, "../../resources/agent-runtime/cpu-limit.cjs");
-  const serverEnvironment = hostMemory
-    ? agentProcessEnvironment(existsSync(cpuLimitModule) ? cpuLimitModule : null)
-    : { [AGENT_PROCESS_VARIABLE]: "1" };
+  // Every provider process also gets the system roots that this process trusts, so a Python agent CLI
+  // reaches an MCP server behind a TLS-inspecting network as OpenBot's test does (#6616).
+  const certificateEnvironment = await Effect.runPromise(
+    agentCertificateEnvironment(join(app.getPath("userData"), AGENT_CERTIFICATES_FILE)).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          logger.warn("Could not give the system root certificates to agent processes:", toLogValue(error));
+          return {};
+        }),
+      ),
+    ),
+  );
+  const serverEnvironment = {
+    ...(hostMemory
+      ? agentProcessEnvironment(existsSync(cpuLimitModule) ? cpuLimitModule : null)
+      : { [AGENT_PROCESS_VARIABLE]: "1" }),
+    ...certificateEnvironment,
+  };
   if (hostMemory) {
     hostMemory.start();
     teardown.push(TEARDOWN_ORDER.serverMemory, "the server memory reading", () => Effect.runPromise(hostMemory.stop()));
@@ -1408,60 +1463,33 @@ export async function createApplicationServices({
   const analyticsPreferenceFile = join(app.getPath("userData"), ANALYTICS_PREFERENCE_FILE);
   const updatePreferenceFile = join(app.getPath("userData"), UPDATE_PREFERENCE_FILE);
   const routineHoldFile = join(app.getPath("userData"), ROUTINE_HOLD_FILE);
-  const setupState = await runCauseEffect(readSetupState(setupFile));
-  const analyticsPreference = await Effect.runPromise(
-    readAnalyticsPreference(analyticsPreferenceFile, setupState.completed),
-  );
-  // Loaded before the first window and before the application menu is built, so every native
-  // surface draws in the saved language on the first frame rather than switching after startup.
-  const language = new LanguageService({
-    path: join(app.getPath("userData"), LANGUAGE_PREFERENCE_FILE),
-    systemLocale: app.getLocale(),
-  });
-  await runCauseEffect(language.load());
   const logoColor = new LogoColorService({ path: join(app.getPath("userData"), LOGO_COLOR_PREFERENCE_FILE) });
-  await runCauseEffect(logoColor.load());
   // Before the renderer loads, so the window background takes the saved colors.
   const appearance = new AppearanceService({
     path: join(app.getPath("userData"), APPEARANCE_PREFERENCE_FILE),
     paletteDirectory: join(app.getPath("userData"), THEME_PALETTE_DIRECTORY),
     supportsTransparentWindow: process.platform === "darwin",
   });
-  await runCauseEffect(appearance.load());
-  teardown.push(
-    TEARDOWN_ORDER.themePalettes,
-    "the theme palette watch",
-    await Effect.runPromise(appearance.followPalettes()),
-  );
   // Before the renderer loads, so its first navigation applies the saved size.
   const interfaceSize = new InterfaceSizeService({
     path: join(app.getPath("userData"), INTERFACE_SIZE_PREFERENCE_FILE),
   });
-  await runCauseEffect(interfaceSize.load());
   const notificationPreference = new NotificationPreferenceStore(
     join(app.getPath("userData"), NOTIFICATION_PREFERENCE_FILE),
   );
-  await runCauseEffect(notificationPreference.load());
   const busyMessageMode = new BusyMessageModePreferenceStore(
     join(app.getPath("userData"), BUSY_MESSAGE_MODE_PREFERENCE_FILE),
   );
-  await runCauseEffect(busyMessageMode.load());
   const agentMemoryLimit = new AgentMemoryLimitPreferenceStore(
     join(app.getPath("userData"), AGENT_MEMORY_LIMIT_PREFERENCE_FILE),
   );
-  await runCauseEffect(agentMemoryLimit.load());
   const memoryReview = new MemoryReviewPreferenceStore(join(app.getPath("userData"), MEMORY_REVIEW_PREFERENCE_FILE));
   const agentNotificationLevels = new AgentNotificationLevelStore(
     join(app.getPath("userData"), AGENT_NOTIFICATION_LEVELS_FILE),
   );
-  await runCauseEffect(agentNotificationLevels.load());
   const sidebarPins = new SidebarPinStore(join(app.getPath("userData"), SIDEBAR_PINS_FILE));
-  await runCauseEffect(sidebarPins.load());
-  await runCauseEffect(memoryReview.load());
   const skillLearning = new SkillLearningPreferenceStore(join(app.getPath("userData"), SKILL_LEARNING_PREFERENCE_FILE));
-  await runCauseEffect(skillLearning.load());
   const serverAudit = new ServerAuditStore(join(app.getPath("userData"), SERVER_AUDIT_FILE));
-  await runCauseEffect(serverAudit.load());
   const agentAccess = new AgentAccessStore(join(app.getPath("userData"), AGENT_ACCESS_FILE), {
     // Called only on a save, after `service` and `teamStore` exist.
     audit: (serverId, before, after, actor) =>
@@ -1470,40 +1498,28 @@ export async function createApplicationServices({
       ),
   });
   const mcpServerOwners = new McpServerOwnersStore(join(app.getPath("userData"), MCP_SERVER_OWNERS_FILE));
-  await runCauseEffect(mcpServerOwners.load());
-  if (!(await runCauseEffect(agentAccess.load())))
-    logger.warn("The roles file did not load. Members get no access to agents until an admin saves the roles.");
   const serverTimezone = new ServerTimezonePreferenceStore(
     join(app.getPath("userData"), SERVER_TIMEZONE_PREFERENCE_FILE),
   );
-  await runCauseEffect(serverTimezone.load());
   const serverPersonality = new ServerPersonalityPreferenceStore(
     join(app.getPath("userData"), SERVER_PERSONALITY_PREFERENCE_FILE),
   );
-  await runCauseEffect(serverPersonality.load());
   const promptCacheTtl = new PromptCacheTtlPreferenceStore(
     join(app.getPath("userData"), PROMPT_CACHE_TTL_PREFERENCE_FILE),
   );
-  await runCauseEffect(promptCacheTtl.load());
   const claudeUserSetup = createClaudeUserSetupPreferenceStore(
     join(app.getPath("userData"), CLAUDE_USER_SETUP_PREFERENCE_FILE),
   );
-  await runCauseEffect(claudeUserSetup.load());
   const claudeCompactWindow = createClaudeCompactWindowPreferenceStore(
     join(app.getPath("userData"), CLAUDE_COMPACT_WINDOW_PREFERENCE_FILE),
   );
-  await runCauseEffect(claudeCompactWindow.load());
   const remoteSessionReuse = createRemoteSessionReusePreferenceStore(
     join(app.getPath("userData"), REMOTE_SESSION_REUSE_PREFERENCE_FILE),
   );
-  await runCauseEffect(remoteSessionReuse.load());
-  await runCauseEffect(externalLinkPreference.load());
   const remoteNetworkRoute = createRemoteNetworkRoutePreferenceStore(
     join(app.getPath("userData"), REMOTE_NETWORK_ROUTE_PREFERENCE_FILE),
   );
-  await runCauseEffect(remoteNetworkRoute.load());
   const remoteControlPolicy = createRemoteControlPolicyStore(join(app.getPath("userData"), REMOTE_CONTROL_POLICY_FILE));
-  await runCauseEffect(remoteControlPolicy.load());
   const appBehavior = new AppBehaviorService({
     path: join(app.getPath("userData"), APP_BEHAVIOR_PREFERENCE_FILE),
     loginItem: createLoginItem({
@@ -1515,7 +1531,49 @@ export async function createApplicationServices({
     offersKeepAwake: process.platform !== "linux" && !hostedServer && !serverModeEnvironment && !localServerChild,
     offersQuitGuard: process.platform === "darwin" && !hostedServer && !serverModeEnvironment && !localServerChild,
   });
-  await runCauseEffect(appBehavior.load());
+  // Each of these reads its own file, so they are read together: one after the other, the reads
+  // took seconds on a slow disk before the window could show.
+  const loadPreferences = Effect.all(
+    [
+      // Before the application menu is built, so every native surface draws in the saved language
+      // on the first frame rather than switching after startup.
+      language.load(),
+      logoColor.load(),
+      interfaceSize.load(),
+      notificationPreference.load(),
+      busyMessageMode.load(),
+      agentMemoryLimit.load(),
+      agentNotificationLevels.load(),
+      sidebarPins.load(),
+      memoryReview.load(),
+      skillLearning.load(),
+      serverAudit.load(),
+      mcpServerOwners.load(),
+      serverTimezone.load(),
+      serverPersonality.load(),
+      promptCacheTtl.load(),
+      claudeUserSetup.load(),
+      claudeCompactWindow.load(),
+      remoteSessionReuse.load(),
+      externalLinkPreference.load(),
+      remoteNetworkRoute.load(),
+      remoteControlPolicy.load(),
+      appBehavior.load(),
+    ],
+    { concurrency: "unbounded", discard: true },
+  );
+  const [setupState, palettesWatch, rolesLoaded] = await Promise.all([
+    runCauseEffect(readSetupState(setupFile)),
+    runCauseEffect(appearance.load()).then(() => Effect.runPromise(appearance.followPalettes())),
+    runCauseEffect(agentAccess.load()),
+    runCauseEffect(loadPreferences),
+  ]);
+  const analyticsPreference = await Effect.runPromise(
+    readAnalyticsPreference(analyticsPreferenceFile, setupState.completed),
+  );
+  teardown.push(TEARDOWN_ORDER.themePalettes, "the theme palette watch", palettesWatch);
+  if (!rolesLoaded)
+    logger.warn("The roles file did not load. Members get no access to agents until an admin saves the roles.");
   void Effect.runPromise(appBehavior.refreshLoginItem()).catch((error) =>
     logger.warn("The login item did not refresh.", toLogValue(error)),
   );
@@ -1557,16 +1615,18 @@ export async function createApplicationServices({
    * point, which this file may not reach into; both readers read the same immutable value.
    */
   const providerUse = new ProviderUseSettingsStore(join(app.getPath("userData"), "openbot-provider-use-v1.json"));
-  await runCauseEffect(providerUse.load());
   const providerAccounts = new ProviderAccountStore(
     join(app.getPath("userData"), "openbot-provider-accounts-v1.json"),
     join(app.getPath("userData"), "provider-accounts"),
   );
-  await runCauseEffect(providerAccounts.load());
   const providerCliAppVersion = createProviderCliAppVersionStore(
     join(app.getPath("userData"), PROVIDER_CLI_APP_VERSION_FILE),
   );
-  await runCauseEffect(providerCliAppVersion.load());
+  await Promise.all([
+    runCauseEffect(providerUse.load()),
+    runCauseEffect(providerAccounts.load()),
+    runCauseEffect(providerCliAppVersion.load()),
+  ]);
   // A server on this computer has its own user data, but uses the CLI store of the app that started it.
   const providerRuntimesRoot =
     localServerChild?.runtimeRoot ??
@@ -1612,8 +1672,6 @@ export async function createApplicationServices({
       }),
     ),
   );
-  // Before `new AgentService`, which reads every `executablePath` eagerly.
-  await runCauseEffect(providerRuntimes.initialize());
   const secretCipher = safeStorageCipher("error.app.secretStorageUnavailable");
   const customProviders = new CustomProviderStore({
     path: join(app.getPath("userData"), CUSTOM_PROVIDERS_FILE),
@@ -1621,14 +1679,18 @@ export async function createApplicationServices({
   });
   // Before the service, which reads the endpoints at its first provider spawn. A file this build
   // cannot read leaves the list empty and every write refused; it does not stop the app.
-  await runCauseEffect(customProviders.load());
   // The same reasons as the endpoints: before the service, and a file this build cannot read only
   // refuses the writes.
   const customAgents = new CustomAgentStore({
     path: join(app.getPath("userData"), CUSTOM_AGENTS_FILE),
     cipher: secretCipher,
   });
-  await runCauseEffect(customAgents.load());
+  await Promise.all([
+    // Before `new AgentService`, which reads every `executablePath` eagerly.
+    runCauseEffect(providerRuntimes.initialize()),
+    runCauseEffect(customProviders.load()),
+    runCauseEffect(customAgents.load()),
+  ]);
   const providerDetectionSettings = new ProviderDetectionSettingsStore(
     join(app.getPath("userData"), PROVIDER_DETECTION_SETTINGS_FILE),
   );
@@ -1905,8 +1967,9 @@ export async function createApplicationServices({
     },
     quitting,
   });
-  // After the provider runtimes, which hold the `cua-driver mcp` children that talk to this
-  // daemon: stopping it first would leave them reading a socket nothing answers.
+  // After the agent service, whose provider processes hold the `cua-driver mcp` children that talk
+  // to this daemon: stopping it first would leave them reading a socket nothing answers, and a
+  // Hermes turn that starts then fails as a whole.
   teardown.push(TEARDOWN_ORDER.cuaDriver, "the Computer Use driver", () => runCauseEffect(cuaDriver.stop()));
   /*
    * The rim OpenBot draws over the window an agent works in.
@@ -2016,6 +2079,13 @@ export async function createApplicationServices({
         : resolve(__dirname, "../../resources/plugin-catalog"),
     ),
   );
+  // A Marketplace app that `npx` starts runs on the managed Bun, not on the Node of this computer.
+  providerRuntimes.setCatalogNpxApps(
+    (config) =>
+      config.transport === "stdio" &&
+      config.command === "npx" &&
+      catalogPluginSlug(config, catalogPluginServers, homedir()) !== null,
+  );
   /** The plan storage of a hosted server, set after its sign-in. The agent instructions name it. */
   let hostedStorageGb: number | null = null;
   const service: AgentService = new AgentService({
@@ -2044,7 +2114,9 @@ export async function createApplicationServices({
         );
       },
     }),
-    feedbackFacts: feedbackFacts(),
+    feedbackFacts: feedbackFacts(
+      hostedServer ? "Hosted server" : serverModeEnvironment || localServerChild ? "Server" : "Desktop app",
+    ),
     feedback: feedbackSender(centralAuth),
     serverClaims: {
       signedIn: () => centralAuth.getState().status === "signed_in",
@@ -2078,6 +2150,7 @@ export async function createApplicationServices({
         }),
     hostMemory,
     hostedStorageGb: () => hostedStorageGb,
+    agentCursorDrawn: drawsComputerUseHighlight,
     requestTimeoutMs: 30_000,
     offProviders: providerUse.off(),
     providerAccounts,
@@ -2586,6 +2659,15 @@ export async function createApplicationServices({
     database: () => store.database.connection,
     mailbox,
     agents: () => service.listAgents(),
+    channelFiles: (channelId: string) =>
+      service.channels.store.exists(channelId)
+        ? service.channels.store.messages(channelId).flatMap((entry) =>
+            (entry.message.attachments ?? []).map((attachment) => ({
+              attachmentId: attachment.id,
+              messageId: entry.id,
+            })),
+          )
+        : null,
   };
   const storageUsage = new StorageUsageService(new StorageUsageScanner(storageSources), storageSources);
   teardown.push(TEARDOWN_ORDER.storageUsage, "storage scans", () => Effect.runPromise(storageUsage.dispose()));

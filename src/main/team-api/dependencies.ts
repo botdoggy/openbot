@@ -273,7 +273,15 @@ export type TeamApiProviderHostSignIns = Pick<ProviderHostSignIns, "start" | "st
 /** Its presence is what `#protocolSupport` advertises `provider-accounts-v1` on. The routes are admin-only. */
 export type TeamApiProviderAccounts = Pick<
   ProviderAccountsHost,
-  "list" | "usage" | "startSignIn" | "signInStatus" | "cancelSignIn" | "rename" | "remove" | "setAgentAccount"
+  | "list"
+  | "models"
+  | "usage"
+  | "startSignIn"
+  | "signInStatus"
+  | "cancelSignIn"
+  | "rename"
+  | "remove"
+  | "setAgentAccount"
 >;
 
 /** Its presence is what `#protocolSupport` advertises `provider-usage-reset-v1` on. The routes are admin-only. */
@@ -621,6 +629,9 @@ export type TeamApiBrowser = Pick<
   | "takeUserControl"
   | "releaseUserControl"
   | "releaseUserControlHeldBy"
+  // A task that a person shows, behind `browser-teach-v1`.
+  | "startTeach"
+  | "stopTeach"
   // Behind `browser-page-state`.
   | "stop"
   // Behind `browser-sign-in`.

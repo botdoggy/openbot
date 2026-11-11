@@ -11,6 +11,8 @@ export interface AcpCustomEndpoint {
   readonly name: string;
   /** Whether the endpoint has a saved API key or header. */
   readonly hasCredentials: boolean;
+  /** How long a turn on this endpoint may send nothing before it fails. The agent's own limit when absent. */
+  readonly stallMs?: number;
 }
 
 /**
@@ -55,7 +57,10 @@ export interface AcpFlavor {
    * The message of a turn that ended with no answer text, or `null` when that turn succeeds.
    * Absent: such a turn succeeds.
    */
-  emptyAnswerFailure?(turn: { reasoned: boolean; answered: boolean }, label: string): string | null;
+  emptyAnswerFailure?(
+    turn: { reasoned: boolean; answered: boolean; showedPlanOrCompaction: boolean },
+    label: string,
+  ): string | null;
   /**
    * The failure text of a prompt that the agent failed because the model gave no answer. The turn
    * then ends as a turn with no answer does, not with the agent's own error text.
@@ -177,6 +182,12 @@ export interface AcpFlavor {
    * servers did not reach then fails, as the agent cannot use OpenBot's tools.
    */
   mcpServersLoadWithSession?: true;
+  /**
+   * The MCP server names in the agent's own files for `cwd`. The agent starts its own entry in place
+   * of a session server with the same name, so that server travels as `openbot_<name>`. `argv` is
+   * the command line of the agent's process, which can name the folder of those files.
+   */
+  ownMcpServerNames?(cwd: string, argv: readonly string[]): readonly string[];
   /** Turns OpenBot's servers back on where the agent's own settings for `cwd` turned them off. */
   enableMcpServers?(cwd: string, names: readonly string[]): void;
   /** OpenBot compacts by replacing the session, for an agent that reports `usage_update` and has no compact request. */
@@ -193,6 +204,13 @@ export interface AcpFlavor {
    * then ends as a success. OpenBot fails the turn as a usage limit, so a backup model can take it.
    */
   planUsedUpChunk?: RegExp;
+  /**
+   * The agent runs an approved edit under a second tool call id. At the end of the turn it reports
+   * the approved id as failed with this text, although the edit ran. OpenBot shows the approved call
+   * as completed when an edit of the same file, or the only approved edit, completed under another
+   * id in the turn. Without such an edit, the failure stays.
+   */
+  approvedEditSweep?: RegExp;
   /** The `_meta` of each `session/new`, `session/load` and `session/resume` request. */
   sessionMeta?: NewSessionRequest["_meta"];
   /**
@@ -209,6 +227,18 @@ export interface AcpFlavor {
   loadInsteadOfResume?: { missing(response: LoadSessionResponse): boolean };
   /** The usage of this prompt alone, for an agent that sends it in the `_meta` of the prompt result, not in `usage`. */
   promptUsage?(response: PromptResponse): DynamicRecord | null;
+  /**
+   * The agent asks the user its questions with this extension method (the name without the `_` of
+   * the wire) and reads a reply of its own shape. `answers` has the answers of each question by its
+   * id; a question with no answer has none.
+   */
+  userQuestions?: {
+    method: string;
+    reply(
+      questions: readonly { id: string; question: string }[],
+      answers: Readonly<Record<string, readonly string[]>>,
+    ): DynamicRecord;
+  };
 }
 
 /** The protocol's own behavior, with no change for one agent. */
@@ -216,6 +246,17 @@ export const DEFAULT_ACP_FLAVOR: AcpFlavor = {};
 
 /** Cline CLI 3.0.68 runs a subagent with its `spawn_agent` tool: `{ systemPrompt, task }`, result `{ text }`. */
 export const CLINE_ACP_FLAVOR: AcpFlavor = { subagentTools: ["spawn_agent"] };
+
+/**
+ * A turn that ended as done with no answer text and no tool call fails, also when it sent its
+ * reasoning. A plan or a compaction shows in the chat, so such a turn still succeeds.
+ */
+function noAnswerUnlessPlanOrCompaction(
+  { showedPlanOrCompaction }: { showedPlanOrCompaction: boolean },
+  label: string,
+): string | null {
+  return showedPlanOrCompaction ? null : sourceText("error.provider.acpNoAnswer", { provider: label });
+}
 
 /**
  * Grok CLI 1.0.22 and 1.0.70 send no `usage` in the `session/prompt` result and no `usage_update`.
@@ -226,6 +267,25 @@ export const GROK_ACP_FLAVOR: AcpFlavor = {
   // Grok CLI 1.0.77 fails the prompt when the model sends only its reasoning: `Internal error:
   // "empty response from model (reasoning_only)"` (#6073).
   emptyAnswerError: /\bempty response from model\b/u,
+  // Grok CLI 1.0.77 accepts an answer of only spaces and line breaks, and ends the prompt as done.
+  // The chat then showed no answer and no error (#6529).
+  emptyAnswerFailure: noAnswerUnlessPlanOrCompaction,
+  // Grok CLI 1.0.77 reads the reply of `ask_user_question` as an enum with the tag `outcome`, and
+  // fails the tool on a reply without it. `accepted` has the answers by question text, each a text
+  // or a list of texts, and `annotations`. `cancelled` tells the model that the user did not answer.
+  userQuestions: {
+    method: "x.ai/ask_user_question",
+    reply: (questions, answers) => {
+      const given = questions.flatMap((question): [string, string | readonly string[]][] => {
+        const [first, ...more] = answers[question.id] ?? [];
+        if (first === undefined) return [];
+        return [[question.question, more.length > 0 ? [first, ...more] : first]];
+      });
+      return given.length > 0
+        ? { outcome: "accepted", answers: Object.fromEntries(given), annotations: {} }
+        : { outcome: "cancelled" };
+    },
+  },
 };
 
 /**
@@ -303,6 +363,10 @@ export const KIMI_ACP_FLAVOR: AcpFlavor = {
     error.data.details.includes("config.toml"),
   // Its `Agent` call is titled `Agent: <description>`, and its arguments come as content text.
   subagentTools: ["Agent"],
+  // Kimi CLI 1.52.0 stops reading a turn at `StepInterrupted`, so a model step that fails ends the
+  // prompt as `end_turn`, and the step's error is lost. The chat then showed no answer and no error
+  // (#6722). Kimi's thinking alone is not an answer.
+  emptyAnswerFailure: noAnswerUnlessPlanOrCompaction,
 };
 
 /**

@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   type ClientSideConnection,
@@ -29,7 +29,7 @@ import {
   KIMI_ACP_FLAVOR,
   MISTRAL_ACP_FLAVOR,
 } from "./acp-flavor";
-import { ANTIGRAVITY_ACP_FLAVOR } from "./acp-flavor-antigravity";
+import { ANTIGRAVITY_ACP_FLAVOR, antigravityGeminiHome, GEMINI_DIR_FLAG } from "./acp-flavor-antigravity";
 import { OPENCODE_ACP_FLAVOR } from "./acp-flavor-opencode";
 import type { AcpArgv, AcpExtensionMethod } from "./acp-sign-in";
 import { readMuseAccount } from "./agent/muse-login";
@@ -39,6 +39,7 @@ import {
   modelsAfterOpenCodeDiscoveryFailure,
   serviceTierFields,
 } from "./agent/provider-models";
+import type { TurnContext } from "./agent/turn-context";
 import type { AgentClient } from "./agent-client";
 import { ANTIGRAVITY_TOKEN_FILE, importAntigravityToken } from "./antigravity-token-import";
 import { readAntigravityQuota } from "./antigravity-usage";
@@ -77,6 +78,7 @@ import type { McpDropReporter, McpEndpointSource, McpServerSource, McpToolRuntim
 import { MuseAgentClient } from "./muse-client";
 import { openCodeAgentDefaultsEnv } from "./opencode-agent-defaults";
 import {
+  CUSTOM_ENDPOINT_SILENCE_MS,
   type CustomProviderSource,
   customProvidersOn,
   OPENCODE_AGENT_CONFIG,
@@ -278,11 +280,6 @@ function antigravityKeyOptions(context: ProviderClientContext, agentEnvironment:
  */
 const ANTIGRAVITY_ENV = { WSL_DISTRO_NAME: "OpenBot" };
 
-/** The Gemini home of an Antigravity process: the account's `GEMINI_HOME`, else `~/.gemini`. */
-function antigravityGeminiHome(env: Readonly<Record<string, string | undefined>>): string {
-  return env.GEMINI_HOME?.trim() || join(homedir(), ".gemini");
-}
-
 /** The CLI's app data folder, which holds the sign-in and the sessions. 1.4 kept them there too. */
 const ANTIGRAVITY_APP_DATA = "antigravity-acp";
 
@@ -298,7 +295,7 @@ function antigravityAppDataDir(env: Readonly<Record<string, string | undefined>>
  */
 const antigravityArgv = (env: Readonly<Record<string, string | undefined>>): readonly string[] => [
   "acp",
-  `--gemini-dir=${antigravityGeminiHome(env)}`,
+  `${GEMINI_DIR_FLAG}${antigravityGeminiHome(env)}`,
   `--app-data-dir=${ANTIGRAVITY_APP_DATA}`,
 ];
 
@@ -543,8 +540,9 @@ export interface ProviderClientContext {
   /**
    * Variables that every provider process gets, and so every program an agent starts: the marker that
    * the server memory guard and `src/main/background-processes.ts` find leftover processes by, and on
-   * a server the CPU limit module for Node (`agentProcessEnvironment` in `src/main/server-memory.ts`).
-   * Fixed while the app runs. They are not part of `agentEnvironment`: Codex gets that in each thread
+   * a server the CPU limit module for Node (`agentProcessEnvironment` in `src/main/server-memory.ts`),
+   * and the file of system root certificates (`agentCertificateEnvironment` in
+   * `src/main/system-certificates.ts`). Fixed while the app runs. They are not part of `agentEnvironment`: Codex gets that in each thread
    * configuration and replaces a session whose variables change, so Codex gets these in the spawn
    * environment of its app-server instead.
    */
@@ -576,6 +574,12 @@ export interface ProviderClientContext {
    * leave Claude Code's own size for each model.
    */
   readonly claudeCompactWindow?: () => number | null;
+  /**
+   * What each Codex thread was sent with its turns, shared by every Codex client of this process. A
+   * client that replaces an idle one resumes threads that hold those blocks already (#6963). Optional
+   * for the same reason as `reportMcpDrops`: without it each client keeps its own.
+   */
+  readonly codexTurnContext?: TurnContext;
 }
 
 /** The agent environment with the account's home folder after it, so the account folder wins. */
@@ -641,6 +645,11 @@ interface ProviderModelCatalog {
   readonly slowList?: true;
   /** No models while the provider says that the user must sign in and it has no client. */
   readonly hiddenWhenSignedOut?: true;
+  /**
+   * The CLI lists its models best first, so the list keeps that order and is not sorted by version.
+   * The first model is the default of a provider with no `defaultProviderModel`.
+   */
+  readonly ownOrder?: true;
   /**
    * The CLI can list only some of its models just after it starts, and the whole list a moment later.
    * A list that lacks an agent's model is read once more before the agent leaves that model.
@@ -872,11 +881,16 @@ export const BUILT_IN_PROVIDER_DRIVERS: readonly BuiltInProviderDriver[] = [
     catalog: { paged: true, modelFields: serviceTierFields },
     resolveCli: resolveCodexCli,
     createClient: (cli, requestTimeoutMs, context) =>
-      new CodexAppServerClient(cli.executable, requestTimeoutMs, {
-        ...cliPathEnvironment(cli),
-        ...context.serverEnvironment,
-        ...context.accountEnvironment,
-      }),
+      new CodexAppServerClient(
+        cli.executable,
+        requestTimeoutMs,
+        {
+          ...cliPathEnvironment(cli),
+          ...context.serverEnvironment,
+          ...context.accountEnvironment,
+        },
+        context.codexTurnContext,
+      ),
     authState: (account) => ({ kind: "chatgpt", email: account?.email ?? null }),
     // An API-key login has no plan usage to read.
     validateAccount: (account) => {
@@ -1029,7 +1043,11 @@ export const BUILT_IN_PROVIDER_DRIVERS: readonly BuiltInProviderDriver[] = [
         customEndpoint: (modelId) => {
           const endpoint = customProviderOfModel(modelId, openCodeEndpoints(context)());
           return endpoint
-            ? { name: endpoint.name, hasCredentials: Boolean(endpoint.apiKey) || endpoint.headers.length > 0 }
+            ? {
+                name: endpoint.name,
+                hasCredentials: Boolean(endpoint.apiKey) || endpoint.headers.length > 0,
+                stallMs: CUSTOM_ENDPOINT_SILENCE_MS,
+              }
             : null;
         },
         servesModel: context.servesModel,
@@ -1075,7 +1093,10 @@ export const BUILT_IN_PROVIDER_DRIVERS: readonly BuiltInProviderDriver[] = [
     },
     // `model/list` opens a probe session and then probes the efforts of each model. On a busy
     // computer the two together pass 5 s, and the picker then had no Gemini models (#3546).
-    catalog: { slowList: true },
+    // The Antigravity CLI 1.5.5 lists the plan's Gemini models first, best first: an Ultra plan gives
+    // Gemini 4 Argon, Gemini 3.8 Flash, Claude Opus 5.5, Claude Sonnet 5.5 and GPT-OSS 120B. Sorted by
+    // version, "GPT-OSS 120B" read as version 120 and came first, so a new agent ran it.
+    catalog: { slowList: true, ownOrder: true },
     resolveCli: resolveAntigravityCli,
     createClient: (cli, timeout, context, confinement) =>
       new AcpAgentClient(cli, timeout, {
@@ -1597,11 +1618,14 @@ function customAgentChild(
       ? {}
       : {
           // A variable the user saved on this agent wins over the GitHub connection's. The
-          // `GIT_CONFIG_*` entries count on from the user's own, so they always apply.
+          // `GIT_CONFIG_*` entries count on from the user's own, so they always apply. A certificate
+          // folder saved here also keeps out OpenBot's `SSL_CERT_FILE`: `httpx` reads the file first.
           extraEnv: () =>
             Object.fromEntries(
               Object.entries(context.agentEnvironment?.({ ...process.env, ...env }) ?? {}).filter(
-                ([name]) => name.startsWith("GIT_CONFIG_") || !(name in env),
+                ([name]) =>
+                  name.startsWith("GIT_CONFIG_") ||
+                  !(name in env || (name === "SSL_CERT_FILE" && "SSL_CERT_DIR" in env)),
               ),
             ),
           mcpServers: context.mcpServers,

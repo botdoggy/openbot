@@ -11,6 +11,16 @@ Claude uses its native question tool instead of `ask_user`. The direct tools are
 `forget_memory`, `react_to_user_message`, `request_api_key`, `routine_no_update`, and
 `routine_report_failure`. External plugin registration stays with each provider adapter.
 
+A Claude session of a channel thread also gets `channel_result` and `channel_reply` as direct tools,
+and names them in `CLAUDE_CODE_TERMINAL_MCP_TOOLS`. Their accepted call tells the agent to end the
+turn with no more text. Without the variable, Claude Code asked the model for a visible answer, and
+the agent wrote its result again (#6923). The CLI reads only direct tool names, not a `tool_call`.
+The two tools are always loaded (`alwaysLoad`): behind the CLI's tool search the model did not see
+them, and it used `tool_call`, as the channel instructions say for a tool that is not in its list.
+Claude gets a refused call of these tools (`accepted: false`) as a failed call, so the CLI still asks
+for an answer after it. The other providers keep the refusal as a result. Other threads do not get
+these tools, so their requests do not grow.
+
 `tool_search` uses local keyword matching. Exact names come first, then word matches, with stable
 catalog order for ties. It returns five results by default and at most ten. It accepts `queries`, or
 one `query` string, because models often send one string. Up to three strong results, an exact name or
@@ -125,7 +135,8 @@ Two deferred tools recover omitted text without model calls for search or summar
 
 - `history_search` searches the calling conversation, with five results by default and ten maximum.
   Each excerpt is at most 400 characters. Its serialized tool result is at most 8,000 characters.
-- `history_read` returns recent messages, a named message, or a page before a returned cursor.
+- `history_read` returns recent messages, a named message, or a page before a returned cursor or
+  a returned `messageId` of the same conversation.
   It returns ten messages by default and twenty maximum, within a 16,000-character serialized result.
   `nextOffset` continues a large message. With `includeWorkSteps`, `nextWorkStepsOffset` can be passed
   as `workStepsOffset` to continue a large or heavily escaped capture. Captures contain selected work
@@ -690,6 +701,14 @@ the rest, then OpenCode's own paid models, then everything behind a separate sig
 tier the newest version comes first. The sort is stable, so the CLI's order stays between models of
 one version.
 
+When a fresh catalog no longer lists an agent's model, `moveAgentsOffUnlistedModels`
+(`src/backend/agent/custom-endpoints.ts`) moves the agent on the same provider: to the listed model
+whose effort the saved id names (`effortVariant`), else to the newest listed model of the same family
+(`newestOfFamily`: the id without versions, dates and effort words, so `claude-opus-4-6` goes to
+`claude-opus-5-5`), else to the default or the first model. Between two models of one version, the one
+with the same variant wins, so `claude-opus-4-6-thinking` goes to `claude-opus-5-5-thinking`. The effort
+that the saved id names, such as `high` in `gemini-3.1-pro-high`, comes before the stored effort.
+
 Free means a display name ending in "Free", or an id in a short explicit list
 (`opencode/big-pickle`): `model/list` carries no price and neither Go endpoint authenticates.
 `isFreeOpencodeModel` in `packages/contracts/src/agent-providers.ts` is shared with the picker badge in
@@ -757,6 +776,14 @@ version with `--version`. OpenBot never searches `PATH`, because the Antigravity
 
 The 1.5 CLI offers its Claude and GPT models to every client, so the flavor sends OpenBot's own
 `clientInfo`. (1.4 offered them only to a client named `zed`.)
+
+The CLI lists the plan's models best first, and the catalog keeps that order (`ownOrder`): an Ultra
+plan on 1.5.5 lists Gemini 4 Argon, Gemini 3.8 Flash, Claude Opus 5.5, Claude Sonnet 5.5 and GPT-OSS
+120B, a free plan Gemini 3.8 Flash first. The provider has no `defaultProviderModel`, so a new agent
+runs the first one. A version sort puts Claude Opus 5.5 ahead of Gemini 4 Argon, and before
+`modelVersion` skipped parameter counts, "GPT-OSS 120B" read as version 120 and came first. Gemini 4
+Carbon is offered only with an Application Default Credentials sign-in (`AGY_ADC_AUTH`), which
+OpenBot does not use.
 
 The CLI ignores `GEMINI_HOME`. It takes its folders as flags: `--gemini-dir` as an absolute path
 and `--app-data-dir` relative to the Gemini home (`antigravityArgv`). A relative `--gemini-dir` logs
@@ -838,8 +865,8 @@ A plan can serve models that the first account's does not, so the account check 
 `model/list` (`ModelCatalog.read`) after it marks the account connected (#5217). The account row carries as
 `models` only the ones that the provider's catalogue does not list: the picker shows the catalogue on the
 account's entry, with the models an admin turned off left out, and then these. `updateAgent` accepts a model
-of the agent's account. A failed list keeps the last one. `provider-accounts-v1` does not carry it, so a joined server
-still shows the provider's catalogue for each account.
+of the agent's account. A failed list keeps the last one. `provider-accounts-v1` does not carry it;
+`provider-account-models-v1` does, so the web client, a joined desktop and mobile show these models for the account.
 The account sign-in is the same ACP `authenticate` call as the first account's; a Reconnect calls
 `logout` first. So a Reconnect refuses while an agent on the account runs a turn, and it stops the
 account's idle agent processes, which keep the old token. A saved Gemini API key belongs to the

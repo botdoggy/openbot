@@ -47,6 +47,10 @@ export const messages = {
     "Bu uzak ana makine mevcut bir sekmede adres çubuğuyla gezinmeyi desteklemiyor.",
   "error.backend.browserUserControlBusy":
     "Bu tarayıcı sekmesi bir gizli bilgi bekliyor. Önce gizli bilgi isteğini yanıtlayın.",
+  "error.backend.browserTeachBusy":
+    "Bu tarayıcı sekmesini başka bir kişi kontrol ediyor. O bitirdiğinde tekrar deneyin.",
+  "error.backend.browserTeachUnavailable": "Bu tarayıcı sekmesinde görev öğrenebilecek bir ajan yok.",
+  "error.backend.browserTeachUnsupported": "Bu uzak ana makine görev kaydını desteklemiyor.",
   "error.backend.browserUserControlUnsupported":
     "Bu uzak ana makine bir tarayıcı sekmesinin denetimini almayı desteklemiyor.",
   "error.backend.browserSignInUnsupported": "Bu uzak ana makine bu bilgisayardan oturum açma alamaz.",
@@ -151,6 +155,10 @@ export const messages = {
     "Posta kutusu durumu bozuk veya daha yeni bir OpenBot sürümünden; üzerine yazılması reddedildi.",
   "error.backend.recipientDeleting": "Alıcı siliniyor. Silme işlemi tamamlandıktan sonra tekrar deneyin.",
   "error.backend.recipientHidden": "Bu ajan gizli. Mesaj göndermek için onu geri yükleyin.",
+  "error.backend.agentIdUnknown":
+    "{id} kimliğine sahip bir ajan yok. Kimlikleri openbot.list_agents ile alın ve tekrar deneyin.",
+  "error.backend.agentIdNear":
+    "{id} kimliğine sahip bir ajan yok. {name} ajanının kimliği {nearId} ve neredeyse aynı. Bu ajanı kastediyorsanız onun kimliğiyle tekrar deneyin.",
   "error.backend.attachBetween": "1 ila {limit} dosya ekleyin.",
   "error.backend.attachmentNotFile": "Ek bir dosya değil: {path}",
   "error.backend.generatedImageTooLarge": "Oluşturulan görsel 100 MB sınırını aşıyor.",

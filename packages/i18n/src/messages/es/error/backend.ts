@@ -48,6 +48,11 @@ export const messages = {
     "Este host remoto no admite navegar con la barra de direcciones en una pestaña existente.",
   "error.backend.browserUserControlBusy":
     "Esta pestaña del navegador espera un secreto. Responde primero a la solicitud del secreto.",
+  "error.backend.browserTeachBusy":
+    "Otra persona controla esta pestaña del navegador. Inténtalo de nuevo cuando termine.",
+  "error.backend.browserTeachUnavailable":
+    "Esta pestaña del navegador no tiene un agente que pueda aprender una tarea.",
+  "error.backend.browserTeachUnsupported": "Este host remoto no admite la grabación de una tarea.",
   "error.backend.browserUserControlUnsupported":
     "Este host remoto no admite tomar el control de una pestaña del navegador.",
   "error.backend.browserSignInUnsupported": "Este host remoto no puede recibir un inicio de sesión de este equipo.",
@@ -158,6 +163,10 @@ export const messages = {
   "error.backend.recipientDeleting":
     "El destinatario se está eliminando. Inténtalo de nuevo cuando termine la eliminación.",
   "error.backend.recipientHidden": "Este agente está oculto. Restáuralo para enviarle mensajes.",
+  "error.backend.agentIdUnknown":
+    "Ningún agente tiene el ID {id}. Obtén los ID con openbot.list_agents y vuelve a intentarlo.",
+  "error.backend.agentIdNear":
+    "Ningún agente tiene el ID {id}. El agente {name} tiene el ID {nearId}, casi igual. Si te refieres a ese agente, vuelve a intentarlo con su ID.",
   "error.backend.attachBetween": "Adjunta entre 1 y {limit} archivos.",
   "error.backend.attachmentNotFile": "El adjunto no es un archivo: {path}",
   "error.backend.generatedImageTooLarge": "La imagen generada supera el límite de 100 MB.",

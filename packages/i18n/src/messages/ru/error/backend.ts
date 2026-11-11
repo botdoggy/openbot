@@ -47,6 +47,10 @@ export const messages = {
   "error.backend.browserNavigateUnsupported":
     "Этот удалённый хост не поддерживает переход через адресную строку в существующей вкладке.",
   "error.backend.browserUserControlBusy": "Эта вкладка браузера ждёт секрет. Сначала ответьте на запрос секрета.",
+  "error.backend.browserTeachBusy":
+    "Этой вкладкой браузера управляет другой человек. Повторите попытку, когда он закончит.",
+  "error.backend.browserTeachUnavailable": "У этой вкладки браузера нет агента, который может изучить задачу.",
+  "error.backend.browserTeachUnsupported": "Этот удалённый хост не поддерживает запись задачи.",
   "error.backend.browserUserControlUnsupported": "Этот удалённый хост не поддерживает управление вкладкой браузера.",
   "error.backend.browserSignInUnsupported": "Этот удалённый хост не может принять вход с этого компьютера.",
   "error.backend.browserSignInOpenFailed": "OpenBot не удалось открыть окно входа.",
@@ -153,6 +157,9 @@ export const messages = {
     "Состояние почтового ящика повреждено или создано более новой версией OpenBot; перезапись отклонена.",
   "error.backend.recipientDeleting": "Получатель удаляется. Повторите попытку, когда удаление завершится.",
   "error.backend.recipientHidden": "Этот агент скрыт. Восстановите его, чтобы отправлять сообщения.",
+  "error.backend.agentIdUnknown": "Нет агента с ID {id}. Получите ID через openbot.list_agents и повторите попытку.",
+  "error.backend.agentIdNear":
+    "Нет агента с ID {id}. У агента {name} почти такой же ID: {nearId}. Если вы имели в виду этого агента, повторите попытку с его ID.",
   "error.backend.attachBetween": "Прикрепите от 1 до {limit} файлов.",
   "error.backend.attachmentNotFile": "Вложение не является файлом: {path}",
   "error.backend.generatedImageTooLarge": "Созданное изображение превышает лимит 100 МБ.",

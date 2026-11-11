@@ -43,6 +43,7 @@ import {
   type McpToolRuntimes,
   mcpFingerprintValues,
   NO_MCP_TOOL_RUNTIMES,
+  openCodeMcpServers,
   toMcpShapeFailed,
   usableMcpServers,
 } from "../mcp-provider-shapes";
@@ -206,6 +207,8 @@ export interface ThreadLifecycleOptions {
   serverHost?: boolean;
   /** The plan storage in GB of a hosted server, read at each start and resume of a session. */
   hostedStorageGb?: () => number | null;
+  /** OpenBot draws the Computer Use agent cursor. False on a host whose agents have a display of their own. */
+  agentCursorDrawn?: boolean;
   /** How the agents talk while they work, read at each start and resume of a session. */
   responseStyle?: () => ResponseStyle;
   /** The background memory review runs, read at each start and resume of a session. Omitted, it does not. */
@@ -253,6 +256,7 @@ export class ThreadLifecycle {
   readonly #vaultItems: () => VaultContents;
   readonly #serverHost: boolean;
   readonly #hostedStorageGb: () => number | null;
+  readonly #agentCursorDrawn: boolean;
   readonly #responseStyle: () => ResponseStyle;
   readonly #memoryReview: () => boolean;
   readonly #skillRevision: () => boolean;
@@ -307,6 +311,7 @@ export class ThreadLifecycle {
     this.#vaultItems = options.vaultItems ?? (() => ({ available: false, cards: false, contacts: false }));
     this.#serverHost = options.serverHost ?? false;
     this.#hostedStorageGb = options.hostedStorageGb ?? (() => null);
+    this.#agentCursorDrawn = options.agentCursorDrawn ?? false;
     this.#responseStyle = options.responseStyle ?? (() => DEFAULT_RESPONSE_STYLE);
     this.#memoryReview = options.memoryReview ?? (() => false);
     this.#skillRevision = options.skillRevision ?? (() => false);
@@ -781,10 +786,14 @@ export class ThreadLifecycle {
       cwd: agent.workspacePath,
       runtimeWorkspaceRoots: workspaceWritableRoots(agent, this.#store.sharedRoot),
       approvalPolicy: "on-request",
+      // A Codex `approvals_reviewer` in the user's config would send approvals to its own reviewer, which
+      // ignores OpenBot cards. A resumed thread keeps its last reviewer, so each request names the user.
+      approvalsReviewer: "user",
       sandbox: codexSandboxMode(agent),
       ...this.#workspaceOnlyParam(agent, client),
       ...this.#computerUseParam(agent, client),
       ...this.#mcpAgentParam(agent, client),
+      ...this.#channelToolsParam(client, publicThreadId),
       ...this.#instructions(
         agent,
         client,
@@ -1136,6 +1145,10 @@ export class ThreadLifecycle {
   ): string {
     const folders = existingAgentFolders(agent);
     const excluded = workspaceExcludedFolders(agent);
+    const catalogCommands = configs.flatMap((config) => {
+      const command = toolRuntimes.catalogCommand?.(config) ?? null;
+      return command === null ? [] : [[config.name, command]];
+    });
     return createHash("sha256")
       .update(
         JSON.stringify([
@@ -1167,6 +1180,9 @@ export class ThreadLifecycle {
           // to the file adds a new value. Only another file name, or a file with text, adds a value.
           ...(instructionsFile.fileName === "AGENTS.md" ? [] : [["instructions-file", instructionsFile.fileName]]),
           ...(instructionsFile.found?.text ? [["instructions", instructionsFile.found.text]] : []),
+          // A Marketplace app that starts on the managed Bun: a session from before that start has the
+          // `npx` command, and Codex keeps it on resume. Only an agent with such an app adds a value.
+          ...(catalogCommands.length > 0 ? [["catalog-commands", ...catalogCommands]] : []),
         ]),
       )
       .digest("hex");
@@ -1293,6 +1309,16 @@ export class ThreadLifecycle {
     return client.provider === "codex" ? {} : { openbotAgentId: agent.id };
   }
 
+  /**
+   * A channel thread on Claude gets the channel tools that end a turn as direct tools, so Claude Code
+   * can let that turn end with no text (`claude-client.ts`). The other threads do not pay for them.
+   */
+  #channelToolsParam(client: AgentClient, publicThreadId: string): { channelTools?: true } {
+    return client.provider === "claude" && this.#conversation.channelForThread(publicThreadId) !== null
+      ? { channelTools: true }
+      : {};
+  }
+
   private readonly hasCurrentToolsEffect = Effect.fn("ThreadLifecycle.hasCurrentTools")(function* (
     this: ThreadLifecycle,
     agent: AgentSummary,
@@ -1376,11 +1402,16 @@ export class ThreadLifecycle {
     const memories = this.#memories.essentialFor(agent.id);
     const options = {
       computerUseInOwnChat,
+      // The driver entry is in this set only while the driver is ready. A change to the entry replaces
+      // the session, so this text always agrees with the tools that the session has.
+      computerUseNotReady:
+        agentComputerUseEnabled(agent) && !mcpServers.some((config) => config.id === COMPUTER_USE_MCP_SERVER_ID),
       sideThread,
       passwordVault: this.#passwordVaultConnected(),
       vaultItems: this.#vaultItems(),
       serverHost: this.#serverHost,
       hostedStorageGb: this.#hostedStorageGb(),
+      agentCursorDrawn: this.#agentCursorDrawn,
       responseStyle: this.#responseStyle(),
       memoryReview: this.#memoryReview(),
       skillRevision: this.#skillRevision(),
@@ -1395,7 +1426,11 @@ export class ThreadLifecycle {
       workspaceSkills,
       httpMcpServers: mcpServers.some((config) => config.transport === "http"),
       deferredMcpServers:
-        client.provider === "codex" ? codexDeferredMcpServers(mcpServers).map((config) => config.name) : [],
+        client.provider === "codex"
+          ? codexDeferredMcpServers(mcpServers).map((config) => config.name)
+          : client.provider === "opencode"
+            ? openCodeMcpServers(mcpServers).map((config) => config.name)
+            : [],
       instructionsFileName: instructionsFile.fileName,
       instructionsFile: instructionsFile.file,
     };
@@ -1490,10 +1525,12 @@ export class ThreadLifecycle {
       cwd: agent.workspacePath,
       runtimeWorkspaceRoots: workspaceWritableRoots(agent, this.#store.sharedRoot),
       approvalPolicy: "on-request",
+      approvalsReviewer: "user",
       sandbox: codexSandboxMode(agent),
       ...this.#workspaceOnlyParam(agent, client),
       ...this.#computerUseParam(agent, client),
       ...this.#mcpAgentParam(agent, client),
+      ...this.#channelToolsParam(client, publicThreadId),
       ...this.#instructions(
         agent,
         client,

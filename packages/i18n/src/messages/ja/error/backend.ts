@@ -47,6 +47,10 @@ export const messages = {
     "このリモートホストは、既存のタブでのアドレスバーによる移動に対応していません。",
   "error.backend.browserUserControlBusy":
     "このブラウザーのタブはシークレットを待っています。先にシークレットの要求に応答してください。",
+  "error.backend.browserTeachBusy":
+    "別のユーザーがこのブラウザーのタブを操作しています。操作が終わってからもう一度お試しください。",
+  "error.backend.browserTeachUnavailable": "このブラウザーのタブには、タスクを学習できるエージェントがありません。",
+  "error.backend.browserTeachUnsupported": "このリモートホストは、タスクの記録に対応していません。",
   "error.backend.browserUserControlUnsupported":
     "このリモートホストは、ブラウザーのタブの操作の引き継ぎに対応していません。",
   "error.backend.browserSignInUnsupported": "このリモートホストはこのコンピューターからのサインインを受け取れません。",
@@ -160,6 +164,10 @@ export const messages = {
     "メールボックスの状態が破損しているか、新しいバージョンの OpenBot のものです。上書きしません。",
   "error.backend.recipientDeleting": "受信者を削除中です。削除が終わってから再試行してください。",
   "error.backend.recipientHidden": "このエージェントは非表示です。メッセージを送るには元に戻してください。",
+  "error.backend.agentIdUnknown":
+    "ID {id} のエージェントはありません。openbot.list_agents で ID を取得してから、もう一度お試しください。",
+  "error.backend.agentIdNear":
+    "ID {id} のエージェントはありません。エージェント {name} の ID {nearId} がほぼ同じです。このエージェントのことなら、その ID でもう一度お試しください。",
   "error.backend.attachBetween": "1 〜 {limit} 個のファイルを添付してください。",
   "error.backend.attachmentNotFile": "添付ファイルがファイルではありません: {path}",
   "error.backend.generatedImageTooLarge": "生成された画像が 100 MB の上限を超えています。",

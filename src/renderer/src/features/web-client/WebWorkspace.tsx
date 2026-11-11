@@ -35,6 +35,7 @@ import { AGENT_HOST_SETTINGS_ROUTES } from "@openbot/contracts/team-protocol/age
 import { AGENT_IMPORT_CAPABILITY } from "@openbot/contracts/team-protocol/agent-import-v1";
 import { AGENT_IMPORT_V2_CAPABILITY } from "@openbot/contracts/team-protocol/agent-import-v2";
 import { AGENT_NEW_CHAT_ROUTES } from "@openbot/contracts/team-protocol/agent-new-chat-v1";
+import { AGENT_NOTIFICATION_LEVELS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-notification-levels-v1";
 import { AGENT_PLAN_CARD_ROUTES } from "@openbot/contracts/team-protocol/agent-plan-card-v1";
 import { AGENT_TASK_LIMIT_ROUTES } from "@openbot/contracts/team-protocol/agent-task-limit-v1";
 import { AGENT_TASKS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-tasks-v1";
@@ -43,6 +44,7 @@ import { AGENT_USAGE_LIMIT_CAPABILITY } from "@openbot/contracts/team-protocol/a
 import { AGENT_WAITS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-waits-v1";
 import { BROWSER_PROFILES_CAPABILITY } from "@openbot/contracts/team-protocol/browser-profiles-v1";
 import { BROWSER_PROXIES_CAPABILITY } from "@openbot/contracts/team-protocol/browser-proxies-v1";
+import { CHANNEL_BROWSER_CAPABILITY } from "@openbot/contracts/team-protocol/channel-browser-v1";
 import { CHANNEL_ISOLATION_CAPABILITY } from "@openbot/contracts/team-protocol/channel-isolation-v1";
 import { CHANNEL_PICTURE_CAPABILITY } from "@openbot/contracts/team-protocol/channel-picture-v1";
 import { CHAT_HISTORY_CAPABILITY } from "@openbot/contracts/team-protocol/chat-history-v1";
@@ -76,6 +78,7 @@ import { ROUTINES_ONCE_CAPABILITY } from "@openbot/contracts/team-protocol/routi
 import { SIDE_QUESTION_CAPABILITY } from "@openbot/contracts/team-protocol/side-question-v1";
 import { SIGN_IN_RELAY_CAPABILITY } from "@openbot/contracts/team-protocol/sign-in-relay-v1";
 import { SKILL_LEARNING_CAPABILITY } from "@openbot/contracts/team-protocol/skill-learning-v1";
+import { STORAGE_CHANNEL_CAPABILITY } from "@openbot/contracts/team-protocol/storage-channel-v1";
 import { VAULT_IMPORT_CAPABILITY } from "@openbot/contracts/team-protocol/vault-import-v1";
 import { VAULT_CAPABILITY } from "@openbot/contracts/team-protocol/vault-v1";
 import { VAULT_V2_CAPABILITY } from "@openbot/contracts/team-protocol/vault-v2";
@@ -148,6 +151,7 @@ import {
   ServerPanelLoadNotice,
   serverWorkspacePhase,
 } from "@openbot/ui/features/servers/ServerConnectionNotice";
+import { ServerMenu } from "@openbot/ui/features/servers/ServerMenu";
 import { ServerRail } from "@openbot/ui/features/servers/ServerRail";
 import type { SettingsPagePlacement } from "@openbot/ui/features/settings/SettingsDialogShell";
 import { createSettingsHostedServersStore } from "@openbot/ui/features/settings/stores/hosted-servers-store";
@@ -193,6 +197,7 @@ import {
   RoutineFlowsCanvas,
   ScheduleView,
   ServerOnboarding,
+  ServerSettingsModal,
   TasksView,
   WorkflowsCanvas,
 } from "../../lazy-views";
@@ -690,6 +695,9 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     return () => phoneQuery?.removeEventListener("change", update);
   });
   const compact = () => !phone() && layout.leftPanelCompact();
+  const closeSidebar = () => layout.setSidebarClosed(true);
+  /** A phone shows the agent list as a page, not as a column, so it has no button that closes the list. */
+  const collapseSidebar = () => (phone() ? undefined : closeSidebar);
   /** The Marketplace page. As on desktop, opening another page closes it. */
   const [marketplaceOpen, setMarketplaceOpen] = createSignal(false);
   /** The Usage, Schedule or Tasks page of the connected host. As on desktop, it follows a host switch. */
@@ -749,7 +757,14 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     }
     if (workspace.state.host?.hostId === hostId) await channels.open(channelId);
   }
-  const { setMuted, setNotificationLevel, notifyChannelReplies, refreshLevels } = createWebNotificationRouting({
+  const {
+    setMuted,
+    setNotificationLevel,
+    notifyChannelReplies,
+    refreshLevels,
+    applyLevels: applyAgentLevels,
+    mutedAgentIds,
+  } = createWebNotificationRouting({
     workspace,
     notifications,
     t,
@@ -783,6 +798,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     notifications,
     setLocalLevel: setNotificationLevel,
     setMuted,
+    onLevelsWritten: applyAgentLevels,
     openHostId: () => server()?.id ?? null,
   });
   /** The host whose notification row the account settings show. Each nonce moves there once. */
@@ -1146,23 +1162,10 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
   /** Whether a page other than the agents covers the conversation. A message there is not seen. */
   const pageCovered = () => page() !== "agents";
   /**
-   * As on desktop: the Tasks page shows in the middle pane, and wins over the other panes. The agent list
-   * is hidden each time the page opens, until the user shows it. A row of the list closes the page, as
-   * each row calls `showAgents`.
+   * As on desktop: the Tasks page shows in the middle pane, and wins over the other panes. A row of
+   * the agent list closes the page, as each row calls `showAgents`.
    */
   const tasksOpen = () => page() === "tasks";
-  const [tasksAgentsOpen, setTasksAgentsOpen] = createSignal(false);
-  createEffect(page, (next) => {
-    if (next !== "tasks") setTasksAgentsOpen(false);
-  });
-  /** The list stays while a connection screen covers the page: the screen does not span the sidebar. */
-  const tasksAgentsHidden = () =>
-    tasksOpen() &&
-    !tasksAgentsOpen() &&
-    workspace.state.status === "online" &&
-    !workspace.state.panelsFailed &&
-    !hostOffline() &&
-    !blockedServer();
   /** Shows the agents and closes the other pages. */
   function showAgents() {
     setAccountSettingsOpen(false);
@@ -1187,6 +1190,16 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     setAccountSettingsLoaded(true);
     setAccountSettingsOpen(true);
   }
+  // The code of both settings pages loads after the server shows, so their first open does not show
+  // an empty page for a moment.
+  createEffect(
+    () => workspace.state.status === "online",
+    (online) => {
+      if (!online) return;
+      void WebAccountSettings.preload();
+      void ServerSettingsModal.preload();
+    },
+  );
   /** The elements of the settings page that the settings panel shows in. The page sets them. */
   const [settingsMounts, setSettingsMounts] = createSignal<SettingsPagePlacement | undefined>();
   /** The search of the server settings page, which filters its section list. It clears when the page closes. */
@@ -1410,6 +1423,8 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
       getMachineMetrics: machineCalls.storage.getMachineMetrics,
       // The host names previews with the desktop `openbot-attachment:` scheme, as it does in chat.
       getUsage: async (input, serverId) => {
+        if (input.scope === "channel" && !workspace.state.capabilities.includes(STORAGE_CHANNEL_CAPABILITY))
+          return null;
         const usage = await runTeamEffect(
           getStorageUsage(hostRequest(serverId), input).pipe(Effect.mapError((error) => error.cause)),
         );
@@ -1746,6 +1761,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     deletionSupported: () => canAdministerServer(workspace.state.host?.role),
     taskCancelSupported: () => workspace.state.capabilities.includes(CHANNEL_TASK_CANCEL_CAPABILITY),
     isolationSupported: () => workspace.state.capabilities.includes(CHANNEL_ISOLATION_CAPABILITY),
+    browserSupported: () => workspace.state.capabilities.includes(CHANNEL_BROWSER_CAPABILITY),
     messageDeletionSupported: () => workspace.state.capabilities.includes(MESSAGE_DELETE_CAPABILITY),
     deletesAnyMessage: () => canAdministerServer(workspace.state.host?.role),
     pictureSupported: () => workspace.state.capabilities.includes(CHANNEL_PICTURE_CAPABILITY),
@@ -1782,7 +1798,10 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     workspace.onHostEvent((event) => {
       if (event.type !== "agent-notification-levels-changed") return;
       const hostId = server()?.id;
-      if (hostId) notificationSettings.applyLevels(hostId, { server: event.server, agents: event.agents });
+      if (!hostId) return;
+      const levels = { server: event.server, agents: event.agents };
+      notificationSettings.applyLevels(hostId, levels);
+      applyAgentLevels(hostId, levels);
     }),
   );
   // As on desktop: an agent's error is the banner above its composer, and the newest one replaces
@@ -2503,6 +2522,27 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
       },
     );
   }
+  // A host that keeps no levels has no mute item: the item must not fail.
+  const muteSupported = () =>
+    workspace.state.status === "online" && workspace.state.capabilities.includes(AGENT_NOTIFICATION_LEVELS_CAPABILITY);
+  /** Mutes an agent for the user on all of their devices, or gives it the server level again. */
+  function setAgentMuted(agentId: string, muted: boolean): void {
+    const hostId = workspace.state.host?.hostId;
+    const write = workspace.runtime.setHostAgentNotificationLevel;
+    if (!hostId || !write) return;
+    void write(hostId, { agentId, level: muted ? "nothing" : null }).then(
+      (levels) => {
+        notificationSettings.applyLevels(hostId, levels);
+        applyAgentLevels(hostId, levels);
+      },
+      (error: unknown) => {
+        actionToast.error(t("agent.error.muteFailed"), {
+          description: text.errorMessage(error, t("agent.error.hiddenFailed")),
+          report: { operation: "agent", source: "action", cause_code: classifyFailure(error) },
+        });
+      },
+    );
+  }
   // The host refuses a member: a hidden agent stops for every member, as a deleted one does.
   const hideSupported = () =>
     workspace.state.status === "online" &&
@@ -2561,6 +2601,11 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     frameFirstLoad() &&
     agentChatOpen() &&
     (connectionPhase() === "loading" || connectionPhase() === "connecting");
+  // The saved frame and its history loader take the place of the full-window screen. The screen does
+  // not come back when the host answers: a new screen would rain the crew in again over the workspace.
+  createEffect(frameConnecting, (frame) => {
+    if (frame) setLoadingCover(false);
+  });
   const conversationLoading = () =>
     workspace.state.status === "online" &&
     !workspace.conversation()?.page &&
@@ -2641,6 +2686,19 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
               }}
               onMarketplace={workspace.state.status === "online" ? openMarketplace : undefined}
               onSettings={openAccountSettings}
+              server={
+                <ServerMenu
+                  rail
+                  serverName={workspace.state.host?.name ?? "OpenBot"}
+                  servers={servers()}
+                  view={layout.serverView()}
+                  onViewChange={layout.setServerView}
+                  onSelect={selectServer}
+                  onAdd={() => hostedServers.openAddServer("server_rail")}
+                  addCreatesServer={hostedServers.available()}
+                  {...serverActionCallbacks}
+                />
+              }
               help={
                 <RailHelpMenu
                   version={null}
@@ -2672,6 +2730,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                     <ConversationLoadNotice
                       name={workspace.selected()?.name ?? ""}
                       loading={frameConnecting() || conversationLoading()}
+                      immediate={frameConnecting()}
                       error={conversationError()}
                       onRetry={() => {
                         const id = workspace.state.selectedId;
@@ -2688,7 +2747,6 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                 })
               }
               windowPage={page()}
-              sidebarHidden={tasksAgentsHidden()}
               page={
                 <Show
                   when={page() === "usage" || page() === "schedule" || page() === "workflows" ? server() : undefined}
@@ -2957,10 +3015,13 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                     marketplaceSupported={workspace.state.status === "online"}
                     onDeleteAgent={workspace.deleteAgent}
                     userHiddenAgents={workspace.state.userHiddenAgents}
+                    mutedAgentIds={muteSupported() ? mutedAgentIds(workspace.state.host?.hostId) : undefined}
+                    onSetAgentMuted={muteSupported() ? setAgentMuted : undefined}
                     onHideAgent={hideSupported() ? (agentId) => setAgentHidden(agentId, true) : undefined}
                     onRestoreAgent={hideSupported() ? (agentId) => setAgentHidden(agentId, false) : undefined}
                     compact={compact()}
                     onExpand={layout.expandSidebar}
+                    onCollapse={collapseSidebar()}
                     onOpenSearch={() => setSearchOpen(true)}
                     onOpenMarketplace={openMarketplace}
                     footer={
@@ -3280,8 +3341,6 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                       serverId={target().id}
                       hostName={target().name}
                       onBack={closeHostPage}
-                      agentsOpen={!tasksAgentsHidden()}
-                      onToggleAgents={() => setTasksAgentsOpen(tasksAgentsHidden())}
                       source={tasksSource}
                       mediaSource={runtime.attachmentMedia}
                       files={{

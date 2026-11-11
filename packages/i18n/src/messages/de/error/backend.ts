@@ -47,6 +47,10 @@ export const messages = {
     "Dieser entfernte Host unterstützt die Navigation über die Adressleiste in einem vorhandenen Tab nicht.",
   "error.backend.browserUserControlBusy":
     "Dieser Browser-Tab wartet auf ein Geheimnis. Beantworte zuerst die Anfrage nach dem Geheimnis.",
+  "error.backend.browserTeachBusy":
+    "Eine andere Person steuert diesen Browser-Tab. Versuche es erneut, wenn sie fertig ist.",
+  "error.backend.browserTeachUnavailable": "Dieser Browser-Tab hat keinen Agenten, der eine Aufgabe lernen kann.",
+  "error.backend.browserTeachUnsupported": "Dieser Remote-Host unterstützt die Aufzeichnung einer Aufgabe nicht.",
   "error.backend.browserUserControlUnsupported":
     "Dieser entfernte Host unterstützt die Übernahme eines Browser-Tabs nicht.",
   "error.backend.browserSignInUnsupported":
@@ -165,6 +169,10 @@ export const messages = {
   "error.backend.recipientDeleting":
     "Der Empfänger wird gelöscht. Versuche es nach Abschluss des Löschvorgangs erneut.",
   "error.backend.recipientHidden": "Dieser Agent ist ausgeblendet. Stelle ihn wieder her, um Nachrichten zu senden.",
+  "error.backend.agentIdUnknown":
+    "Kein Agent hat die ID {id}. Hole die IDs mit openbot.list_agents und versuche es erneut.",
+  "error.backend.agentIdNear":
+    "Kein Agent hat die ID {id}. Der Agent {name} hat die fast gleiche ID {nearId}. Wenn du diesen Agenten meinst, versuche es mit seiner ID erneut.",
   "error.backend.attachBetween": "Hänge zwischen 1 und {limit} Dateien an.",
   "error.backend.attachmentNotFile": "Der Anhang ist keine Datei: {path}",
   "error.backend.generatedImageTooLarge": "Das erstellte Bild überschreitet die Grenze von 100 MB.",

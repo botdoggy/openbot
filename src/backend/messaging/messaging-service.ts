@@ -313,6 +313,7 @@ export class MessagingService {
     this.#threads.setHistorySource((link, scope, limit) => this.#recentMessages(link, scope, limit));
     this.#threads.setOutbound({
       places: (connectionId) => this.#outboundPlaces(connectionId),
+      history: (connectionId, placeId, limit) => this.#outboundHistory(connectionId, placeId, limit),
       post: (connectionId, target, markdown, files, embeds) =>
         this.#outboundPost(connectionId, target, markdown, files, embeds),
       discord: (connectionId, send) => this.#outboundDiscord(connectionId, send),
@@ -1710,6 +1711,35 @@ export class MessagingService {
     );
   });
 
+  /**
+   * The newest messages of a place that an agent names, for a `messaging_history` call from any turn.
+   * Only a place that `places` lists is read: a connection's adapter can reach more than its own places.
+   */
+  readonly #outboundHistory = Effect.fn("MessagingService.outboundHistory")(function* (
+    this: MessagingService,
+    connectionId: string,
+    placeId: string,
+    limit: number,
+  ) {
+    const live = this.#live.get(connectionId);
+    if (!live?.identity) return { error: MESSAGING_NOT_RUNNING };
+    const platform = live.record.platform;
+    return yield* Effect.gen(function* () {
+      const place = (yield* live.adapter.places()).find((candidate) => candidate.id === placeId);
+      if (!place)
+        return {
+          error:
+            "This connection has no place with that id. Call openbot.messaging_list_places with the connection for the ids.",
+        };
+      const messages = yield* live.adapter.recent(placeId, null, limit);
+      return { history: { platform, place: place.name, messages } };
+    }).pipe(
+      Effect.catch((failure) =>
+        Effect.succeed({ error: `${refusal(failure)} When the platform limits reads, try again in a minute.` }),
+      ),
+    );
+  });
+
   /** A post that an agent sends on its own initiative, for the agent's `messaging_post` tool. */
   readonly #outboundPost = Effect.fn("MessagingService.outboundPost")(function* (
     this: MessagingService,
@@ -1755,15 +1785,23 @@ export class MessagingService {
         }),
       ),
     );
-    if (!("posted" in posted) || !files.length) return posted;
+    if (!("posted" in posted)) return posted;
     // The text is in the place already, so a failed upload names the files and does not fail the post.
-    const skippedFiles = yield* live.adapter.upload(target, files).pipe(
-      Effect.catch((failure) =>
-        Effect.sync(() => {
-          this.#warn(failure.cause);
-          return files.map((file) => file.name);
-        }),
-      ),
+    const skippedFiles = files.length
+      ? yield* live.adapter.upload(target, files).pipe(
+          Effect.catch((failure) =>
+            Effect.sync(() => {
+              this.#warn(failure.cause);
+              return files.map((file) => file.name);
+            }),
+          ),
+        )
+      : [];
+    const sentFiles = files.map((file) => file.name).filter((name) => !skippedFiles.includes(name));
+    live.adapter.rememberPost?.(
+      target,
+      posted.messageId,
+      sentFiles.length ? `${text}\nFiles: ${sentFiles.join(", ")}` : text,
     );
     return skippedFiles.length ? { ...posted, skippedFiles } : posted;
   });

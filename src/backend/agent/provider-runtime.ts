@@ -39,7 +39,12 @@ import { classifyUserError } from "@openbot/user-errors";
 import { Deferred, Effect, Exit, Fiber, Result, Schema, Scope, Semaphore } from "effect";
 import { isOpenCodeInternalFailure, OPENCODE_INTERNAL_FAILURE } from "./../acp-flavor-opencode";
 import { googleSignInByOpenBot, startAcpAuthentication } from "./../acp-sign-in";
-import { type AgentClient, AgentProcessExitError, type AgentProvider } from "./../agent-client";
+import {
+  type AgentClient,
+  AgentProcessExitError,
+  type AgentProvider,
+  PROCESSOR_FEATURE_MISSING,
+} from "./../agent-client";
 import { CodexAppServerClient } from "./../app-server-client";
 import {
   type AgentCliInfo,
@@ -138,10 +143,11 @@ const CUSTOM_AGENT_USAGE_WAKE_MS = 60 * 60_000;
 const USAGE_RESET_PROVIDERS: ReadonlySet<AgentProvider> = new Set(["codex"]);
 /**
  * How long a start may take when it holds back no other provider: the first start of a CLI that was
- * just installed, a start that follows a sign-in or a key change, and each start of a provider that
- * did not finish a start in the request timeout. The Windows Gemini server unpacks about 310 MB at
- * every start, and an antivirus scan of the unpacked files can take minutes on a slow computer
- * (#1275, #2311). The Intel macOS server unpacks at every start too, for more than this (#3532), so
+ * just installed, a start that follows a sign-in or a key change, the wake of a provider stopped when
+ * idle, the start of an agent's own process, and each start of a provider that did not finish a start
+ * in the request timeout. The Windows Gemini server unpacks about 310 MB at every start, and an
+ * antivirus scan of the unpacked files can take minutes on a slow computer (#1275, #2311, #6961).
+ * The Intel macOS server unpacks at every start too, for more than this (#3532), so
  * each start that does not answer in time waits twice as long as the one before. A start in the
  * request timeout stopped it while it unpacked, and the next start unpacked again. A launch keeps
  * the request timeout: it waits for every provider, and one CLI that hangs would hold chat back for
@@ -157,6 +163,11 @@ const PROVIDER_IDLE_RELEASE_MS = 10 * 60_000;
  */
 const PROVIDER_UNASSIGNED_RELEASE_MS = 60_000;
 const PROVIDER_IDLE_CHECK_MS = 60_000;
+/**
+ * How many of the other providers start at the same time at launch. One at a time lets one CLI that
+ * does not answer hold all the others for its full timeout.
+ */
+const LAUNCH_START_CONCURRENCY = 2;
 /** How often the host reads a signed-out provider's sign-in file. A read is one `stat`. */
 const SIGN_IN_FILE_POLL_MS = 2_000;
 
@@ -197,6 +208,8 @@ const OPENCODE_NEWER_DATABASE = /\bDatabase is not empty and has no session tabl
 const CODEX_STATE_BUSY = /\btimed out waiting for state db backfill\b/u;
 /** An ACP provider CLI that the system stopped, not one that ended by itself. */
 const KILLED_BY_SYSTEM = /\(signal SIGKILL\)/u;
+/** A CLI that a processor stopped; `PROCESSOR_FEATURE_MISSING` tells whether a missing feature is the cause. */
+const ILLEGAL_INSTRUCTION = /\(signal SIGILL\)/u;
 /**
  * The providers whose shared process reads the agent environment only when it starts. Claude reads
  * it at each session start, and Codex with each thread's config.
@@ -428,6 +441,12 @@ export class ProviderRuntime implements ProviderPort {
   readonly #cliSources = new Map<AgentProvider, AgentCliInfo["source"]>();
   readonly #accounts = new Map<AgentProvider, AccountReadResult["account"]>();
   readonly #providerStarts = new Map<AgentProvider, Deferred.Deferred<void, ProviderOperationFailed>>();
+  /**
+   * True from launch until each provider of the launch has a client or a failure. `onProvidersReady`
+   * settles every unresolved delivery, and would record a turn of a provider that has no client yet
+   * as interrupted. Thus no connect runs it during this time; the last connect of the launch does.
+   */
+  #launchStartsPending = false;
   readonly #providerConnectionCommands = new Map<AgentProvider, Deferred.Deferred<void, ProviderOperationFailed>>();
   readonly #replacingCli = new Set<AgentProvider>();
   #removingCustomRuntime = false;
@@ -566,7 +585,12 @@ export class ProviderRuntime implements ProviderPort {
       createClient: (cli) => {
         const client = this.#clientFactory
           ? this.#clientFactory("codex", cli)
-          : new CodexAppServerClient(cli.executable, this.#requestTimeoutMs, cliPathEnvironment(cli));
+          : new CodexAppServerClient(
+              cli.executable,
+              this.#requestTimeoutMs,
+              cliPathEnvironment(cli),
+              this.#credentials.codexTurnContext,
+            );
         this.#bindClient(client);
         return client;
       },
@@ -914,14 +938,7 @@ export class ProviderRuntime implements ProviderPort {
         this.#lastUsed.set(provider, now);
         continue;
       }
-      if (
-        this.#hooks.isProviderBusy(provider) ||
-        this.#providerStarts.has(provider) ||
-        this.#providerConnectionCommands.has(provider) ||
-        this.isReplacingCli(provider) ||
-        this.#cliLogin.has(provider) ||
-        (provider === "codex" && this.#codexLogin.pending)
-      ) {
+      if (this.#providerInUse(provider)) {
         this.#lastUsed.set(provider, now);
         continue;
       }
@@ -934,14 +951,8 @@ export class ProviderRuntime implements ProviderPort {
         ? PROVIDER_IDLE_RELEASE_MS
         : PROVIDER_UNASSIGNED_RELEASE_MS;
       if (now - lastUsed < limit) continue;
-      // Out of the map before it stops, so #handleExit reads the exit as expected, not as a crash.
-      this.#clients.delete(provider);
-      this.#released.add(provider);
-      this.#startFailures.delete(provider);
-      this.#conversation.unloadClientThreads(client);
       logger.info("Stopped an idle provider CLI.", { provider });
-      yield* client.stop().pipe(toProviderOperationFailed).pipe(Effect.ignore);
-      yield* this.#hooks.onClientStopped(client);
+      yield* this.#releaseClient(provider, client);
     }
     for (const [agentId, confined] of this.#confined) {
       if (confined.client.canReleaseProcess?.() === false) {
@@ -954,6 +965,50 @@ export class ProviderRuntime implements ProviderPort {
       yield* this.#stopConfined(agentId, confined);
     }
   }, Effect.uninterruptible);
+
+  /** True while a turn, a start, a connection command, a CLI change or a sign-in uses the provider's process. */
+  #providerInUse(provider: AgentProvider): boolean {
+    return (
+      this.#hooks.isProviderBusy(provider) ||
+      this.#providerStarts.has(provider) ||
+      this.#providerConnectionCommands.has(provider) ||
+      this.isReplacingCli(provider) ||
+      this.#cliLogin.has(provider) ||
+      (provider === "codex" && this.#codexLogin.pending)
+    );
+  }
+
+  /** Stops the provider's shared process as an idle one. The next turn starts it again and resumes its threads. */
+  readonly #releaseClient = Effect.fn("ProviderRuntime.releaseClient")(function* (
+    this: ProviderRuntime,
+    provider: AgentProvider,
+    client: AgentClient,
+  ) {
+    // Out of the map before it stops, so #handleExit reads the exit as expected, not as a crash.
+    this.#clients.delete(provider);
+    this.#released.add(provider);
+    this.#startFailures.delete(provider);
+    this.#conversation.unloadClientThreads(client);
+    yield* client.stop().pipe(toProviderOperationFailed).pipe(Effect.ignore);
+    yield* this.#hooks.onClientStopped(client);
+  });
+
+  /**
+   * Stops the provider's shared process now, when nothing uses it, as an idle release does. OpenCode
+   * keeps watchers in each folder that one of its sessions used until its process ends, also after
+   * `session/close`, and Windows refuses to remove a watched folder (`EBUSY`, #7029). A process that
+   * a turn of another agent uses stays: the delete fails, and a retry after that turn can succeed.
+   */
+  readonly releaseSharedProcess = Effect.fn("ProviderRuntime.releaseSharedProcess")(function* (
+    this: ProviderRuntime,
+    provider: AgentProvider,
+  ) {
+    const client = this.#clients.get(provider);
+    if (!client || this.#hooks.isStopping() || this.#status.phase !== "ready") return;
+    if (client.canReleaseProcess?.() === false || this.#providerInUse(provider)) return;
+    logger.info("Stopped a provider CLI that holds a deleted agent's folder.", { provider });
+    yield* this.#releaseClient(provider, client);
+  }, Effect.uninterruptible).bind(this);
 
   /** Closes the idle threads of each client and each Workspace only process, when memory is low. */
   readonly releaseIdleThreads = Effect.fn("ProviderRuntime.releaseIdleThreads")(function* (this: ProviderRuntime) {
@@ -1080,13 +1135,27 @@ export class ProviderRuntime implements ProviderPort {
             if (!agentProviderDescriptor(provider).reportsUsage) return null;
             // A Codex API-key login has no plan usage: Codex refuses the read.
             if (provider === "codex" && this.#accounts.get(provider)?.type === "apiKey") return null;
-            const kept = this.#released.has(provider) ? this.#lastUsage.get(provider) : undefined;
-            if (kept && !usageWindowHasReset(kept)) return kept;
-            if (this.#released.has(provider) && this.#usageUnreported.has(provider)) return null;
-            if (!this.#clients.has(provider)) yield* this.ensureProvider(provider);
-            const client = this.#clients.get(provider);
-            if (!client) return null;
-            usage = yield* this.#refreshUsage(client, defaultUsageModel(provider), false).pipe(deadline);
+            const released = this.#released.has(provider) && !this.#clients.has(provider);
+            const cli = this.#cli.get(provider);
+            const accounts = ProviderAccounts.support(provider);
+            if (released && !this.#usageUnreported.has(provider) && cli && accounts && !accounts.usageLeavesSession) {
+              // The CLI stopped when idle. A short process reads the usage, as for an account after the first,
+              // so use outside OpenBot shows and the CLI stays stopped (#6818). The gate paces these reads.
+              usage = yield* Effect.acquireUseRelease(
+                this.#authenticateClient(provider, cli, { interruptibleStart: true }),
+                ({ client }) => this.#refreshUsage(client, defaultUsageModel(provider), false),
+                ({ client }) =>
+                  client.stop().pipe(Effect.ignore, Effect.andThen(this.#hooks.onClientStopped(client)), Effect.ignore),
+              ).pipe(deadline);
+            } else {
+              const kept = released ? this.#lastUsage.get(provider) : undefined;
+              if (kept && !usageWindowHasReset(kept)) return kept;
+              if (released && this.#usageUnreported.has(provider)) return null;
+              if (!this.#clients.has(provider)) yield* this.ensureProvider(provider);
+              const client = this.#clients.get(provider);
+              if (!client) return null;
+              usage = yield* this.#refreshUsage(client, defaultUsageModel(provider), false).pipe(deadline);
+            }
           }
           const limit = usage.limits[0];
           if (!limit || (!limit.primary && !limit.secondary)) {
@@ -1148,7 +1217,11 @@ export class ProviderRuntime implements ProviderPort {
         .pipe(toProviderOperationFailed);
     const client = this.#clients.get(scope.provider);
     if (!client) return { limits: [] };
-    return yield* this.#refreshUsage(client, scope.model, false);
+    // While the sign-in's gate waits after a failed read, the provider is not asked, and there is no reading.
+    return yield* this.#usageGate(scope.provider).unlessWaiting({
+      read: this.#refreshUsage(client, scope.model, false),
+      waiting: (): AccountUsage => ({ limits: [] }),
+    });
   }).bind(this);
 
   /**
@@ -1388,10 +1461,59 @@ export class ProviderRuntime implements ProviderPort {
     );
     this.#idleCheck.unref?.();
     this.#watchSignInFiles();
-    yield* this.#connect(
-      "starting",
-      BUILT_IN_PROVIDER_DRIVERS.map((driver) => driver.id),
+    // All providers together start a process each, and a version check before it, in the same second.
+    // That made a slow computer stop responding after launch. The provider that chat uses goes first
+    // and alone, so chat is ready when it answers. The others follow, a few at a time.
+    const providers = BUILT_IN_PROVIDER_DRIVERS.map((driver) => driver.id);
+    // A provider that is off or stopped starts no process, so it cannot make chat ready.
+    const canStart = providers.filter((provider) => !this.#off.has(provider) && !this.#startStopped(provider));
+    const first = canStart.includes(this.#preferredProvider) ? this.#preferredProvider : canStart[0];
+    const others = providers.filter((provider) => provider !== first);
+    // Without another start to come, a failed first provider must show as "blocked" at once.
+    const othersFollow = others.some((provider) => canStart.includes(provider));
+    // With no other start to come, the first connect is the whole launch: it reads the model
+    // catalogue and runs the ready hook before the start ends, as one connect of all providers did.
+    this.#launchStartsPending = othersFollow;
+    const completion = Deferred.makeUnsafe<void, ProviderOperationFailed>();
+    let starting: AgentProvider[] = [];
+    let startsReleased = false;
+    // A turn that joined this start must not wait for the model catalogue and the ready hook, and
+    // must not get their failure. The processes are all it needs.
+    const releaseStarts = Effect.gen({ self: this }, function* () {
+      startsReleased = true;
+      this.#launchStartsPending = false;
+      yield* Deferred.succeed(completion, undefined);
+      for (const provider of starting)
+        if (this.#providerStarts.get(provider) === completion) this.#providerStarts.delete(provider);
+    });
+    const exit = yield* Effect.exit(
+      Effect.gen({ self: this }, function* () {
+        if (first)
+          yield* this.#connect(
+            "starting",
+            [first],
+            othersFollow ? { othersFollow, refreshRuntimeInBackground: true, skipReadyHook: true } : {},
+          );
+        // Chat can be ready now, so a refresh or a turn can ask for one of the others. As in
+        // `#refreshProviders`, they join this start and do not start a second process.
+        starting = others.filter((provider) => !this.#clients.has(provider) && !this.#providerStarts.has(provider));
+        for (const provider of starting) this.#providerStarts.set(provider, completion);
+        yield* this.#connect("starting", starting, {
+          concurrency: LAUNCH_START_CONCURRENCY,
+          afterStarts: releaseStarts,
+        });
+        if (startsReleased || !othersFollow) return;
+        // A different start took each of the other providers, so the connect above did nothing and
+        // the first one's connect did not run the ready hook.
+        this.#launchStartsPending = false;
+        if (this.#clients.size > 0) yield* this.#hooks.onProvidersReady().pipe(toProviderOperationFailed);
+      }),
     );
+    this.#launchStartsPending = false;
+    yield* Deferred.done(completion, exit);
+    for (const provider of starting)
+      if (this.#providerStarts.get(provider) === completion) this.#providerStarts.delete(provider);
+    yield* exit;
   }).bind(this);
 
   /**
@@ -1461,8 +1583,13 @@ export class ProviderRuntime implements ProviderPort {
     yield* providerStep(() => this.requireProviderOn(provider));
     this.#lastUsed.set(provider, Date.now());
     if (this.#clients.has(provider)) return;
+    // A wake starts one provider for one use, so it waits as a long start does. The Windows Gemini
+    // server unpacks at each start, and a wake in the request timeout failed the message (#6961).
     const wake = this.#released.has(provider);
-    yield* this.#startProvider(provider, wake ? { notifyReady: false } : {});
+    yield* this.#startProvider(
+      provider,
+      wake ? { notifyReady: false, startTimeoutMs: this.#longStartWaitMs(provider) } : {},
+    );
     if (this.#clients.has(provider)) return;
     const status = this.#status.providers?.find((candidate) => candidate.id === provider);
     return yield* new ProviderOperationFailed({
@@ -1515,7 +1642,12 @@ export class ProviderRuntime implements ProviderPort {
   readonly #startProvider = Effect.fn("ProviderRuntime.startProvider")(function* (
     this: ProviderRuntime,
     provider: AgentProvider,
-    options: { notifyReady?: boolean; preserveCheckErrors?: boolean; refreshRuntimeInBackground?: boolean },
+    options: {
+      notifyReady?: boolean;
+      preserveCheckErrors?: boolean;
+      refreshRuntimeInBackground?: boolean;
+      startTimeoutMs?: number;
+    },
     phase: "starting" | "restarting" = "starting",
   ) {
     if (this.#off.has(provider) || (provider === "acp" && this.#removingCustomRuntime)) return;
@@ -2548,9 +2680,9 @@ export class ProviderRuntime implements ProviderPort {
       });
     const disposals = this.#disposals;
     const accountEnvironment = own.account ? this.#providerAccounts?.environment(own.account) : undefined;
-    const slowStartTimeoutMs = this.#slowStarts.get(provider) ?? this.#defaultStartTimeoutMs(provider);
+    // A turn starts this process for one agent, so it waits as a long start does (#6961).
     const { client } = yield* this.#authenticateClient(provider, cli, {
-      ...(slowStartTimeoutMs === undefined ? {} : { startTimeoutMs: slowStartTimeoutMs }),
+      startTimeoutMs: this.#longStartWaitMs(provider),
       ...(own.confinement ? { confinement: own.confinement } : {}),
       ...(accountEnvironment ? { accountEnvironment } : {}),
     });
@@ -2972,6 +3104,8 @@ export class ProviderRuntime implements ProviderPort {
     // counts: the stderr line can quote another process.
     if (KILLED_BY_SYSTEM.test(error.message) && hasZeroRealtimeLimit())
       return new AgentProcessExitError(sourceText("error.provider.realtimeLimitZero"), null, { cause: detailed });
+    if (ILLEGAL_INSTRUCTION.test(error.message) && PROCESSOR_FEATURE_MISSING.test(detailed.message))
+      return new AgentProcessExitError(sourceText("error.provider.cpuUnsupported"), null, { cause: detailed });
     return detailed;
   }
 
@@ -3465,6 +3599,14 @@ export class ProviderRuntime implements ProviderPort {
       notifyReady?: boolean;
       startTimeoutMs?: number;
       preferInstalled?: boolean;
+      /** How many providers start at the same time. Without it, all of them do. */
+      concurrency?: number;
+      /** A second connect of this launch follows, so no client here is not yet "blocked". */
+      othersFollow?: boolean;
+      /** Runs when each requested provider has a client or a failure, before the status and the catalogue. */
+      afterStarts?: Effect.Effect<void>;
+      /** The caller runs `onProvidersReady` itself. Unlike `notifyReady: false`, this is a full activation. */
+      skipReadyHook?: boolean;
     } = {},
   ) {
     requestedProviders = requestedProviders.filter((provider) => !this.#off.has(provider));
@@ -3667,8 +3809,9 @@ export class ProviderRuntime implements ProviderPort {
           }),
         );
       },
-      { concurrency: "unbounded" },
+      { concurrency: options.concurrency ?? "unbounded" },
     );
+    if (options.afterStarts) yield* options.afterStarts;
     if (disposed()) return;
     for (const provider of requestedProviders) this.#released.delete(provider);
     const failures = results.filter((message): message is string => message !== null);
@@ -3676,6 +3819,10 @@ export class ProviderRuntime implements ProviderPort {
 
     if (this.#clients.size === 0 && this.#released.size > 0) {
       // Every other provider is released, not gone: chat stays ready and starts one on the next turn.
+      this.#setStatus({ providers: finalProviderStatuses });
+      return;
+    }
+    if (this.#clients.size === 0 && options.othersFollow) {
       this.#setStatus({ providers: finalProviderStatuses });
       return;
     }
@@ -3728,7 +3875,8 @@ export class ProviderRuntime implements ProviderPort {
       // This used to ride along with a Computer Use probe that no longer exists.
       this.#setStatus({});
       if (codexClient) yield* this.#refreshUsage(codexClient).pipe(Effect.ignore, Effect.forkIn(this.#scope));
-      if (options.notifyReady !== false) yield* this.#hooks.onProvidersReady().pipe(toProviderOperationFailed);
+      if (options.notifyReady !== false && !options.skipReadyHook && !this.#launchStartsPending)
+        yield* this.#hooks.onProvidersReady().pipe(toProviderOperationFailed);
     });
     if (options.refreshRuntimeInBackground) {
       yield* refreshRuntime.pipe(
@@ -4017,6 +4165,8 @@ export class ProviderRuntime implements ProviderPort {
     // Each start ends in the same way until the user fixes the system, so the fix stays on the row (#4848).
     const realtimeLimitZero = sourceText("error.provider.realtimeLimitZero");
     if (reason === realtimeLimitZero) return realtimeLimitZero;
+    const cpuUnsupported = sourceText("error.provider.cpuUnsupported");
+    if (reason === cpuUnsupported) return cpuUnsupported;
     return sourceText("error.provider.startStopped", { provider: providerLabel(provider) });
   }
 
