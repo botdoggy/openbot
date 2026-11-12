@@ -189,6 +189,8 @@ export const messages = {
   "error.provider.cliBusyUpdate": "{provider} CLI はターンを処理中です。終わるまで待ってから更新してください。",
   "error.provider.cliSelectFailed": "OpenBot はインストール済みの管理対象 CLI を選択できませんでした。",
   "error.provider.noAuthenticatedAccount": "{provider} は認証済みのアカウントを返しませんでした。",
+  "error.provider.codexModelProvider":
+    "このコンピューターの Codex は別のモデルプロバイダーを使用しています。このプロバイダーは ChatGPT のサインインや OpenAI API キーを使用しません。ChatGPT エージェントは今すぐこのプロバイダーを使用できます。ChatGPT アカウントを使用するには、Codex のモデルプロバイダーを OpenAI に戻してください。",
   "error.provider.signInExpired":
     "{provider} のサインインの有効期限が切れました。続けるには、もう一度サインインしてください。",
   "error.provider.cliActivateFailed": "OpenBot は管理対象 CLI を有効にできませんでした。",
@@ -312,6 +314,8 @@ export const messages = {
   "error.provider.hermesVersionUnreadable": "Hermes Agent のバージョンを読み取れません。",
   "error.provider.hermesSignIn":
     "Hermes を使うには、Nous Portal でサインインするか、ターミナルで `hermes setup` を実行してください。",
+  "error.provider.hermesTurnFailed":
+    "Hermes はこのターンを完了できませんでした。返信に理由が書かれている場合は、その指示に従ってください。書かれていない場合は、このエージェントの MCP サーバーが利用できない可能性があります。サーバーの設定 › MCP で確認してから、メッセージをもう一度送信してください。",
   "error.provider.usageLimitReached": "アカウントが使用量の上限に達しました。",
   "error.provider.claudeContextFull":
     "このチャットは Claude には長くなりすぎました。OpenBot はチャット履歴を引き継いだ新しい Claude Code セッションを開始しました。もう一度お試しください。",

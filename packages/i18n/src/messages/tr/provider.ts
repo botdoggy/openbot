@@ -226,13 +226,30 @@ export const messages = {
   "provider.account.resetUsageNoCredit": "{name} hesabında kullanım sıfırlama kredisi kalmadı.",
   "provider.account.resetUsageAlreadyRedeemed": "{name} hesabının bu sıfırlama kredisi zaten kullanıldı.",
   "provider.account.resetUsageFailed": "{name} kullanımı sıfırlanamadı.",
+  "provider.account.pool": "Hesapları havuzla",
+  "provider.account.poolDescription":
+    "Ajanlar bir hesabı kullanım sınırına yaklaşana kadar kullanır, sonra sınırı ilk sıfırlanan hesaba geçer.",
+  "provider.account.inUse": "Kullanımda",
+  "provider.account.notInPool": "Havuz dışı",
+  "provider.account.leaveOutOfPool": "Havuzdan çıkar",
+  "provider.account.putBackInPool": "Havuza geri koy",
+  "provider.account.poolChip": "Havuz",
+  "provider.account.poolCount": "{accounts} havuzu",
+  "provider.account.poolInUse": "{pool} · {name} kullanımda",
+  "provider.settings.accountsPooledDescription": "{count}/{max}. Ajanlar bu hesapları paylaşır.",
   "provider.settings.disconnectTitle": "{name} bağlantısı kesilsin mi?",
   "provider.settings.disconnectOthers": "Diğer {provider} hesapları, {provider} yeniden bağlanana kadar bekler.",
   "provider.settings.disconnectLocal":
     "OpenBot bu bilgisayarda {provider} oturumunu kapatır. Terminalinizdeki {provider} CLI oturumu da kapanır.",
   "provider.settings.disconnectHost": "OpenBot sunucuda {provider} oturumunu kapatır.",
+  "provider.settings.geminiKeyReplacesAccount":
+    "Google oturumu yerine kayıtlı bir Gemini API anahtarı kullanılıyor. Bir Google planını ve modellerini kullanmak için anahtarı kaldır.",
   "provider.settings.versionInstalledByUser": "{version} · senin yüklediğin",
   "provider.settings.versionDownloaded": "{version} · OpenBot tarafından indirildi",
+  "provider.settings.otherVersionInstalledByUser": "Kullanılmıyor: {version} · senin yüklediğin",
+  "provider.settings.otherVersionDownloaded": "Kullanılmıyor: {version} · OpenBot tarafından indirildi",
+  "provider.settings.useInstalledVersion": "Yüklü sürümü kullan",
+  "provider.settings.useDownloadedVersion": "OpenBot sürümünü kullan",
   "provider.settings.cache": "Önbellek",
   "provider.settings.promptCache": "İstem önbelleği",
   "provider.settings.promptCacheDescription":
@@ -272,4 +289,6 @@ export const messages = {
   "provider.settings.deleteOff":
     "OpenBot'un {name} için indirdiği CLI silinir ({size}). Hesaplar, oturumlar ve ajanlar kalır.",
   "provider.settings.removeDownloadFailed": "İndirme kaldırılamadı.",
+  "provider.settings.disconnectLocalOnly":
+    "OpenBot bu bilgisayarda {provider} oturumunu kapatır. Terminalindeki {provider} CLI kendi oturumunu korur.",
 } as const satisfies PartialTranslation<typeof source>;

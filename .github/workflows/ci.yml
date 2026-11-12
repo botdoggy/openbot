@@ -481,6 +481,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: bun run test:codex-usage-reset
 
+      - name: Run the Codex model capacity retry E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:codex-capacity-retry
+
       - name: Run the Codex warning banner E2E test
         if: ${{ !cancelled() }}
         run: bun run test:codex-warning-banner
@@ -509,9 +513,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: bun run test:agent-channel-create
 
+      - name: Run the Library folders agent tool E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:library-folders
+
       - name: Run the agent workflow gate E2E test
         if: ${{ !cancelled() }}
         run: bun run test:agent-workflow-gate
+
+      - name: Run the pinned message agent tool E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:pinned-message-agent-tool
 
       - name: Run the messaging owner card E2E test
         if: ${{ !cancelled() }}
@@ -732,13 +744,16 @@ jobs:
             .openbot-build/codex-idle-thread-release-e2e/
             .openbot-build/codex-usage-metering-e2e/
             .openbot-build/codex-usage-reset-e2e/
+            .openbot-build/codex-capacity-retry-e2e/
             .openbot-build/usage-read-pacing-e2e/
             .openbot-build/routine-fresh-session-e2e/
             .openbot-build/routine-report-failure-e2e/
             .openbot-build/agent-webhook-routine-e2e/
             .openbot-build/agent-channel-manage-e2e/
             .openbot-build/agent-channel-create-e2e/
+            .openbot-build/library-folders-e2e/
             .openbot-build/agent-workflow-gate-e2e/
+            .openbot-build/pinned-message-agent-tool-e2e/
             .openbot-build/messaging-owner-card-e2e/
             .openbot-build/agent-profile-accounts-e2e/
             .openbot-build/browser-profile-agents-e2e/

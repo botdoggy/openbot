@@ -46,13 +46,16 @@ import type {
   AddedAgent,
   AgentAdminSettings,
   AgentBackupModelSettings,
+  AgentDefaultsOverview,
   AgentFastModeSettings,
   AgentHostSettings,
   AgentNewChatSettings,
   AgentPlanCardSettings,
   AgentTaskLimitSettings,
+  SetAgentDefaultChoiceInput,
   UpdateAgentAdminSettingsInput,
   UpdateAgentBackupModelsInput,
+  UpdateAgentDefaultsInput,
   UpdateAgentFastModeInput,
   UpdateAgentHostSettingsInput,
   UpdateAgentNewChatInput,
@@ -126,6 +129,7 @@ import type {
   RemoveProviderAccountInput,
   RenameProviderAccountInput,
   ResetProviderUsageInput,
+  SetProviderAccountPoolInput,
   SetProviderApiKeyInput,
   SubmitProviderCodeLoginInput,
 } from "./ipc-agent-status";
@@ -135,8 +139,10 @@ import type {
   AgentTaskPage,
   AgentTaskReadState,
   AgentTasksSnapshot,
+  AgentTaskWindow,
   BranchAgentTaskInput,
   MarkAgentTaskReadInput,
+  ReadAgentTaskAroundInput,
   ReadAgentTaskPageInput,
   RenameAgentTaskInput,
   RunQueuedMessageAsTaskInput,
@@ -348,6 +354,7 @@ import type {
   ExternalLinkPreference,
 } from "./ipc-external-links";
 import type { GitHubConnectorRepositories, GitHubConnectorStatus } from "./ipc-github-connector";
+import type { GithubSkillSource } from "./ipc-github-skills";
 import type { ApplyHermesImportInput, HermesImportPreview } from "./ipc-hermes-import";
 import type { HiddenAgentsSnapshot, SetAgentHiddenInput } from "./ipc-hidden-agents";
 import type { HostAnalytics, HostAnalyticsInput } from "./ipc-host-analytics";
@@ -363,12 +370,14 @@ import type {
 } from "./ipc-hosted-sites";
 import type {
   ApplyInstanceTransferInput,
+  CopyInstanceAgentsInput,
   ExportInstanceInput,
   InstanceExportResult,
   InstanceTransferPreview,
   InstanceTransferResult,
   InstanceTransferSummary,
 } from "./ipc-instance-transfer";
+import type { LibraryFolderAction, LibraryFoldersSnapshot } from "./ipc-library-folders";
 import type { LinkAccountStatus } from "./ipc-link-account";
 import type { MachineAlertSettings, MachineMetrics } from "./ipc-machine-resources";
 import type {
@@ -381,6 +390,7 @@ import type {
   MarketplaceAgentQuery,
   SubmitMarketplaceAgentInput,
 } from "./ipc-marketplace-agents";
+import type { McpAccessSnapshot, SetMcpAccessInput } from "./ipc-mcp-access";
 import type {
   CancelMcpSignInInput,
   CompleteMcpSignInRelayInput,
@@ -397,6 +407,7 @@ import type {
   SignOutMcpServerInput,
   TestMcpServerInput,
 } from "./ipc-mcp-servers";
+import type { PinnedMessagesSnapshot, SetMessagePinnedInput } from "./ipc-message-pins";
 import type {
   AddMessagingOrchestratorInput,
   AddMessagingOrchestratorResult,
@@ -423,6 +434,7 @@ import type {
   SetSlackEnabledInput,
   SetTelegramEnabledInput,
   SetWhatsAppOwnNumberInput,
+  SetWhatsAppWorkingMessageInput,
   SlackOverview,
   SlackWorkspaceInput,
   StartWhatsAppLinkInput,
@@ -434,7 +446,11 @@ import type {
   WhatsAppSenderInput,
 } from "./ipc-messaging";
 import type { ProviderModelVisibility, ProviderModelVisibilityChange } from "./ipc-model-visibility";
-import type { NotificationOpenedEvent, NotificationPreference } from "./ipc-notifications";
+import type {
+  NotificationOpenedEvent,
+  NotificationPreference,
+  WorkflowNotificationOpenedEvent,
+} from "./ipc-notifications";
 import type {
   OnePasswordConnectInput,
   OnePasswordConnectorStatus,
@@ -850,6 +866,13 @@ export const IPC_ENDPOINTS = {
     restartProvider: request<AgentProviderId, AgentStatus>()("app:restart-provider"),
     cancelProviderRestart: request<AgentProviderId, AgentStatus>()("app:cancel-provider-restart"),
     /**
+     * `installed`: runs the CLI the user installed, also when OpenBot's copy is newer; false runs the
+     * newer of the two. The provider restarts when its turns end. Only a provider of this computer.
+     */
+    chooseInstalledCli: request<{ provider: ManagedProviderId; installed: boolean }, AgentStatus>()(
+      "app:choose-installed-cli",
+    ),
+    /**
      * Runs the provider CLI's own updater, for a CLI the user installed themselves. It is their copy,
      * so the version they end on is whatever that updater fetches, which owes nothing to the version
      * OpenBot pins for the runtime it manages.
@@ -887,6 +910,8 @@ export const IPC_ENDPOINTS = {
     ),
     renameProviderAccount: request<RenameProviderAccountInput, AgentStatus>()("app:rename-provider-account"),
     removeProviderAccount: request<RemoveProviderAccountInput, AgentStatus>()("app:remove-provider-account"),
+    /** Turns the pool of a provider's accounts on or off. The provider's agents then use its pick. */
+    setProviderAccountPool: request<SetProviderAccountPoolInput, AgentStatus>()("app:set-provider-account-pool"),
     /** Signs the provider's own sign-in out, in the home folder that a terminal CLI shares. */
     signOutProvider: request<AgentProviderId, AgentStatus>()("app:sign-out-provider"),
     /** The usage reset credits of each connected account of a provider. It reads the usage of each. */
@@ -1173,6 +1198,8 @@ export const IPC_ENDPOINTS = {
     ),
     renameAccount: scopedRequest<RenameProviderAccountInput, void, "required">()("provider-admin:rename-account"),
     removeAccount: scopedRequest<RemoveProviderAccountInput, void, "required">()("provider-admin:remove-account"),
+    // The pool of a joined server's host's accounts (`provider-account-pool-v1`).
+    setAccountPool: scopedRequest<SetProviderAccountPoolInput, void, "required">()("provider-admin:set-account-pool"),
     // The usage reset credits of a joined server's host's accounts, and the reset that spends one
     // (`provider-usage-reset-v1`).
     usageResets: scopedRequest<AgentProviderId, ProviderUsageResets[], "required">()("provider-admin:usage-resets"),
@@ -1283,6 +1310,9 @@ export const IPC_ENDPOINTS = {
     removeWhatsAppSender: request<RemoveWhatsAppSenderInput, void>()("messaging:remove-whatsapp-sender"),
     answerWhatsAppRequest: request<AnswerWhatsAppRequestInput, void>()("messaging:answer-whatsapp-request"),
     setWhatsAppOwnNumber: request<SetWhatsAppOwnNumberInput, void>()("messaging:set-whatsapp-own-number"),
+    setWhatsAppWorkingMessage: request<SetWhatsAppWorkingMessageInput, void>()(
+      "messaging:set-whatsapp-working-message",
+    ),
     // The same for a joined server with `connectors-v1`, which an owner or admin manages from here.
     // The host opens no page: main opens it in this computer's browser. A Slack or Discord install
     // returns to this computer's `openbot://` link, and main sends the sealed grant on to the host.
@@ -1338,6 +1368,10 @@ export const IPC_ENDPOINTS = {
     hostSetWhatsAppOwnNumber: scopedRequest<SetWhatsAppOwnNumberInput, void, "required">()(
       "messaging:host-set-whatsapp-own-number",
     ),
+    // A joined server needs `whatsapp-working-message-v1`. Its numbers carry `workingMessage` only then.
+    hostSetWhatsAppWorkingMessage: scopedRequest<SetWhatsAppWorkingMessageInput, void, "required">()(
+      "messaging:host-set-whatsapp-working-message",
+    ),
   },
   // The server name, logo, timezone, agent memory limit and app update of one server's host. `host.updateIdentity` and `update`
   // reach this computer only; these take the server, so a remote admin reaches the host. The
@@ -1349,6 +1383,11 @@ export const IPC_ENDPOINTS = {
      * Paired devices follow the handover that both keys sign.
      */
     rotateHostKey: scopedQuery<void, "required">()("host-admin:rotate-host-key"),
+    /**
+     * Restarts a self-hosted server now, through `host-restart-v1`. Running agent turns stop. A hosted
+     * server and a server on this computer restart through `hostedServers` and `localServers`.
+     */
+    restartHost: scopedQuery<void, "required">()("host-admin:restart-host"),
     getReleaseStatus: scopedQuery<HostReleaseStatus | null, "required">()("host-admin:get-release-status"),
     checkRelease: scopedQuery<HostReleaseStatus, "required">()("host-admin:check-release"),
     getUpdateStatus: scopedQuery<HostUpdateStatus, "required">()("host-admin:get-update-status"),
@@ -1660,6 +1699,7 @@ export const IPC_ENDPOINTS = {
     // system that has no such page.
     openSettings: request<undefined, void>()("notifications:open-settings"),
     opened: event<NotificationOpenedEvent>()("notifications:opened-event"),
+    workflowOpened: event<WorkflowNotificationOpenedEvent>()("notifications:workflow-opened-event"),
   },
   agent: {
     getStatus: scopedQuery<AgentStatus>()("agent:get-status"),
@@ -1755,11 +1795,16 @@ export const IPC_ENDPOINTS = {
     listQueue: scopedRequest<string, QueueSnapshot>()("agent:list-queue"),
     listWaits: scopedRequest<string, AgentWaitsSnapshot>()("agent:list-waits"),
     cancelWait: scopedRequest<CancelAgentWaitInput, void>()("agent:cancel-wait"),
+    // The pins of all chats of an agent. A joined server takes both through `message-pins-v1`.
+    listPinnedMessages: scopedRequest<string, PinnedMessagesSnapshot>()("agent:list-pinned-messages"),
+    setMessagePinned: scopedRequest<SetMessagePinnedInput, PinnedMessagesSnapshot>()("agent:set-message-pinned"),
     // A joined server takes these through `agent-tasks-v1`, except `runQueuedMessageAsTask`, which is local only.
     listTasks: scopedRequest<string, AgentTasksSnapshot>()("agent:tasks:list"),
     readTask: scopedRequest<AgentTaskInput, ConversationSnapshot>()("agent:tasks:read"),
     // A joined server takes this through `agent-thread-pages-v1`.
     readTaskPage: scopedRequest<ReadAgentTaskPageInput, AgentTaskPage>()("agent:tasks:read-page"),
+    // A joined server takes this through `message-pins-v1`: it opens a pin of a side thread at its message.
+    readTaskAround: scopedRequest<ReadAgentTaskAroundInput, AgentTaskWindow>()("agent:tasks:read-around"),
     startTask: scopedRequest<StartAgentTaskInput, AgentTask>()("agent:tasks:start"),
     runQueuedMessageAsTask: scopedRequest<RunQueuedMessageAsTaskInput, AgentTask>()("agent:tasks:run-queued-message"),
     // A joined server takes this through `agent-thread-branches-v1`.
@@ -1888,6 +1933,12 @@ export const IPC_ENDPOINTS = {
     githubRunLastEvent: scopedRequest<WorkflowGitHubLastEventInput, WorkflowRunDetail>()(
       "workflows:github-run-last-event",
     ),
+    /**
+     * Keeps an attachment draft (a PNG, JPEG or WebP picture) as a picture of the host for an asset
+     * step, and answers its file id. The draft goes away. A joined server answers through
+     * `workflows-media-v1`.
+     */
+    keepPicture: scopedRequest<string, string>()("workflows:keep-picture"),
   },
   /**
    * Routine results: an agent routine's answer sent on to a messaging place. Only this computer's host
@@ -2087,6 +2138,14 @@ export const IPC_ENDPOINTS = {
     updateAgentBrowserProfile: scopedRequest<UpdateAgentBrowserProfileInput, AgentBrowserProfile>()(
       "agent:admin:update-browser-profile",
     ),
+    // Settings › Agents: the agent defaults of a computer. `agent-defaults-v1` on a joined server.
+    getAgentDefaultsOverview: scopedQuery<AgentDefaultsOverview, "required">()("agent:admin:get-agent-defaults"),
+    updateAgentDefaultsOverview: scopedRequest<UpdateAgentDefaultsInput, AgentDefaultsOverview, "required">()(
+      "agent:admin:update-agent-defaults",
+    ),
+    setAgentDefaultChoice: scopedRequest<SetAgentDefaultChoiceInput, AgentDefaultsOverview, "required">()(
+      "agent:admin:set-agent-default-choice",
+    ),
     // Saved proxies of the named browser profiles: `browser-proxies-v1` on a joined server.
     listBrowserProxies: scopedQuery<BrowserProxyList | null>()("agent:admin:list-browser-proxies"),
     saveBrowserProxy: scopedRequest<SaveBrowserProxyInput, BrowserProxySummary>()("agent:admin:save-browser-proxy"),
@@ -2112,6 +2171,8 @@ export const IPC_ENDPOINTS = {
     setAgentSkillEnabled: scopedRequest<SetEnabledSkillInput, InstalledSkill, "required">()(
       "agent:admin:set-skill-enabled",
     ),
+    // The skills under a link to a public GitHub repository, read by the computer that installs them.
+    readGithubSkills: scopedRequest<string, GithubSkillSource, "required">()("agent:admin:read-github-skills"),
     // A new agent from a marketplace listing or a shared template, added on the computer that runs
     // it. The `marketplaceAgents` and `agentTemplates` installs stay for this computer.
     addMarketplaceAgent: scopedRequest<InstallMarketplaceAgentInput, AddedAgent, "required">()(
@@ -2162,6 +2223,10 @@ export const IPC_ENDPOINTS = {
     removeMcpSignInApp: scopedRequest<McpSignInAppInput, McpSignInAppState, "required">()(
       "servers:mcp:remove-sign-in-app",
     ),
+    // Which agents get an MCP server, and the level of each role for it (`mcp-access-v1`). A set
+    // replaces the entry of one MCP server and answers with the whole snapshot.
+    getMcpAccess: scopedQuery<McpAccessSnapshot, "required">()("servers:mcp:get-access"),
+    setMcpAccess: scopedRequest<SetMcpAccessInput, McpAccessSnapshot, "required">()("servers:mcp:set-access"),
   },
   // Bound against the storage service, not `AgentService`, so it is its own group.
   storage: {
@@ -2174,6 +2239,12 @@ export const IPC_ENDPOINTS = {
     clear: scopedRequest<ClearStorageInput, void, "required">()("storage:clear"),
     openFile: scopedRequest<OpenStoredFileInput, void, "required">()("storage:open-file"),
     openLocation: request<OpenStorageLocationInput, void>()("storage:open-location"),
+    // The folders of the Library. Null before `library-folders-v1`: the Library then shows no folders.
+    getLibraryFolders: scopedQuery<LibraryFoldersSnapshot | null, "required">()("storage:get-library-folders"),
+    /** Applies one folder change and answers the new snapshot. */
+    changeLibraryFolders: scopedRequest<LibraryFolderAction, LibraryFoldersSnapshot, "required">()(
+      "storage:change-library-folders",
+    ),
     // Local only, like `openLocation`: a server removes its own old provider CLI versions.
     getRemovableRuntimes: request<undefined, RemovableRuntimes>()("storage:get-removable-runtimes"),
     /** Removes the old versions no instance uses now and the downloads it named, and answers what is left. */
@@ -2200,7 +2271,8 @@ export const IPC_ENDPOINTS = {
   },
   // Bound against the instance transfer service: a server's agents and server settings in one file for
   // another server. A remote server is reached with `instance-transfer-v1`; main opens both file
-  // dialogs and moves the file. `showExport` reveals the file this computer saved last.
+  // dialogs and moves the file. `showExport` reveals the file this computer saved last. `copy` takes
+  // the destination as its server and exports from `fromServerId` and imports in main, with no dialog.
   instanceTransfer: {
     summary: scopedQuery<InstanceTransferSummary, "required">()("instance-transfer:summary"),
     export: scopedRequest<ExportInstanceInput, InstanceExportResult, "required">()("instance-transfer:export"),
@@ -2208,6 +2280,7 @@ export const IPC_ENDPOINTS = {
     choose: scopedQuery<InstanceTransferPreview | null, "required">()("instance-transfer:choose"),
     apply: scopedRequest<ApplyInstanceTransferInput, InstanceTransferResult, "required">()("instance-transfer:apply"),
     discard: scopedRequest<string, void, "required">()("instance-transfer:discard"),
+    copy: scopedRequest<CopyInstanceAgentsInput, InstanceTransferResult, "required">()("instance-transfer:copy"),
   },
   // The plugin deep link, its own group because its registrar holds the pending link rather than a
   // service. `takePendingListing` is what a window that finished loading after the link arrived

@@ -79,6 +79,7 @@ export const messages = defineMessages("error.team", {
   "error.team.hermesImportUnsupported": "This connection cannot import Hermes profiles from the server.",
   "error.team.providerDetectionUnsupported": "This connection cannot find the model servers and agents of the server.",
   "error.team.sidebarFoldersUnsupported": "Folders in folders are not supported by this connection.",
+  "error.team.libraryFoldersUnsupported": "Library folders are not supported by this connection.",
   "error.team.agentNotificationLevelsUnsupported":
     "This server cannot keep your own notification level for each agent. Update OpenBot on the computer that runs it.",
   "error.team.sidebarPinsUnsupported":
@@ -111,6 +112,7 @@ export const messages = defineMessages("error.team", {
   "error.team.hostIdentityUnsupported": "Server identity changes are not supported by this connection.",
   "error.team.hostUpdateUnsupported": "Host updates are not supported by this connection.",
   "error.team.hostTimezoneUnsupported": "The server timezone is not supported by this connection.",
+  "error.team.hostRestartUnsupported": "Restarting the server is not supported by this connection.",
   "error.team.hostKeyRotationUnsupported": "Server key changes are not supported by this connection.",
   "error.team.localServersUnsupported": "Servers on this computer are not supported by this connection.",
   "error.team.routineResultsUnsupported": "Routine destinations are not supported by this connection.",
@@ -163,6 +165,7 @@ export const messages = defineMessages("error.team", {
   "error.team.secureAuthUnsupported": "Secure authentication is not supported by this client.",
   "error.team.agentSettingsUnsupported": "Agent settings are not supported by this connection.",
   "error.team.adminRequired": "Administrator access is required.",
+  "error.team.mcpAccessStale": "Someone changed the access to this MCP server. Make your change again.",
   "error.team.mcpServerNotYours": "Only the person who added this MCP server, or an admin, can change it.",
   "error.team.ownerRequired": "Only the owner of this server can do this.",
   "error.team.requestTooLarge": "Request body is too large.",
@@ -179,6 +182,7 @@ export const messages = defineMessages("error.team", {
   "error.team.signInRelayLinkUnknown": "No agent on this server showed this sign-in link.",
   "error.team.hostPersonalityUnsupported": "The server personality is not supported by this connection.",
   "error.team.agentWaitsUnsupported": "Open waits are not supported by this connection.",
+  "error.team.messagePinsUnsupported": "Pinned messages are not supported by this connection.",
   "error.team.queuedMessageThreadUnsupported":
     "Running a queued message as a new thread is not supported by this connection.",
   "error.team.backgroundProcessesUnsupported": "Background processes are not supported by this connection.",

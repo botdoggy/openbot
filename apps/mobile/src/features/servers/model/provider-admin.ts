@@ -37,6 +37,7 @@ import {
   type SaveCustomAgentInput,
   type SaveCustomProviderInput,
   type SignInRelayStatus,
+  type UpdateCustomProviderInput,
 } from "@openbot/contracts/ipc";
 import { isOneOf } from "@openbot/contracts/runtime-values";
 import { TEAM_API_ROUTES } from "@openbot/contracts/team-api-routes";
@@ -46,11 +47,16 @@ import { CLAUDE_COMPACT_WINDOW_CAPABILITY } from "@openbot/contracts/team-protoc
 import { CODEX_API_KEY_CAPABILITY } from "@openbot/contracts/team-protocol/codex-api-key-v1";
 import { CUSTOM_AGENTS_CAPABILITY } from "@openbot/contracts/team-protocol/custom-agents-v1";
 import {
+  CUSTOM_PROVIDER_EDIT_CAPABILITY,
+  CUSTOM_PROVIDER_EDIT_ROUTES,
+} from "@openbot/contracts/team-protocol/custom-provider-edit-v1";
+import {
   CUSTOM_PROVIDER_HARNESS_CAPABILITY,
   CUSTOM_PROVIDER_HARNESS_ROUTES,
 } from "@openbot/contracts/team-protocol/custom-provider-harness-v1";
 import { MODEL_VISIBILITY_CAPABILITY } from "@openbot/contracts/team-protocol/model-visibility-v1";
 import { PROMPT_CACHE_TTL_CAPABILITY } from "@openbot/contracts/team-protocol/prompt-cache-ttl-v1";
+import { PROVIDER_ACCOUNT_POOL_CAPABILITY } from "@openbot/contracts/team-protocol/provider-account-pool-v1";
 import { providerAccountRelay } from "@openbot/contracts/team-protocol/provider-account-relays";
 import { PROVIDER_ACCOUNTS_CAPABILITY } from "@openbot/contracts/team-protocol/provider-accounts-v1";
 import { PROVIDER_DEFAULT_CAPABILITY } from "@openbot/contracts/team-protocol/provider-default-v1";
@@ -102,7 +108,7 @@ import {
   type HostProviderDefault,
   listCustomAgents,
   listCustomProviders,
-  listProviderAccounts,
+  listProviderAccountsWithModels,
   providerUsageResets,
   removeProviderAccount,
   renameProviderAccount,
@@ -113,6 +119,7 @@ import {
   setHostModelVisibility,
   setHostPromptCacheTtl,
   setHostProviderDefault,
+  setProviderAccountPool,
   setProviderApiKey,
   signInRelayStatus,
   signOutProvider,
@@ -120,6 +127,7 @@ import {
   startProviderCodeLogin,
   startProviderSignInRelay,
   submitProviderCodeLogin,
+  updateCustomProvider,
 } from "@openbot/team-client/team-admin-requests";
 import type { TeamApiRequest } from "@openbot/team-client/team-api-requests";
 import { runTeamRequest } from "@/features/workspace/model/team-request";
@@ -220,6 +228,7 @@ const SIGN_OUT_PROVIDERS: readonly AgentProviderId[] = [
   "devin",
   "copilot",
   "mistral",
+  "antigravity",
 ];
 
 /** Whether the phone can sign the host's own sign-in of the provider out. A saved key keeps it connected. */
@@ -363,9 +372,10 @@ export function relayPage(
 
 /**
  * The Providers admin of one host (`providers-v1` to `providers-v5` and `providers-v8`,
- * `sign-in-relay-v1`, `provider-default-v1`, `custom-provider-harness-v1`, `provider-accounts-v1`,
+ * `sign-in-relay-v1`, `provider-default-v1`, `custom-provider-harness-v1`, `custom-provider-edit-v1`, `provider-accounts-v1`,
  * the account relays, `acp-registry-v1`, `custom-agents-v1`, `model-visibility-v1`,
- * `prompt-cache-ttl-v1`, `claude-compact-window-v1`, `provider-sign-out-v1` and `provider-usage-reset-v1`), with the newest
+ * `prompt-cache-ttl-v1`, `claude-compact-window-v1`, `provider-sign-out-v1`, `provider-usage-reset-v1` and
+ * `provider-account-pool-v1`), with the newest
  * route set that the host serves. The
  * host checks the role on every route.
  */
@@ -394,10 +404,13 @@ export function createProviderAdmin(request: TeamApiRequest, capabilities: reado
     : has(PROVIDERS_V5_CAPABILITY)
       ? PROVIDERS_V5_ROUTES
       : PROVIDERS_ADMIN_ROUTES;
-  // As on the web client: the harness routes also name the provider that runs each endpoint.
-  const customRoutes = has(CUSTOM_PROVIDER_HARNESS_CAPABILITY)
-    ? CUSTOM_PROVIDER_HARNESS_ROUTES
-    : PROVIDERS_ADMIN_ROUTES;
+  // As on the web client: the edit routes also name the header names of each endpoint and can edit
+  // one, and the harness routes name the provider that runs each endpoint.
+  const customRoutes = has(CUSTOM_PROVIDER_EDIT_CAPABILITY)
+    ? CUSTOM_PROVIDER_EDIT_ROUTES
+    : has(CUSTOM_PROVIDER_HARNESS_CAPABILITY)
+      ? CUSTOM_PROVIDER_HARNESS_ROUTES
+      : PROVIDERS_ADMIN_ROUTES;
   const accountRelay = providerAccountRelay(has);
   const ignore = () => undefined;
   return {
@@ -445,21 +458,41 @@ export function createProviderAdmin(request: TeamApiRequest, capabilities: reado
     /** The endpoints of the host. A list says only whether an endpoint has a key. */
     listCustom: (): Promise<CustomProviderSummary[]> => runTeamRequest(listCustomProviders(request, customRoutes)),
     /**
-     * The key and the header values go to the host in the body, and no reply carries them. The host
-     * has no edit route: a save adds an endpoint, and the host runs it on OpenCode.
+     * The key and the header values go to the host in the body, and no reply carries them. A save adds
+     * an endpoint, and the host runs it on OpenCode.
      */
     saveCustom: (input: SaveCustomProviderInput): Promise<CustomProviderResult> =>
       runTeamRequest(saveCustomProvider(request, input, customRoutes)),
+    /**
+     * Changes a saved endpoint in place (`custom-provider-edit-v1`), or null when the host has no edit
+     * route. An absent key or a header with a `null` value keeps the saved secret. The host keeps the
+     * harness and the settings of each kept model, so agents on a kept model stay on it.
+     */
+    updateCustom:
+      customRoutes === CUSTOM_PROVIDER_EDIT_ROUTES
+        ? (input: UpdateCustomProviderInput): Promise<CustomProviderResult> =>
+            runTeamRequest(updateCustomProvider(request, input, CUSTOM_PROVIDER_EDIT_ROUTES))
+        : null,
     deleteCustom: (id: string): Promise<CustomProviderResult> =>
       runTeamRequest(deleteCustomProvider(request, { id }, customRoutes)),
     /**
      * The accounts of the host's providers (`provider-accounts-v1`), or null when the host has none. A
      * new account signs in on the page that the host relays (`provider-account-relay-v1` or `-v2`); the
-     * released `sign-in-relay-v1` routes then run the flow, as Connect does.
+     * released `sign-in-relay-v1` routes then run the flow, as Connect does. With
+     * `provider-account-pool-v1`, the list also has the pools that are on.
      */
     accounts: has(PROVIDER_ACCOUNTS_CAPABILITY)
       ? {
-          list: (): Promise<HostProviderAccounts> => runTeamRequest(listProviderAccounts(request)),
+          list: (): Promise<HostProviderAccounts> =>
+            runTeamRequest(listProviderAccountsWithModels(request, false, has(PROVIDER_ACCOUNT_POOL_CAPABILITY))),
+          /**
+           * Turns the pool of the provider's accounts on or off (`provider-account-pool-v1`), or null on
+           * an older host. `leftOut` is the full list of the accounts that the pool does not use.
+           */
+          setPool: has(PROVIDER_ACCOUNT_POOL_CAPABILITY)
+            ? (provider: AgentProviderId, enabled: boolean, leftOut: readonly string[]): Promise<void> =>
+                runTeamRequest(setProviderAccountPool(request, { provider, enabled, leftOut: [...leftOut] }))
+            : null,
           rename: (provider: AgentProviderId, accountId: string, label: string | null): Promise<void> =>
             runTeamRequest(renameProviderAccount(request, { provider, accountId, label })),
           remove: (provider: AgentProviderId, accountId: string): Promise<void> =>

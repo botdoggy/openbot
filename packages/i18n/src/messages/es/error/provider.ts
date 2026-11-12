@@ -190,6 +190,8 @@ export const messages = {
     "La CLI de {provider} está procesando un turno. Espera a que termine y luego actualiza.",
   "error.provider.cliSelectFailed": "OpenBot no pudo seleccionar la CLI gestionada instalada.",
   "error.provider.noAuthenticatedAccount": "{provider} no devolvió una cuenta autenticada.",
+  "error.provider.codexModelProvider":
+    "Codex en este ordenador usa otro proveedor de modelos, y ese proveedor no usa un inicio de sesión de ChatGPT ni una clave de API de OpenAI. Los agentes de ChatGPT ya pueden usar ese proveedor. Para usar tu cuenta de ChatGPT, vuelve a poner OpenAI como proveedor de modelos de Codex.",
   "error.provider.signInExpired": "Tu sesión de {provider} caducó. Vuelve a iniciar sesión para continuar.",
   "error.provider.cliActivateFailed": "OpenBot no pudo activar la CLI gestionada.",
   "error.provider.noMainlandChinaSignIn": "{provider} no tiene inicio de sesión para China continental.",
@@ -308,6 +310,8 @@ export const messages = {
   "error.provider.hermesVersionUnreadable": "No se puede leer la versión de Hermes Agent.",
   "error.provider.hermesSignIn":
     "Inicia sesión con Nous Portal o ejecuta `hermes setup` en una terminal para usar Hermes.",
+  "error.provider.hermesTurnFailed":
+    "Hermes no pudo terminar este turno. Si su respuesta da un motivo, haz lo que indica. Si no, puede que un servidor MCP de este agente no esté disponible: revísalo en Ajustes del servidor › MCP y vuelve a enviar tu mensaje.",
   "error.provider.usageLimitReached": "La cuenta alcanzó su límite de uso.",
   "error.provider.claudeContextFull":
     "Este chat se volvió demasiado largo para Claude. OpenBot inició una nueva sesión de Claude Code con el historial del chat. Inténtalo de nuevo.",

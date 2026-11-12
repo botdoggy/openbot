@@ -40,12 +40,15 @@ import Animated, {
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSequence,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCSSVariable } from "uniwind";
 import { BloubAvatarThumbnail } from "@/features/agents/components/bloub-avatar";
 import { ChatActivityRow, type ChatActivitySpec } from "@/features/chat/components/chat-activity-row";
+import { ChatAppSuggestion } from "@/features/chat/components/chat-app-suggestion";
 import { type ApprovalDecision, approvalTitle, ChatApprovalCard } from "@/features/chat/components/chat-approval-card";
 import { ChatExchangeGroup, ChatExchangeMarker } from "@/features/chat/components/chat-exchange-marker";
 import { ChatMarkdown, chatMarkdownHasTable } from "@/features/chat/components/chat-markdown";
@@ -107,6 +110,7 @@ import { ChatMessageGesture } from "./chat-message-gesture";
 import { ChatOutboxStatus, OutboxMessageMenu, type OutboxRowStatus } from "./chat-outbox-status";
 import { ChatSelectableText } from "./chat-selectable-text";
 import { ChatTagActionsContext, useTaggedTabOpener } from "./chat-tag-actions";
+import { ChatVideoGeneration } from "./chat-video-generation";
 import { HistoryShownContext } from "./use-history-shown";
 import { useReplyHaptics } from "./use-reply-haptics";
 
@@ -310,6 +314,10 @@ interface ChatMessageListProps {
   onMarkUnread?: (message: ChatBubbleMessage) => void;
   /** The messages that Mark unread is on. All agent messages when unset. */
   markUnreadMessageIds?: ReadonlySet<string>;
+  /** Pins or unpins a message of this chat. Absent where the host cannot pin messages. */
+  onTogglePin?: (message: ChatBubbleMessage, pinned: boolean) => Promise<void>;
+  /** The pinned messages of this chat. */
+  pinnedMessageIds?: ReadonlySet<string>;
   /**
    * The host messages from the one where the NEW line shows to the newest, in chat order. The line
    * shows above the first row of them. Keep the set stable while its ids stay the same.
@@ -392,6 +400,10 @@ interface MessageRowShared {
   deletesAny: boolean;
   /** The host marks an agent's message unread for the reader. */
   canMarkUnread: boolean;
+  /** The host pins messages. */
+  canPin: boolean;
+  /** The pinned messages of this chat. Empty where the chat cannot pin. */
+  pinnedIds: ReadonlySet<string>;
   /** The open channels that the text of a message can go to. Empty where it cannot go to one. */
   sendChannels: readonly { id: string; name: string }[];
   canSelectText: boolean;
@@ -410,6 +422,7 @@ interface MessageRowShared {
     react: (message: ChatBubbleMessage, emoji: string | null) => Promise<void>;
     delete: (message: ChatBubbleMessage) => Promise<void>;
     markUnread: (message: ChatBubbleMessage) => void;
+    togglePin: (message: ChatBubbleMessage, pinned: boolean) => Promise<void>;
     /** Whether Mark unread is on this message. */
     marksUnread: (message: ChatBubbleMessage) => boolean;
     sendToChannel: (message: ChatBubbleMessage, channelId: string) => void;
@@ -562,6 +575,8 @@ function playbackEligible(message: VisibleMessage) {
     message.author === "agent" &&
     (message.streaming || message.status === "completed") &&
     !message.superseded &&
+    // A progress update enters with all of its text, as on desktop.
+    !message.progress &&
     (!message.speaker || message.speaker.kind === "agent")
   );
 }
@@ -621,33 +636,49 @@ const MessageRow = memo(function MessageRow({
   // Select text in that sheet, in a read-only field that covers it with all of its text selected.
   const selectable = Boolean(bubble?.body.trim()) && shared.canSelectText;
   const messageActions = useMessageActions(
-    bubble
-      ? {
+    bubble?.progress
+      ? // A progress update is a step of its turn, as on desktop: no reply, reaction or delete.
+        {
           messageId: bubble.id,
           copyText: messageCopyText(bubble),
           createdAt: bubble.createdAt,
-          reactions: bubble.reactions,
-          onReact: shared.canReact ? (emoji) => shared.actions.react(bubble, emoji) : undefined,
-          onReply: shared.canReply ? () => shared.actions.reply(bubble) : undefined,
-          onBranch: shared.branchPoints.has(bubble.id) ? () => shared.actions.branch(bubble) : undefined,
           onSelectText: selectable ? () => shared.actions.selectText(bubble) : undefined,
-          onDelete:
-            shared.canDelete && (shared.deletesAny || bubble.mine) ? () => shared.actions.delete(bubble) : undefined,
-          // As on desktop, only an agent's message marks the chat unread from it.
-          onMarkUnread:
-            shared.canMarkUnread && bubble.author === "agent" && shared.actions.marksUnread(bubble)
-              ? () => shared.actions.markUnread(bubble)
-              : undefined,
-          sendToChannel:
-            shared.sendChannels.length > 0 && bubble.body.trim()
-              ? {
-                  channels: shared.sendChannels,
-                  onSend: (channelId) => shared.actions.sendToChannel(bubble, channelId),
-                }
-              : undefined,
-          readAloudId: bubble.author === "agent" ? bubble.id : undefined,
+          readAloudId: bubble.id,
         }
-      : null,
+      : bubble
+        ? {
+            messageId: bubble.id,
+            copyText: messageCopyText(bubble),
+            createdAt: bubble.createdAt,
+            reactions: bubble.reactions,
+            onReact: shared.canReact ? (emoji) => shared.actions.react(bubble, emoji) : undefined,
+            onReply: shared.canReply ? () => shared.actions.reply(bubble) : undefined,
+            onBranch: shared.branchPoints.has(bubble.id) ? () => shared.actions.branch(bubble) : undefined,
+            onSelectText: selectable ? () => shared.actions.selectText(bubble) : undefined,
+            onDelete:
+              shared.canDelete && (shared.deletesAny || bubble.mine) ? () => shared.actions.delete(bubble) : undefined,
+            // As on desktop, only an agent's message marks the chat unread from it.
+            onMarkUnread:
+              shared.canMarkUnread && bubble.author === "agent" && shared.actions.marksUnread(bubble)
+                ? () => shared.actions.markUnread(bubble)
+                : undefined,
+            pinned: shared.pinnedIds.has(bubble.id),
+            onTogglePin: shared.canPin
+              ? () => shared.actions.togglePin(bubble, !shared.pinnedIds.has(bubble.id))
+              : undefined,
+            sendToChannel:
+              shared.sendChannels.length > 0 && bubble.body.trim()
+                ? {
+                    channels: shared.sendChannels,
+                    onSend: (channelId) => shared.actions.sendToChannel(bubble, channelId),
+                  }
+                : undefined,
+            readAloudId: bubble.author === "agent" ? bubble.id : undefined,
+            files: bubble.attachments?.length
+              ? { serverId: shared.serverId, attachments: bubble.attachments }
+              : undefined,
+          }
+        : null,
   );
   const {
     agents,
@@ -717,10 +748,11 @@ const MessageRow = memo(function MessageRow({
       ? shared.bubbleTone
       : undefined;
   const textColor = tone ? userForeground : foreground;
-  // A generation owns its first attachment, the image; any further files follow in order.
+  // A generation owns its first attachment, the image or the video; any further files follow in order.
   const files =
     message.kind === "message"
-      ? ((message.imageGeneration ? message.attachments?.slice(1) : message.attachments) ?? [])
+      ? ((message.imageGeneration || message.videoGeneration ? message.attachments?.slice(1) : message.attachments) ??
+        [])
       : [];
   // Two or more images in one message show together, as on desktop. A message that is still
   // sending shows the same stack at once, with the progress on each card, so it does not change
@@ -799,6 +831,8 @@ const MessageRow = memo(function MessageRow({
       <RoutineRunGroupRow key={message.id} group={message} muted={muted} />
     ) : message.kind === "context-reset" ? (
       <ContextResetMarkerRow key={message.id} muted={muted} />
+    ) : message.kind === "app-suggestion" ? (
+      <ChatAppSuggestion key={message.id} serverId={serverId} messageId={message.id} appId={message.appId} />
     ) : message.kind === "exchange-group" ? (
       <ChatExchangeGroup key={message.id} group={message} agents={agents} agentsById={agentsById} muted={muted} />
     ) : message.kind === "exchange" || message.kind === "channel-routing" ? (
@@ -853,6 +887,14 @@ const MessageRow = memo(function MessageRow({
         {message.imageGeneration ? (
           <ChatImageGeneration
             generation={message.imageGeneration}
+            status={imageGenerationStatus(message.streaming, message.status)}
+            attachment={message.attachments?.[0]}
+            serverId={serverId}
+          />
+        ) : null}
+        {message.videoGeneration ? (
+          <ChatVideoGeneration
+            generation={message.videoGeneration}
             status={imageGenerationStatus(message.streaming, message.status)}
             attachment={message.attachments?.[0]}
             serverId={serverId}
@@ -978,7 +1020,8 @@ const MessageRow = memo(function MessageRow({
       {message.author === "agent" ? (
         <ChatMessageGesture
           selecting={selecting}
-          onReply={shared.canReply ? () => actions.reply(message) : undefined}
+          // A progress update is a step of its turn: it takes no reply, as on desktop.
+          onReply={shared.canReply && !message.progress ? () => actions.reply(message) : undefined}
           onHold={messageActions.open}
         >
           {withReactions}
@@ -1039,6 +1082,54 @@ interface RowContextValue {
   unreadLineColor: string | undefined;
   /** The rows where the NEW line already arrived, so a row drawn again does not animate it again. */
   unreadLineAnimated: Set<string>;
+  /** The row of the message that the chat opened at, such as a pinned message, while it is highlighted. */
+  highlightedRowId: string | null;
+  highlightColor: string;
+  /** The rows whose highlight already showed, so a row drawn again does not show it again. */
+  highlightShown: Set<string>;
+}
+
+/** The highlight of a message that the chat opened at, as on desktop: an accent tint that fades out. */
+const FOCUS_HIGHLIGHT_OPACITY = 0.16;
+const FOCUS_HIGHLIGHT_IN_MS = 180;
+const FOCUS_HIGHLIGHT_HOLD_MS = 900;
+const FOCUS_HIGHLIGHT_OUT_MS = 700;
+/** Opacity only, so it shows with reduced motion too: it tells the reader which message opened. */
+const FOCUS_HIGHLIGHT_IN = {
+  duration: FOCUS_HIGHLIGHT_IN_MS,
+  easing: Easing.out(Easing.cubic),
+  reduceMotion: ReduceMotion.Never,
+};
+const FOCUS_HIGHLIGHT_OUT = {
+  duration: FOCUS_HIGHLIGHT_OUT_MS,
+  easing: Easing.out(Easing.cubic),
+  reduceMotion: ReduceMotion.Never,
+};
+
+function FocusHighlight({ rowId, color, shown }: { rowId: string; color: string; shown: Set<string> }) {
+  const opacity = useSharedValue(0);
+  // The list draws a row again when it comes back into view. The highlight shows once.
+  const [first] = useState(() => !shown.has(rowId));
+  useEffect(() => {
+    if (!first) return;
+    shown.add(rowId);
+    opacity.set(
+      withSequence(
+        withTiming(FOCUS_HIGHLIGHT_OPACITY, FOCUS_HIGHLIGHT_IN),
+        withDelay(FOCUS_HIGHLIGHT_HOLD_MS, withTiming(0, FOCUS_HIGHLIGHT_OUT)),
+      ),
+    );
+  }, [first, rowId, shown, opacity]);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.get() }));
+  if (!first) return null;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      className="absolute -inset-x-2 -top-1 rounded-2xl"
+      // The tint reaches 4 pt past the row, so it stays inside the gap to the next row.
+      style={[{ backgroundColor: color, bottom: CHAT_ROW_GAP - 4, borderCurve: "continuous" }, style]}
+    />
+  );
 }
 
 const RowContext = createContext<RowContextValue | null>(null);
@@ -1056,6 +1147,9 @@ function ChatRow({ message }: { message: VisibleMessage }) {
       accessibilityElementsHidden={response && !row.responseVisible}
       importantForAccessibility={response && !row.responseVisible ? "no-hide-descendants" : "auto"}
     >
+      {message.id === row.highlightedRowId ? (
+        <FocusHighlight rowId={message.id} color={row.highlightColor} shown={row.highlightShown} />
+      ) : null}
       {day ? (
         <Typography.Paragraph type="body-xs" align="center" className="pb-3 pt-1 text-muted">
           {day}
@@ -1224,6 +1318,8 @@ export const ChatMessageList = memo(function ChatMessageList({
   deletesAnyMessage = false,
   onMarkUnread,
   markUnreadMessageIds,
+  onTogglePin,
+  pinnedMessageIds = NO_IDS,
   unreadLineMessageIds = null,
   sendChannels = NO_CHANNELS,
   onSendToChannel,
@@ -1383,11 +1479,18 @@ export const ChatMessageList = memo(function ChatMessageList({
   const focusId = historyState === "ready" && rowsShown && focusIndex >= 0 ? (rows[focusIndex]?.id ?? null) : null;
   const focusHandlers = useRef({ openAt: motion.openAt, onFocusPlaced });
   focusHandlers.current = { openAt: motion.openAt, onFocusPlaced };
+  // The row that the chat opened at shows a short highlight once it is in place, as on desktop.
+  const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
+  const highlightShown = useRef(new Set<string>());
+  const highlightColor = String(useCSSVariable("--openbot-accent"));
   useEffect(() => {
     if (!focusId || !motion.listPlaced || placedFocus.current === focusId) return;
     placedFocus.current = focusId;
     // The search hold ends after the row is in view, so the chat does not move to the latest message first.
-    void focusHandlers.current.openAt(focusIndex).then(() => focusHandlers.current.onFocusPlaced?.());
+    void focusHandlers.current.openAt(focusIndex).then(() => {
+      setHighlightedRowId(focusId);
+      focusHandlers.current.onFocusPlaced?.();
+    });
   }, [focusId, focusIndex, motion.listPlaced]);
   const header = topInset + 84;
   // The latest user message can always move to the top of the chat: the list adds blank space
@@ -1416,6 +1519,7 @@ export const ChatMessageList = memo(function ChatMessageList({
     onDeleteMessage,
     onMarkUnread,
     markUnreadMessageIds,
+    onTogglePin,
     onSendToChannel,
     onSelectText,
     onSelectionChange,
@@ -1428,6 +1532,7 @@ export const ChatMessageList = memo(function ChatMessageList({
     onDeleteMessage,
     onMarkUnread,
     markUnreadMessageIds,
+    onTogglePin,
     onSendToChannel,
     onSelectText,
     onSelectionChange,
@@ -1441,6 +1546,7 @@ export const ChatMessageList = memo(function ChatMessageList({
       react: async (message, emoji) => actionHandlers.current.onReact?.(message, emoji),
       delete: async (message) => actionHandlers.current.onDeleteMessage?.(message),
       markUnread: (message) => actionHandlers.current.onMarkUnread?.(message),
+      togglePin: async (message, pinned) => actionHandlers.current.onTogglePin?.(message, pinned),
       marksUnread: (message) => actionHandlers.current.markUnreadMessageIds?.has(message.id) ?? true,
       sendToChannel: (message, channelId) => actionHandlers.current.onSendToChannel?.(message, channelId),
       selectText: (message) => actionHandlers.current.onSelectText?.(message),
@@ -1484,6 +1590,8 @@ export const ChatMessageList = memo(function ChatMessageList({
   const canReact = Boolean(onReact);
   const canDelete = Boolean(onDeleteMessage);
   const canMarkUnread = Boolean(onMarkUnread);
+  const canPin = Boolean(onTogglePin);
+  const shownPinnedIds = onTogglePin ? pinnedMessageIds : NO_IDS;
   const shownSendChannels = onSendToChannel ? sendChannels : NO_CHANNELS;
   const canSelectText = Boolean(onSelectText);
   const canSelectQuestion = Boolean(onSelectQuestion);
@@ -1517,6 +1625,8 @@ export const ChatMessageList = memo(function ChatMessageList({
       canDelete,
       deletesAny: deletesAnyMessage,
       canMarkUnread,
+      canPin,
+      pinnedIds: shownPinnedIds,
       sendChannels: shownSendChannels,
       canSelectText,
       canSelectQuestion,
@@ -1551,6 +1661,8 @@ export const ChatMessageList = memo(function ChatMessageList({
       canDelete,
       deletesAnyMessage,
       canMarkUnread,
+      canPin,
+      shownPinnedIds,
       shownSendChannels,
       canSelectText,
       canSelectQuestion,
@@ -1630,6 +1742,9 @@ export const ChatMessageList = memo(function ChatMessageList({
       unreadLineRowId,
       unreadLineColor,
       unreadLineAnimated: unreadLineAnimated.current,
+      highlightedRowId,
+      highlightColor,
+      highlightShown: highlightShown.current,
     }),
     [
       shared,
@@ -1650,6 +1765,8 @@ export const ChatMessageList = memo(function ChatMessageList({
       rowBranchDivider,
       unreadLineRowId,
       unreadLineColor,
+      highlightedRowId,
+      highlightColor,
     ],
   );
   const activitySpec = (activity?: MobileAgentActivity): ChatActivitySpec | null => {
@@ -1665,10 +1782,9 @@ export const ChatMessageList = memo(function ChatMessageList({
         (!activity?.agentId || !message.speaker || message.speaker.id === activity.agentId),
     );
     // One run of text, as desktop shows it: the row clamps the label, and blank lines would fill it.
-    const thinkingDetail =
-      !replying && latestThinking?.kind === "thinking"
-        ? latestThinking.steps.at(-1)?.text.replace(/\s+/gu, " ").trim()
-        : null;
+    const latestStep = !replying && latestThinking?.kind === "thinking" ? latestThinking.steps.at(-1) : undefined;
+    // A progress update shows as a message, so the row does not say it again.
+    const thinkingDetail = latestStep && !latestStep.progress ? latestStep.text.replace(/\s+/gu, " ").trim() : null;
     const activityLabel =
       sending && !activity
         ? t("common.sending")

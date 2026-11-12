@@ -208,6 +208,9 @@ Environment; a local deployment reads it from the encrypted `.env.production`.
 
 `SERVER_CLAIMS_ADMIN_TOKEN` lets an operator sign a new server in for a user without an email code: see
 [server claims](../../docs/self-hosted-server.md#sign-in-with-a-server-claim). Without it, the endpoint answers 401.
+The encrypted `.env.production` has it, so `scripts/hosting/leaseweb-pool.ts custom` can sign a custom
+server in for its owner. GitHub Actions reads it from the `cloudflare-production` Environment. When you
+change it, change it in both places and deploy the Worker.
 
 Use `bun run api:deploy:test` for the isolated `openbot-auth-api-test` Worker
 and the `openbot-auth-test` D1 database.
@@ -323,6 +326,12 @@ ticket names `REMOTE_SIGNAL_URL`, as before.
   until it sends that home's URL as `failedSignalUrl`. Session tickets of the host name the same
   home. Other host tickets (ingress, the webhook relay, released hosts) and hosts with no home use
   `REMOTE_SIGNAL_URL`, which stays the entry Signal.
+- `REMOTE_SIGNAL_HOME_LOCATIONS`: the place of each home, as `id=latitude:longitude,...`, for example
+  `a=60.17:24.94,us=37.34:-121.89`. Empty means no places. Otherwise it must name each home of
+  `REMOTE_SIGNAL_HOMES` one time, or each ticket request fails with `503 remote_not_configured`. With
+  places, a host gets one of the homes at most 1000 km farther from it than the nearest home, from the
+  Cloudflare request location. A host keeps its home while that home is near; otherwise it moves at its
+  next ticket. The variable has no effect when `REMOTE_SIGNAL_HOMES` is empty.
 - `REMOTE_AUTH_WEBHOOK_URLS`: each Signal that gets the auth events, as `url,url`. Empty means
   `REMOTE_AUTH_WEBHOOK_URL` only. The outbox deletes an event when each URL accepted it, and sends it
   again only to the URLs that failed.

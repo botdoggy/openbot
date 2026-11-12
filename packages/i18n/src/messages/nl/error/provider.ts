@@ -183,6 +183,8 @@ export const messages = {
   "error.provider.cliBusyUpdate": "De {provider} CLI werkt aan een beurt. Wacht tot die klaar is en werk dan bij.",
   "error.provider.cliSelectFailed": "OpenBot kon de geïnstalleerde beheerde CLI niet selecteren.",
   "error.provider.noAuthenticatedAccount": "{provider} gaf geen geverifieerd account terug.",
+  "error.provider.codexModelProvider":
+    "Codex op deze computer gebruikt een andere modelaanbieder, en die aanbieder gebruikt geen ChatGPT-aanmelding of OpenAI-API-sleutel. ChatGPT-agents kunnen die aanbieder nu gebruiken. Zet de modelaanbieder van Codex terug op OpenAI om je ChatGPT-account te gebruiken.",
   "error.provider.signInExpired": "Je inlog bij {provider} is verlopen. Log opnieuw in om door te gaan.",
   "error.provider.cliActivateFailed": "OpenBot kon de beheerde CLI niet activeren.",
   "error.provider.noMainlandChinaSignIn": "{provider} heeft geen aanmelding voor het Chinese vasteland.",
@@ -301,6 +303,8 @@ export const messages = {
   "error.provider.hermesVersionUnreadable": "De versie van Hermes Agent kan niet worden gelezen.",
   "error.provider.hermesSignIn":
     "Log in met Nous Portal of voer `hermes setup` uit in een terminal om Hermes te gebruiken.",
+  "error.provider.hermesTurnFailed":
+    "Hermes kon deze beurt niet afmaken. Als het antwoord een reden geeft, volg die dan. Zo niet, dan is een MCP-server van deze agent misschien niet beschikbaar: controleer hem in Serverinstellingen › MCP en stuur je bericht opnieuw.",
   "error.provider.usageLimitReached": "Het account heeft de gebruikslimiet bereikt.",
   "error.provider.claudeContextFull":
     "Deze chat is te lang geworden voor Claude. OpenBot heeft een nieuwe Claude Code-sessie gestart met de chatgeschiedenis. Probeer het opnieuw.",

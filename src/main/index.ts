@@ -454,6 +454,8 @@ const remoteAccountGate = Semaphore.makeUnsafe(1);
 const macHapticFeedback = new MacHapticFeedback();
 let isQuitting = false;
 let shutdownStarted = false;
+/** The teardown ended, also by an error. Until then `before-quit` holds every quit request. */
+let shutdownDone = false;
 let systemSessionEnding = false;
 let systemSessionEndFlushStarted = false;
 let relaunchRequested = false;
@@ -611,6 +613,7 @@ const windows = createMainWindowController({
   quitFromShortcut: () => quitFor("shortcut"),
   workingAgents,
   quitGuard,
+  onHiddenWhileWorking: (hidden) => backgroundTray?.setHiddenWhileWorking(hidden),
 });
 
 let appIconColorImage: NativeImage | undefined;
@@ -759,6 +762,7 @@ function registerIpcHandlers({
   approvalAutomation,
   agentAdminSettings,
   agentHostSettings,
+  agentDefaultsSettings,
   agentFolders,
   agentInstructions,
   browserProfiles,
@@ -774,6 +778,7 @@ function registerIpcHandlers({
   skillLearning,
   browsingMemory,
   agentAccess,
+  mcpAccess,
   serverAudit,
   teamStore,
   serverTimezone,
@@ -828,6 +833,7 @@ function registerIpcHandlers({
   cuaDriver,
   computerUsePermissionHelp,
   storageUsage,
+  libraryFoldersService,
   machineAlerts,
   trace,
   resourceMonitor,
@@ -985,6 +991,7 @@ function registerIpcHandlers({
     }),
     ...teamIpcHandlers({
       host,
+      localServers,
       remoteDesktop,
       remoteServers,
       takePendingInvite: () => takePendingDeepLink("invite")?.url ?? null,
@@ -1006,6 +1013,7 @@ function registerIpcHandlers({
     ...agentAdminIpcHandlers({
       settings: agentAdminSettings,
       hostSettings: agentHostSettings,
+      defaultsSettings: agentDefaultsSettings,
       browserProfiles,
       skills,
       marketplaceAgents,
@@ -1053,6 +1061,7 @@ function registerIpcHandlers({
     }),
     ...mcpServerIpcHandlers({
       service,
+      mcpAccess,
       remoteServers,
       startToolRuntimes: () => {
         Effect.runFork(providerRuntimes.ensureToolRuntimes());
@@ -1070,6 +1079,7 @@ function registerIpcHandlers({
     }),
     ...storageIpcHandlers({
       storage: storageUsage,
+      libraryFolders: libraryFoldersService,
       machine: machineAlerts,
       providerRuntimes,
       mailbox,
@@ -1082,6 +1092,7 @@ function registerIpcHandlers({
     ...agentIpcHandlers({
       service,
       sidebarLayout,
+      libraryFolders: libraryFoldersService,
       sidebarPins,
       host,
       remoteServers,
@@ -1986,8 +1997,13 @@ app.on("before-quit", (event) => {
       );
     return;
   }
-  if (shutdownStarted) return;
+  // The quit that follows the teardown.
+  if (shutdownDone) return;
   event.preventDefault();
+  // A second request while the teardown runs. Outside macOS, the close of the last window sends one
+  // through `window-all-closed` right after the first. Electron would end the process on it at
+  // once, in the middle of the teardown, and the next start would count an unclean exit.
+  if (shutdownStarted) return;
   void prepareForShutdown().finally(() => app.quit());
 });
 
@@ -2056,15 +2072,19 @@ async function prepareForShutdown(deadlineMs = SHUTDOWN_DEADLINE_MS): Promise<vo
   isQuitting = true;
   hideExceptionErrorBox();
   forceExitAfterShutdownDeadline(deadlineMs);
-  if (services) Effect.runFork(services.updater.stop());
-  await runCauseEffect(windows.flushMainWindowBounds()).catch((error) =>
-    logger.error("Unable to save the main window position:", toLogValue(error)),
-  );
-  // After the bounds are saved.
-  hideWindowsForQuit();
-  services?.dynamicIsland.destroy();
-  services?.agentDock.destroy();
-  macHapticFeedback.destroy();
-  await teardown.runAll();
-  runMarker?.clean();
+  try {
+    if (services) Effect.runFork(services.updater.stop());
+    await runCauseEffect(windows.flushMainWindowBounds()).catch((error) =>
+      logger.error("Unable to save the main window position:", toLogValue(error)),
+    );
+    // After the bounds are saved.
+    hideWindowsForQuit();
+    services?.dynamicIsland.destroy();
+    services?.agentDock.destroy();
+    macHapticFeedback.destroy();
+    await teardown.runAll();
+    runMarker?.clean();
+  } finally {
+    shutdownDone = true;
+  }
 }

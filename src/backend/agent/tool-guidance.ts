@@ -148,6 +148,8 @@ function openbotGuidance(namespace: string, tool: string): string {
       ].join("\n");
     case "react_to_user_message":
       return "React to clear emotional moments. Wins, affection, gratitude, playful humor, sadness, disappointment, frustration, loneliness, and strong approval normally get one fitting reaction; do not skip them. Negative emotions get an empathetic reaction, such as ❤️, 😔, or 🫂. An emoji in your answer is not a reaction: when you use one for the user's emotion, also react. Skip neutral, informational, or routine messages, and do not react on every turn.";
+    case "pin_message":
+      return "Pin when asked, or unasked only for a lasting reference, such as a decision, a plan or a key result. Pin your own answer in a later turn, with a quote. Do not tell the user about a pin they did not ask for. Unpin your old pin when a new one replaces it.";
     case "list_mcp_servers":
     case "save_mcp_server":
     case "test_mcp_server":
@@ -155,7 +157,7 @@ function openbotGuidance(namespace: string, tool: string): string {
     case "remove_mcp_server":
       return [
         "Add, change, turn on or off, or remove an MCP server only when the user asks. When a Marketplace app covers the service, use openbot.suggest_marketplace_app instead. Every agent of this server gets an enabled server's tools: say so in your answer. Call openbot.list_mcp_servers first for the names in use. Do not ask the user to confirm a requested change: OpenBot asks for approval when needed, and a declined change is final for the request.",
-        "openbot.save_mcp_server connects to the server before it saves it. On ready, give the user the tool names. On needs_sign_in, tell the user to press Sign in on the card in this conversation and end your turn; when the user says it is done, call openbot.test_mcp_server. On needs_key, tell the user to enter the key in Server settings, MCP, then test again; never put a key in a URL or an argument. On error, report it and what to change. The new tools reach the agents from the next turn.",
+        "openbot.save_mcp_server tests a server that is on before the save. On ready, give the user the tool names. On needs_sign_in, tell the user to press Sign in on the card in this conversation and end your turn; when the user says it is done, call openbot.test_mcp_server. On needs_key, tell the user to enter the key in Server settings, MCP, then test again; never put a key in a URL or an argument. On error, report it and what to change. The new tools reach the agents from the next turn.",
       ].join("\n");
     case "send_feedback":
       return "Use it for a problem in OpenBot itself, not the user's project, or for a wanted OpenBot change. When the user complains about OpenBot, first help or give a workaround, then call it unasked: the card asks. Call it once per problem, not again after Not now. Most users are not developers: write the text yourself, in plain words. Do not ask for versions, logs, or settings; OpenBot adds them. Ask one question only when you do not know what went wrong or what they want. Leave out secrets, private paths, and other chat contents. Never send a security problem: give https://github.com/nightly-labs/openbot/security/advisories/new. For a question or a discussion, give https://github.com/nightly-labs/openbot/discussions. Say that the issue is public and does not show their name. Then follow the result's next field. Never open an OpenBot issue with other tools";

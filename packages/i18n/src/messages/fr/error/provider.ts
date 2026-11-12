@@ -200,6 +200,8 @@ export const messages = {
   "error.provider.cliBusyUpdate": "La CLI {provider} traite un tour. Attendez la fin, puis mettez à jour.",
   "error.provider.cliSelectFailed": "OpenBot n’a pas pu sélectionner la CLI gérée installée.",
   "error.provider.noAuthenticatedAccount": "{provider} n’a renvoyé aucun compte authentifié.",
+  "error.provider.codexModelProvider":
+    "Sur cet ordinateur, Codex utilise un autre fournisseur de modèles, et ce fournisseur n’utilise ni connexion ChatGPT ni clé d’API OpenAI. Les agents ChatGPT peuvent utiliser ce fournisseur dès maintenant. Pour utiliser votre compte ChatGPT, remettez OpenAI comme fournisseur de modèles de Codex.",
   "error.provider.signInExpired": "Votre connexion à {provider} a expiré. Reconnectez-vous pour continuer.",
   "error.provider.cliActivateFailed": "OpenBot n’a pas pu activer la CLI gérée.",
   "error.provider.noMainlandChinaSignIn": "{provider} n’a pas de connexion pour la Chine continentale.",
@@ -321,6 +323,8 @@ export const messages = {
   "error.provider.hermesVersionUnreadable": "Impossible de lire la version de Hermes Agent.",
   "error.provider.hermesSignIn":
     "Connectez-vous avec Nous Portal ou exécutez `hermes setup` dans un terminal pour utiliser Hermes.",
+  "error.provider.hermesTurnFailed":
+    "Hermes n’a pas pu terminer ce tour. Si sa réponse donne une raison, suivez-la. Sinon, un serveur MCP de cet agent est peut-être indisponible : vérifiez-le dans Réglages du serveur › MCP, puis renvoyez votre message.",
   "error.provider.usageLimitReached": "Le compte a atteint sa limite d’utilisation.",
   "error.provider.claudeContextFull":
     "Cette conversation est devenue trop longue pour Claude. OpenBot a ouvert une nouvelle session Claude Code avec l’historique de la conversation. Réessayez.",

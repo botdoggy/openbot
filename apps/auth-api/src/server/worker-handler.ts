@@ -1,11 +1,13 @@
 import { Effect, Result } from "effect";
 import { routeRequest as routeHostedSiteRequest } from "../../../site-router/src/index";
+import { createAccountAnalytics } from "./account-analytics";
 import { type AuthRetentionResult, pruneExpiredAuthData } from "./auth-data-retention";
 import { BillingSales } from "./billing-sales";
 import { captureBillingSnapshot } from "./billing-snapshots";
 import { canonicalHostRedirect, permanentTrailingSlashRedirect } from "./canonical-redirect";
 import { runApiEffect } from "./effect-runtime";
 import { createHostedBilling } from "./hosted-billing";
+import { readHostedPool } from "./hosted-pool-snapshot";
 import type { HostedServerBindings } from "./hosted-server-service";
 import { HostedSiteService } from "./hosted-site-service";
 import { enforceMarketplaceIngress, MarketplaceRateLimitError } from "./marketplace-request-policy";
@@ -98,7 +100,13 @@ export function createWorkerHandler(
     ) {
       const bindings = { ...workerBindings, DB: observedD1(workerBindings.DB) };
       if (controller.cron === SIGNAL_ENTRY_CRON) {
-        await runSignalEntryCheck(bindings);
+        // The pool snapshot runs each minute beside the entry check. The entry check can change DNS, so
+        // a failed snapshot fails the run only after the check ends. The first failure fails the run.
+        const results = await Promise.allSettled([
+          runSignalEntryCheck(bindings),
+          runApiEffect(tickHostedPool(bindings, controller.scheduledTime)),
+        ]);
+        for (const result of results) if (result.status === "rejected") throw result.reason;
         return;
       }
       const now = controller.scheduledTime;
@@ -166,6 +174,27 @@ const tickSalesAnalytics = Effect.fn("SalesAnalytics.tick")(function* (bindings:
   console.info("Sales analytics delivery completed.", result);
   yield* payments;
   yield* snapshot;
+});
+
+/**
+ * Each minute, the machines of the operator by location, product and state, for the "Server pool" dashboard
+ * (docs/hosted-servers.md#reuse-a-pool-machine). Its reports count one snapshot in each minute. The scheduled
+ * handler has no `waitUntil`, so the run waits for each send.
+ */
+const tickHostedPool = Effect.fn("HostedPool.tick")(function* (bindings: SalesBindings, now: number) {
+  if (!bindings.OPENPANEL_CLIENT_ID?.trim() || !bindings.OPENPANEL_CLIENT_SECRET?.trim()) return;
+  const groups = yield* readHostedPool(bindings.DB, now);
+  if (groups.length === 0) return;
+  const sends: Effect.Effect<void>[] = [];
+  const analytics = createAccountAnalytics({
+    clientId: bindings.OPENPANEL_CLIENT_ID,
+    clientSecret: bindings.OPENPANEL_CLIENT_SECRET,
+    fetch: (input, init) => fetch(input, init),
+    schedule: (send) => sends.push(send),
+    database: bindings.DB,
+  });
+  for (const group of groups) analytics.track(null, { name: "hosted_pool_snapshot", group });
+  yield* Effect.all(sends, { concurrency: "unbounded", discard: true });
 });
 
 const checkoutReturnResponse = Effect.fn("BillingSales.returnResponse")(function* (

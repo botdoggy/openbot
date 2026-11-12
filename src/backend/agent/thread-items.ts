@@ -275,6 +275,7 @@ type ToolUsageKind =
   | "web_fetch"
   | "mcp"
   | "image_generation"
+  | "video_generation"
   | "subagent"
   | "other";
 
@@ -302,6 +303,7 @@ const CODEX_ITEM_KINDS = new Map<string, ToolUsageKind>([
   ["webSearch", "web_search"],
   ["imageGeneration", "image_generation"],
   ["image_generation_call", "image_generation"],
+  ["videoGeneration", "video_generation"],
   ["collabAgentToolCall", "subagent"],
 ]);
 
@@ -617,6 +619,7 @@ const TOOL_USAGE_ACTIVITIES: Readonly<Record<ToolUsageKind, AgentStepActivity>> 
   web_fetch: "browsing",
   mcp: "working",
   image_generation: "editing",
+  video_generation: "editing",
   subagent: "delegating",
   other: "working",
 };

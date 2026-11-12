@@ -144,6 +144,11 @@ export const messages = defineMessages("marketplace", {
   // The plugin page section with one row for each app, and the row text by how the app connects.
   // {name} is the app name, {field} the label of its key field, {host} "this computer" or a server name.
   "marketplace.app.connection": "Connection",
+  "marketplace.app.access.use": "Can use",
+  "marketplace.app.access.noAgents": "No agents",
+  "marketplace.app.access.agentsOf": "Agents that can use {name}",
+  "marketplace.app.access.chooseAgents": "{name}: {summary}. Choose agents",
+  "marketplace.app.access.level": "Access of {role} to {name}",
   "marketplace.app.setup.account": "Sign in with your {name} account in the browser.",
   "marketplace.app.setup.key": "Needs an API key from your {name} account.",
   "marketplace.app.setup.keySaved": "{field} saved on {host}.",
@@ -579,6 +584,14 @@ export const messages = defineMessages("marketplace", {
   "marketplace.skills.origin.local": "Made on this computer",
   "marketplace.skills.origin.workspace": "In this agent's folder",
   "marketplace.skills.origin.marketplace": "From the Marketplace · version {version}",
+  "marketplace.skills.origin.github": "From GitHub · {repository}",
+  // A GitHub link in the Skills search. {repository} is "owner/name". {commit} is a short commit ID.
+  "marketplace.skills.github.search": "Search, or paste a GitHub link",
+  "marketplace.skills.github.reading": "Looking for skills in the repository",
+  "marketplace.skills.github.trust": "OpenBot did not review skills from GitHub. Read a skill before you add it.",
+  "marketplace.skills.github.source": "GitHub · {repository} at {commit}",
+  "marketplace.skills.github.open": "GitHub",
+  "marketplace.skills.github.openName": "Open {repository} on GitHub",
   "marketplace.skills.status.notAdded": "Not added",
   "marketplace.skills.status.on": "On {agents}",
   "marketplace.skills.agentCount": { one: "{count} agent", other: "{count} agents" },

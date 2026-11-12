@@ -160,6 +160,8 @@ export const messages = {
   "error.provider.cliBusyUpdate": "{provider} CLI 正在处理对话，请等它结束后再更新。",
   "error.provider.cliSelectFailed": "OpenBot 无法选择已安装的托管 CLI。",
   "error.provider.noAuthenticatedAccount": "{provider} 未返回已验证的账号。",
+  "error.provider.codexModelProvider":
+    "此电脑上的 Codex 使用其他模型提供方，该提供方不使用 ChatGPT 登录或 OpenAI API 密钥。ChatGPT 智能体现在可以使用该提供方。要使用你的 ChatGPT 账号，请将 Codex 的模型提供方改回 OpenAI。",
   "error.provider.signInExpired": "你的 {provider} 登录已过期，请重新登录以继续。",
   "error.provider.cliActivateFailed": "OpenBot 无法激活托管的 CLI。",
   "error.provider.noMainlandChinaSignIn": "{provider} 没有中国大陆的登录方式。",
@@ -266,6 +268,8 @@ export const messages = {
   "error.provider.hermesNotStarted": "无法启动 Hermes Agent。请在终端中运行 `hermes --version`。",
   "error.provider.hermesVersionUnreadable": "无法读取 Hermes Agent 的版本。",
   "error.provider.hermesSignIn": "要使用 Hermes，请使用 Nous Portal 登录，或在终端中运行 `hermes setup`。",
+  "error.provider.hermesTurnFailed":
+    "Hermes 未能完成本轮。如果它的回复说明了原因，请按回复操作。如果没有，此智能体的某个 MCP 服务器可能不可用：请在 服务器设置 › MCP 中检查，然后重新发送消息。",
   "error.provider.usageLimitReached": "该账号已达到用量上限。",
   "error.provider.claudeContextFull":
     "此聊天对 Claude 来说已经太长。OpenBot 已带着聊天记录开启新的 Claude Code 会话，请重试。",
