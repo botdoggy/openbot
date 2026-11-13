@@ -137,6 +137,9 @@ Two deferred tools recover omitted text without model calls for search or summar
   Each excerpt is at most 400 characters. Its serialized tool result is at most 8,000 characters.
 - `history_read` returns recent messages, a named message, or a page before a returned cursor or
   a returned `messageId` of the same conversation.
+  A read of one visual reply by its `messageId` gives the page title and then the text of the page
+  (`visual-page-text.ts`); a page with no text outside its scripts gives its source. In a list, a
+  visual reply has only its title and a `page` hint.
   It returns ten messages by default and twenty maximum, within a 16,000-character serialized result.
   `nextOffset` continues a large message. With `includeWorkSteps`, `nextWorkStepsOffset` can be passed
   as `workStepsOffset` to continue a large or heavily escaped capture. Captures contain selected work
@@ -685,12 +688,16 @@ the provider's serialized connection command. It refuses a provider that is runn
 deliveries while it writes, and reports success only after a new process runs with the new key.
 
 OpenCode reports OpenCode Zen and OpenCode Go as a single catalog, on the separate endpoints
-`opencode.ai/zen/v1` and `opencode.ai/zen/go/v1`, and OpenBot supports only Go. So `isOpencodeModelUnusableWithStoredKey` in `src/backend/agent/provider-models.ts`
-drops the paid Zen models from `ModelCatalog.refresh` (through the OpenCode driver's
-`catalog.usableWithStoredKey`) while OpenBot is the one supplying the key;
-with no key stored those models can only come from the user's own OpenCode sign-in, which does
-buy them. Neither `/models` endpoint authenticates, so entitlement cannot be read back and the
-split is a product rule rather than a check.
+`opencode.ai/zen/v1` and `opencode.ai/zen/go/v1`, and OpenBot supports only Go. The saved key goes
+only to the `opencode-go` provider, so OpenCode lists a paid Zen model only when the user signed in
+to Zen in OpenCode itself (`opencode auth login`). That sign-in buys the model, so the catalog shows
+each model that OpenCode lists. Checked in OpenCode 2.2.5 and 2.3.0: a key on `opencode-go` lists
+the Go models and no paid Zen model (#6185).
+
+OpenCode first lists the models of a cached or built-in catalog and fetches the new catalog in the
+background, about 3 s later. A first start of OpenCode 2.2.5 listed 80 of 88 models. The OpenCode
+driver thus sets `catalog.relistAfterStart`: the list is read again 5 s after each start, and agents
+do not leave a model that only the first list lacks.
 
 The CLI reports no Go quota over ACP. `readOpenCodeGoUsage` (`src/backend/opencode-usage.ts`)
 sends `opencode.ai/zen/go/v1/usage` the key the CLI uses. A saved key is the only key: the CLI
@@ -731,15 +738,16 @@ one with `-32000` "provider authentication required" and no provider ID. `OPENCO
 maps that code to `error.provider.opencodeAuthRequired`, which names the provider from the model ID
 before its first `/` and lists the fixes: a Free model, a Go key, or `opencode auth login`.
 
-#### Turns of a background subagent
+#### Turns of a background subagent or shell command
 
 OpenCode 2.2.0 sends session updates only for the execution that a `session/prompt` starts. When a
 background subagent ends, OpenCode answers its result in a turn of its own (a `synthetic` row with
-`source: subagent` in its store), and no update of that turn reaches the client (#3406). The flag
+`source: subagent` in its store), and no update of that turn reaches the client (#3406). A shell
+command that runs in the background does the same when it ends (#7713). The flag
 `unsentBackgroundTurns` of `OPENCODE_ACP_FLAVOR` turns on the recovery in `acp-client.ts`:
 
-- A tool call that ends with `rawOutput.metadata.status` "running" and a `sessionID` started a
-  background task. OpenBot then watches the session for 30 minutes, and longer while it changes.
+- A tool call that ends with `rawOutput.metadata.status` "running" and a `sessionID` (a subagent)
+  or a `shellID` (a shell command, OpenCode 2.2.7) started a background task. OpenBot then watches the session for 30 minutes, and longer while it changes.
   The idle pool does not close a watched session, because a closed one never reports the result.
 - Every 2 seconds, when no prompt runs or opens, OpenBot reads `session/list`. When the session's
   `updatedAt` changes, it sends `session/load` with the session's own MCP servers, and collects the
@@ -817,6 +825,13 @@ servers too. On Linux the CLI still opens the sign-in page with `xdg-open` (chec
 a new `antigravity-oauth-token` once, with an expired access token that the CLI refreshes, and writes
 the marker `openbot-token-imported`. An account whose `settings.json` names another sign-in method gets
 no copy. The old file stays, and after a sign-out the marker stops a second copy.
+
+When the CLI cannot open `settings.json`, it has no sign-in method and answers `authRequired`. A sign-in
+succeeds but cannot save the method, so the next process is refused again (#6200). On that answer
+OpenBot reads the file itself (`antigravitySettingsUnreadable`). Any failure except a missing file fails
+the start with a message that names the action: remove and add the account again, or, for the own
+sign-in, quit the other apps that use Gemini and open OpenBot again. The row is in error, not signed out,
+and keeps that message after the start limit, because a refresh cannot repair it (`#startStoppedMessage`).
 
 Sign in is an ACP `authenticate` call with `oauth-personal`, in a separate process
 (`src/backend/acp-sign-in.ts`). The CLI writes no sign-in link; it runs `open` (macOS) or `xdg-open`
@@ -978,6 +993,21 @@ user's permissions. `cursorStatePaths` lets it write `~/.cursor` and protects th
 hooks, rules, MCP and permission files there and in the CLI config folder, and the
 `.workspace-trusted` and `mcp-approvals.json` files in each folder in `projects`. Migration 24 adds
 `cursor` to `projection_provider_sessions`.
+
+The CLI holds one sign-in for each computer user: `auth.json` in a fixed folder, or the login
+Keychain on macOS, and `CURSOR_CONFIG_DIR` moves only its settings. So a Cursor account after the
+first is not a home folder but one Cursor API key (`ProviderKeyAccountSupport` in
+`provider-drivers.ts`, `accountSignIn: "key"` in the descriptor). `ProviderCredentialStore` keeps the
+key encrypted under `cursor:<account id>`. `ProviderAccounts.connectKey` first asks Cursor whether it
+accepts the key (`checkCursorApiKey`, the CLI's own `POST /auth/exchange_user_api_key`), because the
+CLI answers a refused key and a failed connection with the same internal error. A process of the
+account gets `CURSOR_API_KEY`, an empty `CURSOR_AUTH_TOKEN` and `AGENT_CLI_CREDENTIAL_STORE=memory`.
+With the memory store the CLI (checked on 2026.10.01) does not read the sign-in of the computer user
+and does not replace it with the tokens of the key; without it, the key's tokens overwrite that
+sign-in. The variable is not in Cursor's documentation. So a CLI before 2026.10.01 offers no account
+after the first (`supports` of the driver). A key account has no browser sign-in, no CLI
+sign-out and no usage reading, and it is not in an account pool. A joined server adds one through
+`provider-account-keys-v1`; the released sign-in routes of `provider-accounts-v1` refuse it.
 
 The CLI reports no usage over ACP. The driver's `readRateLimits` (`src/backend/cursor-usage.ts`)
 sends the request that the CLI sends itself, `aiserver.v1.DashboardService/GetCurrentPeriodUsage`
@@ -1448,6 +1478,30 @@ After the answer `reset`, or `nothingToReset` (no limit of the account is spent)
 Settings > Providers shows **Reset usage** in the ⋯ menu of a connected account that has a credit.
 The confirmation names the credits left, and the answer shows under the accounts. A joined server
 uses the optional `provider-usage-reset-v1` routes (see [Admin capabilities](servers.md#admin-capabilities)).
+
+### Work on credits
+
+A ChatGPT plan can have credits: when a plan window is spent, Codex keeps taking turns and spends
+them (issues #4013 and #6046). The `rateLimits` snapshot of `account/rateLimits/read` holds
+`credits: { hasCredits, unlimited, balance }` for the `codex` bucket; a model's own bucket has `null`.
+`decodeRateLimitCredits` (`src/backend/protocol.ts`) keeps only whether credits remain
+(`hasCredits || unlimited`), and `normalizeAccountUsage` puts it in `AccountUsageLimit.creditsAvailable`.
+A full reading with `null` sets `false`. An `account/rateLimits/updated` push with `null` keeps the
+last value, as Codex's own view does. OpenBot does not show the balance, and it does not read
+`ordinaryUsageAllowed`: a turn still goes to Codex, and Codex decides if it uses credits.
+
+`spentUsageWindow` (`packages/team-client/src/plan-limits.ts`) gives `onCredits` for such an account.
+Then the composer shows **Using credits** in place of **Usage limit reached**, with the plan reset
+time, and the model picker and the iPhone agent screen do not mark the model as stopped. A notice
+closed while on credits shows again when the credits run out.
+
+The released usage routes and the `usage-changed` event of the Team API send only `id`, `primary` and
+`secondary`. A joined server reads the flag with the optional `usage-credits-v1` route (see
+[Admin capabilities](servers.md#admin-capabilities)) each time it reads usage, and `withUsageCredits`
+adds it. A limit from an event has no flag, so `keepUsageCredits` keeps the last one. When the flag of
+a client's own quota changes, `ProviderRuntime.#noteCredits` sends `usage-credits-changed`, an event
+with no data that only `usage-credits-v1` peers get, and the client reads the usage again. A host
+without the capability gives no flag, and the client shows **Usage limit reached** as before.
 
 ### Disconnect the own sign-in
 

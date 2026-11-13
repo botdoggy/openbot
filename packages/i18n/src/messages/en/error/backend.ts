@@ -115,6 +115,7 @@ export const messages = defineMessages("error.backend", {
   "error.backend.memoryOperationFailed": "The memory operation failed. Try again.",
   "error.backend.memoryGone": "This memory no longer exists.",
   "error.backend.routineGone": "This routine no longer exists.",
+  "error.backend.routineRunGone": "This routine run no longer exists.",
   "error.backend.turnNotStarted": "The provider did not start this turn.",
   "error.backend.routineResultConnectionOff": "This messaging connection is off or removed. Choose another place.",
   "error.backend.routineResultNoDelivery": "This run has no answer to send again.",
@@ -262,6 +263,14 @@ export const messages = defineMessages("error.backend", {
     "{provider} could not use the MCP server {name}, because the server asks for a sign-in. Open the MCP settings and choose Sign in.",
   "error.backend.mcpServerFailedForProvider":
     "{provider} could not start the MCP server {name}. Open the MCP settings and choose Test connection to see the cause.",
+  "error.backend.mcpAppReconnect":
+    "{name} on ChatGPT asks you to sign in again. Reconnect {name} on ChatGPT, then ask the agent again.",
+  "error.backend.mcpServerSignInPage":
+    "The MCP server {name} asked you to sign in on a web page. OpenBot does not open this page for a server, so it declined. Open the MCP settings and sign in to {name}, then ask the agent again.",
+  "error.backend.mcpServerRequestDeclined":
+    "The MCP server {name} asked for something that OpenBot cannot show, so OpenBot declined it.",
+  "error.backend.mcpRequestDeclined":
+    "An MCP server asked for something that OpenBot cannot show, so OpenBot declined it.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot could not start its local sign-in connection for this server. Restart OpenBot, then try again.",
   "error.backend.mcpOAuthSignInNeeded":
@@ -357,6 +366,8 @@ export const messages = defineMessages("error.backend", {
   "error.backend.browserProxySignInRefused": "The proxy {name} refused the sign-in, so the page did not open.",
   "error.backend.browserProxyComputerUnreachable":
     "The computer that this profile uses does not answer, so the page did not open.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "The computer that this profile uses opens only public sites. It does not open addresses on a local network, so the page did not open.",
   "error.backend.browserCertificateUntrusted":
     "The security certificate of this site is not trusted, so the page did not open.",
   "error.backend.browserLowMemory":

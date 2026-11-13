@@ -64,6 +64,8 @@ export interface AgentTasksHooks {
    * choice. Absent in tests: every custom agent runs one turn at a time then.
    */
   customAgents?(): readonly { id: string; concurrentTurns?: boolean | undefined }[];
+  /** The task limit of an agent that has no limit of its own on this host. */
+  defaultTaskLimit(): number;
   /** Why the drain holds the next message of this task, as the drain names it, or null. Read late. */
   hold(agentId: string, taskId: string): string | null;
   /** A message is queued in a task: the queue and the drain take it. */
@@ -141,7 +143,9 @@ export class AgentTasks implements TaskLanes {
 
   limit(agentId: string): number {
     const agent = this.#hooks.agent(agentId);
-    return agent ? agentTaskLimit(agent, this.#hooks.customAgents?.() ?? []) : 1;
+    return agent
+      ? agentTaskLimit(agent, this.#hooks.customAgents?.() ?? [], this.#hooks.defaultTaskLimit())
+      : 1;
   }
 
   /**

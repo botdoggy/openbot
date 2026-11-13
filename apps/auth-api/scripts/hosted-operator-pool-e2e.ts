@@ -64,6 +64,10 @@ async function run() {
   ] as const) {
     machine.run(id, location, product, removedAt);
   }
+  // Two machines wait for a new server. Only the free one counts as ready, and only while it was seen.
+  database
+    .prepare("UPDATE operator_hosts SET assign_token_hash = 'hash-' || host_id, seen_at = ? WHERE host_id IN (?, ?)")
+    .run(t0 - 1000, "leaseweb:101", "leaseweb:104");
 
   const insert = database.prepare(
     `INSERT INTO hosted_servers(
@@ -254,6 +258,7 @@ async function run() {
     group && {
       machines: group.machines,
       free: group.free,
+      ready: group.ready,
       to_reinstall: group.to_reinstall,
       plan_ended: group.plan_ended,
       cancel_scheduled: group.cancel_scheduled,
@@ -278,6 +283,7 @@ async function run() {
     same(before.find("AMS-01", "VPS02"), {
       machines: 5,
       free: 1,
+      ready: 1,
       to_reinstall: 0,
       plan_ended: 0,
       cancel_scheduled: 1,
@@ -288,6 +294,7 @@ async function run() {
       same(before.find("WDC-02", "VPS02"), {
         machines: 1,
         free: 0,
+        ready: 0,
         to_reinstall: 0,
         plan_ended: 1,
         cancel_scheduled: 0,
@@ -298,6 +305,7 @@ async function run() {
       same(before.find("unknown", "unknown"), {
         machines: 1,
         free: 0,
+        ready: 0,
         to_reinstall: 1,
         plan_ended: 0,
         cancel_scheduled: 0,
@@ -334,6 +342,7 @@ async function run() {
     same(afterEnd.find("AMS-01", "VPS02"), {
       machines: 5,
       free: 1,
+      ready: 0,
       to_reinstall: 0,
       plan_ended: 2,
       cancel_scheduled: 1,
@@ -344,6 +353,7 @@ async function run() {
       same(afterEnd.find("SYD-12", "VPS03"), {
         machines: 1,
         free: 0,
+        ready: 0,
         to_reinstall: 0,
         plan_ended: 1,
         cancel_scheduled: 0,
@@ -462,12 +472,12 @@ async function run() {
     bodies,
   );
 
-  // The each-minute cron of the Worker sends the snapshot at each minute; the five-minute cron sends none.
-  const scheduledAt = t0 + OPERATOR_HOST_DATA_KEPT_MS + 7 * MINUTE;
-  const snapshots = await scheduledSnapshots(database, scheduledAt, SIGNAL_ENTRY_CRON);
+  // The five-minute cron of the Worker sends the snapshot at each run; the each-minute cron sends none.
+  const scheduledAt = t0 + OPERATOR_HOST_DATA_KEPT_MS + 5 * MINUTE;
+  const snapshots = await scheduledSnapshots(database, scheduledAt, FIVE_MINUTE_CRON);
   const expected = await pool(scheduledAt);
   check(
-    "the each-minute cron sends one snapshot for each group at a minute that is not on the hour",
+    "the five-minute cron sends one snapshot for each group at a minute that is not on the hour",
     snapshots.length === expected.groups.length &&
       expected.groups.every((group) =>
         snapshots.some((body) =>
@@ -476,8 +486,8 @@ async function run() {
       ),
     { snapshots, expected: expected.groups },
   );
-  const fiveMinuteRun = await scheduledSnapshots(database, scheduledAt + 3 * MINUTE, FIVE_MINUTE_CRON);
-  check("the five-minute cron sends no snapshot", fiveMinuteRun.length === 0, fiveMinuteRun);
+  const minuteRun = await scheduledSnapshots(database, scheduledAt + 3 * MINUTE, SIGNAL_ENTRY_CRON);
+  check("the each-minute cron sends no snapshot", minuteRun.length === 0, minuteRun);
 
   // On reinstalled machines: a plan whose renewal page is still open, and a first payment that never came.
   const late = t0 + 40 * DAY;

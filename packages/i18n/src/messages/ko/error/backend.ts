@@ -114,6 +114,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "메모리 작업에 실패했어요. 다시 시도해 주세요.",
   "error.backend.memoryGone": "이 메모리는 더 이상 없어요.",
   "error.backend.routineGone": "이 루틴은 더 이상 없어요.",
+  "error.backend.routineRunGone": "이 루틴 실행은 더 이상 없어요.",
   "error.backend.turnNotStarted": "제공자가 이 턴을 시작하지 않았어요.",
   "error.backend.routineResultConnectionOff": "이 메시징 연결이 꺼져 있거나 제거되었어요. 다른 위치를 선택하세요.",
   "error.backend.routineResultNoDelivery": "이 실행에는 다시 보낼 답변이 없어요.",
@@ -346,6 +347,8 @@ export const messages = {
   "error.backend.browserProxySignInRefused": "프록시 {name}이(가) 로그인을 거부해 페이지를 열지 못했어요.",
   "error.backend.browserProxyComputerUnreachable":
     "이 프로필이 사용하는 컴퓨터가 응답하지 않아 페이지를 열지 못했어요.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "이 프로필이 사용하는 컴퓨터는 공개 사이트만 열어요. 로컬 네트워크의 주소는 열지 않아 페이지를 열지 못했어요.",
   "error.backend.browserCertificateUntrusted": "이 사이트의 보안 인증서를 신뢰할 수 없어 페이지를 열지 못했어요.",
   "error.backend.browserLowMemory":
     "이 서버의 메모리가 부족해서 브라우저에서 탭을 더 열 수 없어요. 탭을 닫거나 다른 에이전트가 끝날 때까지 기다리세요.",

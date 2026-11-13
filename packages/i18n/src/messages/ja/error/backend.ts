@@ -125,6 +125,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "メモリーの操作に失敗しました。もう一度お試しください。",
   "error.backend.memoryGone": "このメモリーはもう存在しません。",
   "error.backend.routineGone": "このルーティンはもう存在しません。",
+  "error.backend.routineRunGone": "このルーティンの実行はもう存在しません。",
   "error.backend.turnNotStarted": "プロバイダーはこのターンを開始しませんでした。",
   "error.backend.routineResultConnectionOff":
     "このメッセージ接続はオフか削除されています。別の送信先を選んでください。",
@@ -369,6 +370,8 @@ export const messages = {
   "error.backend.browserProxySignInRefused": "プロキシ {name} がサインインを拒否したため、ページを開けませんでした。",
   "error.backend.browserProxyComputerUnreachable":
     "このプロファイルが使うコンピューターが応答しないため、ページを開けませんでした。",
+  "error.backend.browserProxyComputerLocalAddress":
+    "このプロファイルが使うコンピューターは公開サイトだけを開きます。ローカルネットワーク上のアドレスは開かないため、ページを開けませんでした。",
   "error.backend.browserCertificateUntrusted":
     "このサイトのセキュリティ証明書が信頼されていないため、ページを開けませんでした。",
   "error.backend.browserLowMemory":

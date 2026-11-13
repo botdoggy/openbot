@@ -22,7 +22,7 @@ import {
 } from "@openbot/contracts/ipc";
 import { type DynamicRecord, isString } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
-import { createOpenBotLogger } from "@openbot/logging";
+import { createOpenBotLogger, redactText } from "@openbot/logging";
 import { type CauseCode, classifyFailure, isCauseCode } from "@openbot/telemetry";
 import { userErrorMessage } from "@openbot/user-errors";
 import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect";
@@ -47,7 +47,7 @@ import {
 } from "../protocol";
 import type { AgentMemories } from "./agent-memories";
 import { answerFilePaths } from "./answer-file-paths";
-import type { AttentionBrowserHost, AttentionRegistry } from "./attention-registry";
+import type { AttentionBrowserHost, AttentionRegistry, CodexSubagentParent } from "./attention-registry";
 import type { BrowserUploadTarget } from "./browser-uploads";
 import { type ContextCompaction, compactsOnRequest } from "./context-compaction";
 import type { ConversationRuntime } from "./conversation-runtime";
@@ -69,6 +69,7 @@ import {
 } from "./provider-diagnostics";
 import type { ProviderRuntime } from "./provider-runtime";
 import {
+  answeredRequestId,
   isNoUpdateAnswer,
   quietTeammateDelivery,
   settleQuietChannelTurn,
@@ -438,7 +439,7 @@ export class TurnLifecycle {
    * The running Codex subagents, under their own thread id, with the turn whose list shows them.
    * Codex sends the items of these threads too, and OpenBot knows no agent for them.
    */
-  readonly #codexChildren = new Map<string, { agentId: string; threadId: string; turnId: string }>();
+  readonly #codexChildren = new Map<string, CodexSubagentParent>();
   /**
    * The turns of each agent whose subagents still run. A background subagent keeps its turn here after
    * the turn ended. Boot recovery stops every subagent, so nothing here outlives the process.
@@ -613,7 +614,7 @@ export class TurnLifecycle {
         else if (compactionFailure) this.#showFailoverError(turn.agentId, turn.threadId, compactionFailure);
         continue;
       }
-      this.#attention.clearForTurn(turn.threadId, turnId);
+      this.#attention.clearForTurn(turn.threadId, turnId, false);
       if (this.#observedCompactions.get(turn.threadId) === turnId) {
         this.#observedCompactions.delete(turn.threadId);
         this.#clearCompactionDeadline(turn.threadId);
@@ -778,7 +779,7 @@ export class TurnLifecycle {
       // A plan continuation that ends empty goes to the plan's own end (`PlanContinuation.consider`).
       deliveries.some(({ planContinuation }) => planContinuation !== undefined) ||
       deliveries.every(({ delivery }) => quietTeammateDelivery(delivery)) ||
-      this.#quietRoutineTurn(agentId, threadId, deliveries)
+      this.#quietRoutineTurn(agentId, threadId, deliveries, this.#noUpdateTurns.has(turnId))
     )
       return false;
     const messages = this.#conversation.ensureSnapshot(agentId, threadId).messages;
@@ -989,6 +990,7 @@ export class TurnLifecycle {
             ).pipe(Effect.forkIn(this.#scope, { startImmediately: true }));
         }
         if (item.type === "collabAgentToolCall") this.#applyCodexSubagents(agentId, threadId, turnId, item);
+        if (item.type === "subAgentActivity") this.#applyCodexSubagentActivity(agentId, threadId, turnId, item);
         const threadItem = toThreadItem(item);
         if (!threadItem) return;
         yield* this.#applyItem(agentId, threadId, turnId, threadItem, notification.method === "item/completed");
@@ -1092,7 +1094,7 @@ export class TurnLifecycle {
             causeCode: classifyFailure(getRecord(turn, "error")),
           });
         }
-        this.#attention.clearForTurn(threadId, turnId);
+        this.#attention.clearForTurn(threadId, turnId, status === "completed");
         if (this.#observedCompactions.get(threadId) === turnId) {
           this.#observedCompactions.delete(threadId);
           this.#clearCompactionDeadline(threadId);
@@ -1213,7 +1215,12 @@ export class TurnLifecycle {
           !this.#reportedFailures.has(errorTurnId) &&
           (this.#quietChannelTurns.has(errorTurnId) ||
             (this.#noUpdateTurns.has(errorTurnId) &&
-              this.#quietRoutineTurn(agentId, threadId, this.#mailbox.findDeliveriesByTurn(agentId, errorTurnId))))
+              this.#quietRoutineTurn(
+                agentId,
+                threadId,
+                this.#mailbox.findDeliveriesByTurn(agentId, errorTurnId),
+                true,
+              )))
         ) {
           this.#quietEmptyAnswers.add(errorTurnId);
           logger.info("A quiet turn ended with no answer after its no-update call.", {
@@ -1410,8 +1417,8 @@ export class TurnLifecycle {
   /**
    * Records a call to the no-update tool. `quiet` when the turn runs only quiet routine runs and
    * teammate updates, so its completion keeps the text answers as quiet answers; `shown` when a
-   * person waits for the answer, as in a Test run; null when neither a routine run nor a teammate
-   * update started the turn. The completion decides again, because a message can join the turn after
+   * person waits for the answer, as in a Test run; null when neither a routine run, a teammate
+   * update nor a teammate's answer to a quiet routine run (`#continuesQuietRun`) started the turn. The completion decides again, because a message can join the turn after
    * the call. `channelRun` is a turn that owns a main task of a channel routine's request: the channel
    * then posts no message for the turn (#7166).
    */
@@ -1421,12 +1428,17 @@ export class TurnLifecycle {
       return this.#reportedFailures.has(turnId) ? "shown" : "quiet";
     }
     const deliveries = this.#mailbox.findDeliveriesByTurn(agentId, turnId);
-    if (!deliveries.some(({ delivery }) => delivery.sender.kind === "routine" || quietTeammateDelivery(delivery)))
+    if (
+      !deliveries.some(
+        ({ delivery }) =>
+          delivery.sender.kind === "routine" || quietTeammateDelivery(delivery) || this.#continuesQuietRun(delivery),
+      )
+    )
       return null;
     this.#noUpdateTurns.add(turnId);
     // A failed run is never quiet, so its answer must still be written.
     if (this.#reportedFailures.has(turnId)) return "shown";
-    return this.#quietRoutineTurn(agentId, threadId, deliveries) ? "quiet" : "shown";
+    return this.#quietRoutineTurn(agentId, threadId, deliveries, true) ? "quiet" : "shown";
   }
 
   /** Whether the channel shows the answers of this running channel routine turn as steps (#7166). */
@@ -1454,9 +1466,16 @@ export class TurnLifecycle {
 
   /**
    * Only a turn that runs nothing but quiet routine runs and teammate updates, in the agent's own
-   * chat or in a routine's side thread: not in a channel, a messaging thread or another task.
+   * chat or in a routine's side thread: not in a channel, a messaging thread or another task. After
+   * a call to the no-update tool (`noUpdateCalled`), a teammate's answer to a quiet routine run counts
+   * too (`#continuesQuietRun`).
    */
-  #quietRoutineTurn(agentId: string, threadId: string | null, deliveries: readonly DeliveryContext[]): boolean {
+  #quietRoutineTurn(
+    agentId: string,
+    threadId: string | null,
+    deliveries: readonly DeliveryContext[],
+    noUpdateCalled = false,
+  ): boolean {
     const publicThreadId = threadId === null ? null : this.#conversation.publicThreadId(agentId, threadId);
     return (
       deliveries.length > 0 &&
@@ -1465,9 +1484,17 @@ export class TurnLifecycle {
       deliveries.every(
         ({ delivery }) =>
           quietTeammateDelivery(delivery) ||
-          (delivery.sender.kind === "routine" && this.#hooks.quietRoutineDelivery(delivery.id)),
+          (delivery.sender.kind === "routine" && this.#hooks.quietRoutineDelivery(delivery.id)) ||
+          (noUpdateCalled && this.#continuesQuietRun(delivery)),
       )
     );
+  }
+
+  /** A teammate's answer to a request that a quiet routine run of this agent sent (#8364). */
+  #continuesQuietRun(delivery: DeliveryContext["delivery"]): boolean {
+    const requestId = answeredRequestId(delivery);
+    const run = requestId ? this.#mailbox.routineDeliveryOfRequest(delivery.recipientAgentId, requestId) : null;
+    return run !== null && this.#hooks.quietRoutineDelivery(run.delivery.id);
   }
 
   readonly #completeTurn = Effect.fn("TurnLifecycle.completeTurn")(
@@ -1766,7 +1793,7 @@ export class TurnLifecycle {
       const quiet =
         outcome === "completed" &&
         reportedFailure === undefined &&
-        (this.#quietRoutineTurn(agentId, snapshot.threadId, deliveries)
+        (this.#quietRoutineTurn(agentId, snapshot.threadId, deliveries, noUpdateCalled)
           ? settleQuietRoutineTurn(snapshot, turnId, noUpdateCalled)
           : quietChannelRun && settleQuietChannelTurn(snapshot, turnId));
       // A turn that is not quiet after all, such as one with a file, shows its answers in the channel.
@@ -1833,8 +1860,15 @@ export class TurnLifecycle {
         // A turn can start with the answers of several teammates. `#relayAgentResult` skips each one
         // that wants no answer, so only a teammate that asked for a result gets one.
         if (!continuation && !this.#conversation.isExecutionThread(snapshot.threadId) && terminal === "completed") {
+          // A turn with no answer text can still have run tools and made files. The note says so, or
+          // the agent that asked sends the same work again (#8214).
+          const noResult = latestAssistant
+            ? ""
+            : noResultNote(snapshot.messages, turnId, trace, subagents?.subagents, (text) =>
+                redactText(this.#hooks.redactMcp(text)),
+              );
           for (const delivery of deliveries)
-            yield* this.#relayAgentResult(agentId, turnId, delivery, deliveries, latestAssistant?.text);
+            yield* this.#relayAgentResult(agentId, turnId, delivery, deliveries, latestAssistant?.text, noResult);
         }
         // A failed turn sends no result, so the agent that asked gets the failure as its answer.
         if (!continuation && terminal === "failed") {
@@ -2180,6 +2214,7 @@ export class TurnLifecycle {
     delivery: DeliveryContext,
     turnDeliveries: readonly DeliveryContext[],
     text: string | undefined,
+    noResult: string,
   ) {
     if (delivery.delivery.sender.kind !== "agent") return;
     const messageId = delivery.delivery.messageId;
@@ -2220,7 +2255,7 @@ export class TurnLifecycle {
         recipientAgentIds: [recipientAgentId],
         // A turn that ended with no answer still answers, so the agent that asked does not wait for a
         // result that never comes (#6044).
-        text: text ?? NO_RESULT_NOTE,
+        text: text ?? noResult,
         replyToMessageId: messageId,
         ...(taskId ? { taskId } : {}),
         // The requested result, not a new request. The chain-origin guard above already stops a
@@ -2393,7 +2428,11 @@ export class TurnLifecycle {
     let message = snapshot.messages.find((candidate) => candidate.id === id);
     if (!message && !this.#runningTurns.has(turnId)) {
       message = this.#store.database.readConversationMessages(agentId, snapshot.threadId, [id])[0];
-      if (!message) return;
+      // A quiet routine run removes the list, but the update still ends the agent's work (#8156).
+      if (!message) {
+        if (this.#trackSubagents(agentId, turnId, subagents)) this.#hooks.emitRuntimeSnapshot();
+        return;
+      }
       snapshot.messages.push(message);
     }
     if (!message) {
@@ -2455,6 +2494,25 @@ export class TurnLifecycle {
       if (subagent.status === "running") this.#codexChildren.set(subagent.id, { agentId, threadId, turnId });
       else this.#codexChildren.delete(subagent.id);
     this.#applySubagents(agentId, threadId, turnId, clamped);
+  }
+
+  /**
+   * Codex with multi-agent v2 reports a subagent as `subAgentActivity` items of the parent thread. Only
+   * the link to the parent is kept: the subagent's own requests name its thread (#8188).
+   */
+  #applyCodexSubagentActivity(agentId: string, threadId: string, turnId: string, item: DynamicRecord): void {
+    const childThreadId = getString(item, "agentThreadId");
+    if (!childThreadId) return;
+    const kind = getString(item, "kind");
+    // Only a subagent that starts or takes new input works on; any other kind ends the link.
+    if (kind === "started" || kind === "interacted")
+      this.#codexChildren.set(childThreadId, { agentId, threadId, turnId });
+    else this.#codexChildren.delete(childThreadId);
+  }
+
+  /** The agent, thread and turn of a running Codex subagent, by the subagent's own thread. */
+  codexSubagentParent(childThreadId: string): CodexSubagentParent | undefined {
+    return this.#codexChildren.get(childThreadId);
   }
 
   /**
@@ -2600,13 +2658,63 @@ export class TurnOperationFailed extends Schema.TaggedError<TurnOperationFailed>
 
 const { sync: turnStep, rewrap: toTurnOperationFailed } = causeHelpers(TurnOperationFailed);
 
-/** The answer for a teammate request when the turn ended with no answer, in the reply format. */
-const NO_RESULT_NOTE = [
-  "Status: blocked",
-  "Result: OpenBot note, not written by this teammate: the teammate's turn ended with no result and no error. The requested work can be unfinished.",
-  "Evidence: none",
-  "Unblock: Check what is done, then finish the rest yourself or send the teammate a narrower request.",
-].join("\n");
+const NO_RESULT_STEP_LIMIT = 6;
+const NO_RESULT_FILE_LIMIT = 8;
+const NO_RESULT_TEXT_LIMIT = 160;
+
+/**
+ * The answer for a teammate request when the turn ended with no answer, in the reply format. It
+ * names the work that the host saw in the turn: the tool steps, the files, and the subagents that
+ * still run. A turn with none of these gets `Evidence: none`. Each value is redacted before it is
+ * cut, because a cut secret no longer matches.
+ */
+function noResultNote(
+  messages: readonly ConversationMessage[],
+  turnId: string,
+  trace: ConversationTurnTrace | null,
+  subagents: readonly ConversationSubagent[] | undefined,
+  redact: (text: string) => string,
+): string {
+  const line = (text: string) => redact(text).replace(/\s+/gu, " ").trim().slice(0, NO_RESULT_TEXT_LIMIT);
+  const steps = trace?.steps.filter((step) => step.kind === "tool") ?? [];
+  const files = messages
+    .filter((message) => message.author === "assistant" && message.turnId === turnId)
+    .flatMap((message) => message.attachments ?? [])
+    .map((file) => line(file.name));
+  const running = (subagents ?? []).filter((subagent) => subagent.status === "running");
+  const evidence: string[] = [];
+  if (steps.length > 0) {
+    const failed = steps.filter((step) => step.failed).length;
+    const shown = steps
+      .slice(-NO_RESULT_STEP_LIMIT)
+      .map(
+        (step) =>
+          `${line(step.command ?? step.text ?? "") || "tool"} (${step.endedAt === null ? "not finished" : step.failed ? "failed" : "completed"})`,
+      );
+    evidence.push(`Tool steps in the turn: ${steps.length}, failed: ${failed}. Last steps: ${shown.join("; ")}.`);
+  }
+  if (files.length > 0)
+    evidence.push(`Files that the turn made (${files.length}): ${files.slice(-NO_RESULT_FILE_LIMIT).join(", ")}.`);
+  if (running.length > 0)
+    evidence.push(
+      `Background work of the turn still runs (${running.length}): ${running
+        .slice(0, NO_RESULT_STEP_LIMIT)
+        .map((subagent) => line(subagent.title) || "subagent")
+        .join("; ")}.`,
+    );
+  const unblock =
+    running.length > 0
+      ? "Do not send the same request again while the background work runs. Wait for it, or ask the teammate for its state."
+      : evidence.length > 0
+        ? "Do not send the same request again. Check the steps and files above first, then finish the rest yourself or ask the teammate only for the part that is missing."
+        : "Check what is done, then finish the rest yourself or send the teammate a narrower request.";
+  return [
+    "Status: blocked",
+    "Result: OpenBot note, not written by this teammate: the teammate's turn ended with no written result and no error. The requested work can be unfinished.",
+    `Evidence: ${evidence.length > 0 ? evidence.join(" ") : "none"}`,
+    `Unblock: ${unblock}`,
+  ].join("\n");
+}
 
 /**
  * Whether running the turn again would repeat this item: a tool step, or answer text. Thinking and

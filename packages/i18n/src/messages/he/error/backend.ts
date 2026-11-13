@@ -109,6 +109,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "פעולת הזיכרון נכשלה. יש לנסות שוב.",
   "error.backend.memoryGone": "הזיכרון הזה כבר אינו קיים.",
   "error.backend.routineGone": "השגרה הזו כבר אינה קיימת.",
+  "error.backend.routineRunGone": "הרצת השגרה הזו כבר אינה קיימת.",
   "error.backend.turnNotStarted": "הספק לא התחיל את התור הזה.",
   "error.backend.routineResultConnectionOff": "חיבור ההודעות הזה כבוי או הוסר. יש לבחור מקום אחר.",
   "error.backend.routineResultNoDelivery": "להרצה הזו אין תשובה לשלוח שוב.",
@@ -337,6 +338,8 @@ export const messages = {
   "error.backend.browserProxyUnreachable": "הפרוקסי {name} אינו עונה, ולכן הדף לא נפתח.",
   "error.backend.browserProxySignInRefused": "הפרוקסי {name} דחה את ההתחברות, ולכן הדף לא נפתח.",
   "error.backend.browserProxyComputerUnreachable": "המחשב שהפרופיל הזה משתמש בו אינו עונה, ולכן הדף לא נפתח.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "המחשב שהפרופיל הזה משתמש בו פותח רק אתרים ציבוריים. הוא לא פותח כתובות ברשת מקומית, ולכן הדף לא נפתח.",
   "error.backend.browserCertificateUntrusted": "תעודת האבטחה של האתר הזה אינה מהימנה, ולכן הדף לא נפתח.",
   "error.backend.browserLowMemory":
     "בשרת הזה נותר מעט זיכרון, ולכן הדפדפן אינו יכול לפתוח לשונית נוספת. יש לסגור לשונית או להמתין לסיום העבודה של סוכנים אחרים.",

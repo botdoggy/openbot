@@ -28,7 +28,12 @@ import {
   reasoningText,
   type ThreadItem,
 } from "../protocol";
-import { isImageCountDiagnostic, isImageTooLargeDiagnostic, isImageTooSmallDiagnostic } from "./provider-diagnostics";
+import {
+  isImageCountDiagnostic,
+  isImageTooLargeDiagnostic,
+  isImageTooSmallDiagnostic,
+  isUnreadableContentDiagnostic,
+} from "./provider-diagnostics";
 import { stepLabel } from "./step-labels";
 import { BUILTIN_TOOL_CATALOG } from "./tool-catalog";
 
@@ -50,7 +55,12 @@ export function isNonActionableCodexWarning(message: string): boolean {
     // a Git source on a computer without Git (`codex-rs/core-plugins/src/manager.rs`). It has no
     // thread, the chat works, and the plugins stay at their version, so it showed a false
     // "Provider error" toast (#6976). The text covers `marketplace `name`:` and `marketplaces:`.
-    message.startsWith("Codex could not update marketplace")
+    message.startsWith("Codex could not update marketplace") ||
+    // Codex sends this on `thread/resume` when the last turn of the thread used another model
+    // (`codex-rs/core/src/session/mod.rs`). OpenBot changes the model on purpose: the user picked a
+    // new one, or a backup model ran. The turn continues, but the red banner looked like a failure and
+    // told the user to switch back (#8135).
+    message.startsWith("This session was recorded with model ")
   );
 }
 
@@ -144,6 +154,21 @@ function isRejectedOpenCodeRequest(provider: AgentProvider, message: string): bo
 }
 
 /**
+ * OpenCode 2.2.5 to 2.3.0 compacts a chat near its model's window with a summary from the model. A
+ * weak local model can answer with a tool call or with no summary headings, and OpenCode then fails
+ * the turn. The session stays too long, so each later turn compacts and fails again (#6006). Only a
+ * new session, given the OpenBot transcript, recovers.
+ */
+function isFailedOpenCodeCompaction(provider: AgentProvider, message: string): boolean {
+  return (
+    provider === "opencode" &&
+    /\bCompaction summary did not match the required template\b|\bCompaction produced no summary\b|\bCompaction summary reached the output token limit\b/i.test(
+      message,
+    )
+  );
+}
+
+/**
  * Muse stores a failed MCP startup audit in the session, and `session/resume` cannot clear it. Each
  * later turn of that session fails in milliseconds, even after the failed server is removed
  * (#2369). Only a new session, given the OpenBot transcript, recovers.
@@ -197,7 +222,10 @@ export function refusedSessionFailure(provider: AgentProvider, message: string):
     return sourceText("error.provider.imageTooLarge", { provider: providerLabel(provider) });
   if (isImageCountDiagnostic(message))
     return sourceText("error.provider.imageCountLimit", { provider: providerLabel(provider) });
+  if (provider === "opencode" && isUnreadableContentDiagnostic(message))
+    return sourceText("error.provider.opencodeUnreadableContent");
   if (isRejectedOpenCodeRequest(provider, message)) return sourceText("error.provider.opencodeSessionRejected");
+  if (isFailedOpenCodeCompaction(provider, message)) return sourceText("error.provider.opencodeCompactionFailed");
   if (isMuseMcpStartupFault(provider, message)) return sourceText("error.provider.museMcpStartupFault");
   if (isAcpContextOverflow(provider, message)) return sourceText("error.provider.acpContextOverflow");
   if (isMissingClaudeSession(provider, message)) return sourceText("error.provider.claudeSessionMissing");

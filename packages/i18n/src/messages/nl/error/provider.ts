@@ -216,7 +216,9 @@ export const messages = {
   "error.provider.opencodeInvalidUpload":
     "De modelaanbieder van OpenCode meldde een ongeldig uploadverzoek. Kies een ander model en ga verder. Controleer opgeslagen routines voordat je ze opnieuw maakt.\n{detail}",
   "error.provider.opencodeUnreadableContent":
-    "Dit model kan een bestand of afbeelding in deze chat niet lezen. Kies een model dat bestanden kan lezen en stuur je bericht opnieuw.",
+    "Dit model kan een bestand of afbeelding in deze chat niet lezen. OpenBot heeft een nieuwe OpenCode-sessie gestart met de chatgeschiedenis. Stuur je bericht opnieuw zonder het bestand, of kies een model dat bestanden kan lezen. Heb je dit model aan een eigen aanbieder toegevoegd, schakel dan in de instellingen bij ‘Accepteert’ ‘Afbeeldingen’ uit.",
+  "error.provider.opencodeContextTooSmall":
+    "Deze chat past niet in het contextvenster van het model. Laad het model in Ollama of LM Studio met een grotere contextlengte, en vul hetzelfde venster in bij de providerinstellingen in OpenBot. Of kies een groter model.",
   "error.provider.opencodeFreeLimit":
     "De gratis OpenCode-modellen hebben hun gebruikslimiet bereikt. Alle gratis modellen delen deze limiet. Plak een OpenCode Go-sleutel in de OpenCode-instellingen om door te gaan, of kies een model van een andere aanbieder.",
   "error.provider.opencodeProviderFailed":
@@ -305,6 +307,8 @@ export const messages = {
     "Log in met Nous Portal of voer `hermes setup` uit in een terminal om Hermes te gebruiken.",
   "error.provider.hermesTurnFailed":
     "Hermes kon deze beurt niet afmaken. Als het antwoord een reden geeft, volg die dan. Zo niet, dan is een MCP-server van deze agent misschien niet beschikbaar: controleer hem in Serverinstellingen › MCP en stuur je bericht opnieuw.",
+  "error.provider.copilotThinkingRejected":
+    "GitHub Copilot kon dit model niet gebruiken: het model accepteerde de denkinstelling niet. Selecteer een ander model voor deze agent en verstuur je bericht opnieuw.",
   "error.provider.usageLimitReached": "Het account heeft de gebruikslimiet bereikt.",
   "error.provider.claudeContextFull":
     "Deze chat is te lang geworden voor Claude. OpenBot heeft een nieuwe Claude Code-sessie gestart met de chatgeschiedenis. Probeer het opnieuw.",
@@ -322,6 +326,8 @@ export const messages = {
     "OpenCode heeft het verzoek geweigerd zonder de oorzaak te geven. Dit kan gebeuren in een lange chat of na een modelwijziging. OpenBot heeft een nieuwe OpenCode-sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, kies dan een ander model of een lager niveau.",
   "error.provider.acpContextOverflow":
     "De sessie van de agent heeft de contextlimiet overschreden en kon niet worden hersteld door compacteren. OpenBot heeft een nieuwe sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, start dan een nieuwe chat.",
+  "error.provider.opencodeCompactionFailed":
+    "Het model kon deze lange chat niet samenvatten om ruimte te maken in het contextvenster. OpenBot heeft een nieuwe OpenCode-sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, kies dan een sterker model.",
   "error.provider.museMcpStartupFault":
     "Muse kon een MCP-server niet starten en heeft MCP in deze sessie geblokkeerd. OpenBot heeft een nieuwe Muse-sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, zet dan Computerbesturing of de mislukte MCP-server uit voor deze agent.",
   "error.provider.claudeSessionMissing":
@@ -342,6 +348,10 @@ export const messages = {
   "error.provider.httpsSignInLinkOnly": "Alleen HTTPS-inloglinks kunnen in de browser worden geopend.",
   "error.provider.geminiKeyRefused":
     "Gemini heeft de opgeslagen API-sleutel geweigerd. Vervang of verwijder de sleutel in Instellingen en verbind opnieuw.",
+  "error.provider.geminiAccountSettingsUnreadable":
+    "Gemini kan het instellingenbestand van dit account niet openen en kan dus niet inloggen. Verwijder dit account en voeg het opnieuw toe.",
+  "error.provider.geminiSettingsUnreadable":
+    "Gemini kan zijn instellingenbestand op deze computer niet openen en kan dus niet inloggen. Sluit de andere apps die Gemini gebruiken en sluit en open OpenBot daarna opnieuw.",
   "error.provider.geminiVerificationRequired":
     "Google moet je account verifiëren voordat Gemini kan antwoorden. Verifieer je Google-account in een browser en stuur je bericht daarna opnieuw.",
   "error.provider.keyProviderRefused":
@@ -403,6 +413,14 @@ export const messages = {
   "error.provider.accountDefault": "Het eerste {provider}-account kan niet worden verwijderd.",
   "error.provider.accountUsesKey":
     "Dit {provider}-account gebruikt de opgeslagen API-sleutel en heeft geen inlog. Wijzig de sleutel in Serverinstellingen → Aanbieders.",
+  "error.provider.accountNeedsKey":
+    "Een nieuw {provider}-account heeft een API-sleutel nodig. Werk OpenBot op dit apparaat bij en voeg het account dan opnieuw toe.",
+  "error.provider.accountKeyRefused":
+    "{provider} heeft deze API-sleutel niet geaccepteerd. Controleer de sleutel en probeer het opnieuw.",
+  "error.provider.accountKeyUnreachable":
+    "OpenBot kon {provider} niet bereiken om de API-sleutel te controleren. Controleer de internetverbinding en probeer het opnieuw.",
+  "error.provider.accountKeySignedOut":
+    "{provider} accepteert de API-sleutel van dit account niet meer. Geef het account een nieuwe sleutel.",
   "error.provider.accountInUse": "Een agent op dit account is aan het werk. Probeer het opnieuw als de agent stopt.",
   "error.provider.accountsReadOnly":
     "De opgeslagen accounts van aanbieders kunnen niet worden gelezen. Werk OpenBot bij voordat je ze wijzigt.",

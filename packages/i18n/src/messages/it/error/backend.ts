@@ -122,6 +122,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "L'operazione sulla memoria non è riuscita. Riprova.",
   "error.backend.memoryGone": "Questa memoria non esiste più.",
   "error.backend.routineGone": "Questa routine non esiste più.",
+  "error.backend.routineRunGone": "Questa esecuzione della routine non esiste più.",
   "error.backend.turnNotStarted": "Il provider non ha avviato questo turno.",
   "error.backend.routineResultConnectionOff":
     "Questa connessione di messaggistica è disattivata o rimossa. Scegli un altro luogo.",
@@ -367,6 +368,8 @@ export const messages = {
     "Il proxy {name} ha rifiutato l’accesso, quindi la pagina non si è aperta.",
   "error.backend.browserProxyComputerUnreachable":
     "Il computer di questo profilo non risponde, quindi la pagina non si è aperta.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "Il computer usato da questo profilo apre solo siti pubblici. Non apre indirizzi di una rete locale, quindi la pagina non si è aperta.",
   "error.backend.browserCertificateUntrusted":
     "Il certificato di sicurezza di questo sito non è attendibile, quindi la pagina non si è aperta.",
   "error.backend.browserLowMemory":

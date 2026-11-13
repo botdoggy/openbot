@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AGENT_PROVIDERS, agentProviderDescriptor, customAgentIdOfModel } from "@openbot/contracts/agent-providers";
 import { sortConversationMessages } from "@openbot/contracts/conversation-order";
@@ -9,6 +10,7 @@ import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
   AgentAccessLevel,
   AgentAnalyticsInput,
+  AgentApproval,
   AgentEvent,
   AgentMemory,
   AgentMemorySelectionState,
@@ -123,6 +125,7 @@ import type {
   VoiceLiveStart,
 } from "@openbot/contracts/ipc";
 import {
+  AGENT_TASK_LIMIT_DEFAULT,
   type AgentDefaults,
   type AgentModelChoice,
   agentAutomationAllowed,
@@ -146,6 +149,10 @@ import {
   sameAgentBrowserProfile,
   sameAgentModelChoice,
   WORKFLOWS_USAGE_ID,
+  type WorkflowMediaCredits,
+  type WorkflowMediaProvider,
+  type WorkflowMediaProviders,
+  type WorkflowMediaSpecs,
   workspaceAccessEnforced,
 } from "@openbot/contracts/ipc";
 import { AGENT_THREAD_READS_LIMIT } from "@openbot/contracts/team-protocol/agent-thread-reads-v1";
@@ -261,6 +268,7 @@ import { toUsageReadFailed, UsageLimitGate, type UsageLimitKey } from "./agent/u
 import type { VideoReaderHost } from "./agent/video-reader";
 import { WarmGenerations } from "./agent/warm-generations";
 import type { WebhookRoutineWriter } from "./agent/webhook-routine-tool";
+import { confinedWritesAllowed } from "./agent/workspace-sandbox";
 import type { AgentApiKeys } from "./agent-api-keys";
 import type { AgentProvider } from "./agent-client";
 import type { AgentTables } from "./agent-data/agent-tables";
@@ -277,7 +285,7 @@ import { type AgentThreadRecord, AgentThreadStore } from "./agent-threads/agent-
 import { AgentWaitStore } from "./agent-waits/agent-wait-store";
 import { AgentWaits } from "./agent-waits/agent-waits";
 import { automationRunCommand } from "./automation-command";
-import { toChannelOperationError } from "./channel-effects";
+import { channelSync, toChannelOperationError } from "./channel-effects";
 import { type ChannelImageFile, ChannelImages } from "./channel-images";
 import { ChannelRoutineScheduler } from "./channel-routine-scheduler";
 import { ChannelService } from "./channel-service";
@@ -310,6 +318,7 @@ import type { SidebarLayoutStore } from "./sidebar-layout-store";
 import { shortenDiagnostic } from "./stderr-diagnostics";
 import type { UserBrowsingLog } from "./user-browsing-log";
 import type { VaultItems } from "./vault-items";
+import { generateSunraMedia, readSunraCredits, SUNRA_MCP_HOST } from "./workflows/sunra-media";
 import type { WorkflowTools } from "./workflows/workflow-tools";
 import { type MediaImageRole, mediaInputText } from "./workflows/workflow-walk";
 import type { WorkflowRunEnd } from "./workflows/workflows";
@@ -373,6 +382,12 @@ export interface AgentServiceOptions {
   hostedSites?: AgentHostedSites | null;
   /** Draws pages for `html_preview`. Without it the tool tells the agent to show the page unchecked. */
   visualPreview?: ChatVisualPreviewHost | null;
+  /**
+   * Decodes a picture, makes its flat background clear (`clearFlatBackground`) and gives it back as a
+   * PNG; null when the picture has no flat background. Without it a transparent Grok image keeps the
+   * flat colour that the step asks for.
+   */
+  clearPictureBackground?: ((bytes: Uint8Array) => Uint8Array | null) | undefined;
   /** Captures the desktop for `capture_screen`; null where this process has no desktop. */
   screenCapture?: ScreenCaptureHost | null;
   /** Downloads and reads online videos for `read_video`; null where this process cannot decode them. */
@@ -518,6 +533,12 @@ export interface AgentServiceOptions {
    */
   hostMemory?: HostMemory | null;
   /**
+   * The turn limits that an owner or admin set for this host. `turnLimit` is the total, "unlimited"
+   * for no limit, or null for automatic (see `hostMemory`); `agentTaskLimit` is the task limit of an agent with no limit of its
+   * own. Without it, both keep their defaults. Call `turnLimitsChanged` after a change.
+   */
+  hostTurnLimits?: { turnLimit(): number | "unlimited" | null; agentTaskLimit(): number };
+  /**
    * The plan storage in GB of a hosted server, or null elsewhere and until the account server answers.
    * The agent instructions name the limit.
    */
@@ -538,6 +559,7 @@ const TASK_STOP_WAIT_MS = 15_000;
  * How long after a list that lacks an agent's model a `catalog.partialListAtStart` provider is asked
  * again. Grok 1.0.70 has its whole catalogue about a second after it starts on an expired sign-in.
  * Mistral Vibe 3.1.0 saves its account catalogue while its probe session is open (`probeCloseDelayMs`).
+ * OpenCode 2.2.5 and 2.3.0 list their new catalogue about 3 s after they start (#6185).
  */
 const PARTIAL_LIST_RECHECK_MS = 5_000;
 /**
@@ -591,6 +613,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly routineRecords: RoutineRecords;
   readonly #mcp: McpGateway;
   readonly #mcpAgentAccess: AgentServiceOptions["mcpAgentAccess"];
+  readonly #clearPictureBackground: AgentServiceOptions["clearPictureBackground"];
   readonly #providers: ProviderRuntime;
   readonly #providerUseChanges = Semaphore.makeUnsafe(1);
   readonly #endpoints: CustomEndpoints;
@@ -624,6 +647,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #workflowTools: (() => WorkflowTools) | undefined;
   readonly #developmentDefaults: boolean;
   readonly #busyMessageMode: () => BusyMessageMode;
+  /** The task limit of an agent that has no limit of its own on this host. */
+  readonly #defaultTaskLimit: () => number;
   /** The last turn of each agent's chat that the user stopped. One per agent, so it needs no clean-up. */
   readonly #stoppedTurns = new Map<string, string>();
 
@@ -640,6 +665,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   constructor(options: AgentServiceOptions) {
     super();
     this.#mcpAgentAccess = options.mcpAgentAccess;
+    this.#clearPictureBackground = options.clearPictureBackground;
     const {
       store,
       mailbox,
@@ -661,10 +687,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       computerUseMcpServer = () => null,
       githubConnector = null,
       hostMemory = null,
+      hostTurnLimits,
       busyMessageMode = () => DEFAULT_BUSY_MESSAGE_MODE,
     } = options;
     this.#developmentDefaults = developmentDefaults;
     this.#busyMessageMode = busyMessageMode;
+    this.#defaultTaskLimit = () => hostTurnLimits?.agentTaskLimit() ?? AGENT_TASK_LIMIT_DEFAULT;
     this.#localSkillTools = localSkillTools;
     this.#routineFlowTools = routineFlowTools;
     this.#workflowTools = workflowTools;
@@ -735,6 +763,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         agent: (agentId) => store.list().find((agent) => agent.id === agentId),
         // Read late: the provider runtime is built further down this constructor.
         customAgents: () => this.#providers.savedCustomAgents(),
+        defaultTaskLimit: () => this.#defaultTaskLimit(),
         // Read late: the drain is built further down this constructor.
         hold: (agentId, taskId) => this.#drain.taskHold(agentId, taskId),
         queued: (agentId) => {
@@ -1060,6 +1089,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
               }),
             );
           }),
+        // A CLI that lists part of its models at start gives the check of a new account process such a
+        // list (#6318), which is no proof that a model is gone; its agents move at the provider's start.
+        onAccountModelsListed: (provider, accountId) =>
+          requireProviderDriver(provider).catalog?.partialListAtStart
+            ? Effect.void
+            : this.#endpoints.moveAccountAgentsOffUnlistedModels(provider, accountId),
         onProviderResumed: (provider) => {
           for (const agent of this.#store.list()) {
             if (providerForAgent(agent) === provider) this.#drain.scheduleDrain(agent.id);
@@ -1153,6 +1188,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
       scheduleDrain: (agentId) => this.#drain.scheduleDrain(agentId),
       rotateSession: (agentId, client, threadId) => this.#threads.rotateProviderSession(agentId, client, threadId),
+      loadSession: (agentId, client, threadId) => this.#threads.loadSessionForCompaction(agentId, client, threadId),
       rotatesSession: (agentId, threadId) => this.#threads.rotatesSession(agentId, threadId),
       isStopping: () => this.#stopping,
       compacted: (threadId) => {
@@ -1170,6 +1206,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         const agent = store.list().find((candidate) => candidate.id === agentId);
         return agent !== undefined && workspaceAccessEnforced(agent);
       },
+      confinedWritesAllowed: (agentId, paths) => {
+        const agent = store.list().find((candidate) => candidate.id === agentId);
+        return agent !== undefined && confinedWritesAllowed(agent, store.sharedRoot, paths);
+      },
       messagingThread: (threadId) => this.messaging.store.linkForThread(threadId) !== null,
       messagingRequestTurn: (agentId, turnId) => this.#mailbox.answersMessagingRequest(agentId, turnId),
       emit: (event) => this.#emit(event),
@@ -1182,6 +1222,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       // The router is made later; a note comes only from a tool call, after both exist.
       noteVaultChange: (agentId, threadId, turnId, text) => this.#tools.postVaultNote(agentId, threadId, turnId, text),
       apiKeys: options.agentApiKeys ?? null,
+      // The turn lifecycle is made later; a request comes only from a running turn, after both exist.
+      codexSubagentParent: (childThreadId) => this.#turn.codexSubagentParent(childThreadId),
+      // A routine thread takes runs, not messages, so its questions wait in their calls.
+      lateAnswerTarget: (agentId, publicThreadId) => {
+        if (store.list().find((candidate) => candidate.id === agentId)?.threadId === publicThreadId) return {};
+        const taskId = this.#tasks.taskForThread(publicThreadId);
+        return taskId && !this.#tasks.isRoutineThreadId(publicThreadId) ? { taskId } : null;
+      },
+      sendLateAnswer: (agentId, target, text, sender) =>
+        Effect.runFork(
+          this.sendMessage({ agentId, text, ...target }, sender).pipe(
+            Effect.catch((failure) => Effect.sync(() => this.#emitError("late_answer_failed", failure.cause, agentId))),
+            Effect.forkIn(this.#scope, { startImmediately: true }),
+          ),
+        ),
     });
     this.#duplication = new DuplicationGate({
       store,
@@ -1346,6 +1401,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           const run = this.#routines.runForDelivery(deliveryId);
           return run === null || quietRoutineRun(run);
         },
+        quietRunDelivery: (deliveryId) => this.#routines.quietRunForDelivery(deliveryId),
         isRoutineThread: (threadId) => this.#tasks.isRoutineThreadId(threadId),
         executionThreads: () => [...this.channels.store.executionThreads(), ...this.messaging.store.executionThreads()],
         taskThreads: () => this.#tasks.executionThreads(),
@@ -1565,6 +1621,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     });
     this.#memoryHold = new MemoryHold({
       memory: hostMemory,
+      chosenTurnLimit: () => hostTurnLimits?.turnLimit() ?? null,
       hooks: {
         scheduleAll: () => {
           for (const agent of this.#store.list()) this.#drain.scheduleDrain(agent.id);
@@ -1838,6 +1895,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         listAgents: () => this.listAgents(),
         deleteTasks: (agentId) =>
           Effect.gen({ self: this }, function* () {
+            // A deleted agent takes no message, so its questions that wait for one expire.
+            this.#attention.expireDetached(agentId, null);
             const threadIds = yield* lifecycleStep("list agent tasks", () => this.#tasks.threadIdsForAgent(agentId));
             for (const threadId of threadIds) yield* this.#forgetExecutionThread(threadId);
             yield* lifecycleStep("delete agent tasks", () => this.#tasks.deleteForAgent(agentId));
@@ -2100,6 +2159,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#attention.agentIdForRequest(requestId);
   }
 
+  pendingApproval(requestId: string | number): AgentApproval | undefined {
+    return this.#attention.pendingApproval(requestId);
+  }
+
   getLocalAttention(agentId: string) {
     return this.#attention.localAttention(agentId);
   }
@@ -2193,6 +2256,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   /** How many memories one agent can hold now. */
   memoryLimit(): number {
     return this.#memories.limit();
+  }
+
+  /**
+   * The turn limits of this host changed. A higher limit can start a waiting turn now; a lower one
+   * stops no running turn, and the next turn waits.
+   */
+  turnLimitsChanged(): void {
+    for (const agent of this.#store.list()) {
+      this.#tasks.changed(agent.id);
+      this.#drain.scheduleDrain(agent.id);
+    }
+    this.#drain.retrySlotWaiters();
   }
 
   /** The developer instructions state the limit, so a new limit reloads every agent's threads. */
@@ -2289,6 +2364,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#routines
       .test(input)
       .pipe(Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "testRoutine", cause: failure.cause })));
+  }
+
+  /** The user's Stop for one routine run that has not ended; see `RoutineScheduler.stopRun`. */
+  stopRoutineRun(input: {
+    agentId: string;
+    routineId: string;
+    runId: string;
+  }): Effect.Effect<void, AgentLifecycleFailed> {
+    return this.#routines
+      .stopRun(input)
+      .pipe(
+        Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "stopRoutineRun", cause: failure.cause })),
+      );
   }
 
   /** Hands a routine run's work on to the next agent of its flow; answers the delivery id. */
@@ -2632,6 +2720,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#emit({ type: "browser-profiles-changed" });
   }
 
+  /**
+   * A Library folder, or the folder of a file, changed. The Library of this window and of each joined
+   * client reads the folders again (`library-folders-events-v1`).
+   */
+  notifyLibraryFoldersChanged(): void {
+    this.#emit({ type: "library-folders-changed" });
+  }
+
   notifyWorkflowRunEnded(end: WorkflowRunEnd): void {
     this.emit("workflowRun", end);
   }
@@ -2828,6 +2924,26 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     ),
   ).bind(this);
 
+  /** The media services beyond the agent providers that a workflow step can use now. */
+  workflowMediaProviders(): WorkflowMediaProviders {
+    return { sunra: this.#mcp.serviceSignIn(SUNRA_MCP_HOST) !== null };
+  }
+
+  /** The credits of the media services that a workflow step can spend now. A failed read has none. */
+  readonly workflowMediaCredits = Effect.fn("AgentService.workflowMediaCredits")(function* (this: AgentService) {
+    const signIn = this.#mcp.serviceSignIn(SUNRA_MCP_HOST);
+    if (!signIn || this.#stopping) return { sunra: null } satisfies WorkflowMediaCredits;
+    const sunra = yield* readSunraCredits(signIn).pipe(
+      Effect.catch((failure) =>
+        Effect.sync(() => {
+          logger.warn("Could not read the Sunra credits.", { error: failure.message });
+          return null;
+        }),
+      ),
+    );
+    return { sunra } satisfies WorkflowMediaCredits;
+  }).bind(this);
+
   /**
    * Makes the image or video of one workflow step with the media tool of `provider`, in a side turn
    * whose only tools make media. The file goes to Storage with no owner agent. Returns its attachment.
@@ -2837,13 +2953,34 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this: AgentService,
       input: {
         kind: GeneratedMediaKind;
-        provider: "codex" | "grok";
+        provider: WorkflowMediaProvider;
+        /** The id of the model at its provider. Sunra reads it; Codex and Grok use their default. */
+        model: string;
+        /** The account of the provider that pays. Null is its own sign-in; Sunra ignores it. */
+        account: string | null;
+        specs: WorkflowMediaSpecs;
         prompt: string;
         images: readonly { role: MediaImageRole; attachmentId: string }[];
         voice: string | null;
       },
     ) {
       const failed = (message: string) => new ProfileGenerationFailed({ cause: new Error(message) });
+      if (input.provider === "sunra") {
+        if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
+        return yield* generateSunraMedia(
+          {
+            signIn: () => this.#mcp.serviceSignIn(SUNRA_MCP_HOST),
+            resolveAttachment: (attachmentId) => this.#mailbox.resolveAttachment(attachmentId),
+            store: (file) => this.#mailbox.storeGeneratedAttachment(file),
+          },
+          { kind: input.kind, model: input.model, prompt: input.prompt, specs: input.specs, images: input.images },
+        ).pipe(
+          Effect.tapError((failure) =>
+            Effect.sync(() => logger.warn("Could not make workflow media with Sunra.", { error: failure.message })),
+          ),
+          Effect.mapError((failure) => failed(failure.message)),
+        );
+      }
       const provider = input.provider;
       const images: { role: MediaImageRole; path: string }[] = [];
       for (const image of input.images) {
@@ -2871,8 +3008,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       const effort: AgentReasoningEffort = model.supportedReasoningEfforts.includes("low")
         ? "low"
         : model.defaultReasoningEffort;
+      // A step on an account that the host no longer has fails: another account must never pay for it.
+      const account = input.account;
+      if (
+        account &&
+        !this.getStatus()
+          .providers?.find((row) => row.id === provider)
+          ?.accounts?.some((row) => row.id === account)
+      )
+        return yield* failed(sourceText("error.provider.accountNotFound", { provider: providerLabel(provider) }));
       const client = yield* Effect.try({
-        try: () => this.#providers.createMediaClient(provider),
+        try: () => this.#providers.createMediaClient(provider, account ?? undefined),
         catch: () => failed(sourceText("error.workflow.mediaFailed")),
       });
       const usage = workflowUsageObserver(this.#store.database.usage, provider, model.id);
@@ -2918,6 +3064,29 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         return yield* failed(failure ?? sourceText("error.workflow.mediaFailed"));
       const savedPath = getString(item, "saved_path");
       const result = input.kind === "image" ? getString(item, "result") : null;
+      // Grok makes the flat colour that the step asks for; the host makes it clear.
+      const clear = this.#clearPictureBackground;
+      if (input.specs.transparent && provider === "grok" && clear && (savedPath || result)) {
+        const source = savedPath
+          ? yield* Effect.tryPromise({ try: () => readFile(savedPath), catch: () => null }).pipe(
+              Effect.orElseSucceed(() => null),
+            )
+          : yield* Effect.try({ try: () => decodeGeneratedImage(result ?? ""), catch: () => null }).pipe(
+              Effect.orElseSucceed(() => null),
+            );
+        const bytes = source
+          ? yield* Effect.try({ try: () => clear(source), catch: () => null }).pipe(Effect.orElseSucceed(() => null))
+          : null;
+        // When the background stays or the clear copy cannot be saved, the step keeps the picture that
+        // the model made, as a step with a solid background does.
+        const attachment = bytes
+          ? yield* Effect.result(
+              this.#mailbox.storeGeneratedAttachment({ bytes, name: "generated-image.png", mimeType: "image/png" }),
+            )
+          : null;
+        if (attachment && Result.isSuccess(attachment)) return attachment.success.id;
+        logger.warn("Could not make the background of a Grok image clear.");
+      }
       const stored = savedPath
         ? yield* Effect.result(
             this.#mailbox.storeGeneratedAttachment({
@@ -3624,6 +3793,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           : previous?.usageLimitReturn?.cause === "provider-error"
             ? "provider-error-ended"
             : "usage-limit-ended",
+        previousChoice,
+        leaving && spentBalance,
       );
     const profileChanged = standingProfileChanged(previous, agent, this.#store.agentDefaults());
     const activeSession = this.#store.activeProviderSession(agent.id);
@@ -3651,12 +3822,15 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     if (previous && workspaceAccessEnforced(previous) && !workspaceAccessEnforced(agent))
       this.#attention.answerGrantedRequests();
     this.#emit({ type: "agents-changed", agents: this.listAgents() });
-    // The task limit follows the agent's own setting, its provider, and — for a custom ACP agent —
-    // the saved concurrency flag. A higher one can start a task now.
+    // The task limit follows the agent's own setting, its provider, the host default and — for a
+    // custom ACP agent — the saved concurrency flag. A higher one can start a task now.
     const customAgents = this.#providers.savedCustomAgents();
+    const defaultTaskLimit = this.#defaultTaskLimit();
     if (
       providerChanged ||
-      (previous && agentTaskLimit(previous, customAgents) !== agentTaskLimit(agent, customAgents))
+      (previous &&
+        agentTaskLimit(previous, customAgents, defaultTaskLimit) !==
+          agentTaskLimit(agent, customAgents, defaultTaskLimit))
     ) {
       this.#tasks.changed(agent.id);
       this.#drain.scheduleDrain(agent.id);
@@ -4075,15 +4249,42 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   /**
    * A note in the agent's chat that it left its model for a usage limit or a provider error, or went back to it. Each
-   * channel whose work waits for the agent gets the same note.
+   * channel whose work waits for the agent gets the same note. `spent` says that the agent left `left` because its
+   * balance is spent: the agent does not go back to it by itself, so the note names it and says what to do (#7965).
+   * A move to the same model on another account names the account too, as the chat header does: the model name alone
+   * reads as no change (#8227). A channel has readers who do not see the provider's accounts, so its note names an
+   * account only by the name the user gave it, not by its email.
    */
-  #appendModelSwitchMarker(agent: AgentSummary, reason: ModelSwitchReason): void {
-    const model =
-      this.#agentModels(agent).find((option) => option.provider === agent.provider && option.id === agent.model)
-        ?.name ?? agent.model;
-    const text = sourceText(MODEL_SWITCH_TEXT[reason], { model });
+  #appendModelSwitchMarker(
+    agent: AgentSummary,
+    reason: ModelSwitchReason,
+    left: AgentModelChoice | undefined,
+    spent: boolean,
+  ): void {
+    const joined = agentModelChoice(agent);
+    const accountOnly = left !== undefined && left.provider === joined.provider && left.model === joined.model;
+    const name = (choice: AgentModelChoice, email: boolean) => {
+      const model =
+        this.#agentModels(choice).find((option) => option.provider === choice.provider && option.id === choice.model)
+          ?.name ?? choice.model;
+      if (!accountOnly) return model;
+      const id = choice.providerAccountId ?? DEFAULT_PROVIDER_ACCOUNT_ID;
+      const account = this.getStatus()
+        .providers?.find((status) => status.id === choice.provider)
+        ?.accounts?.find((candidate) => candidate.id === id);
+      const accountName = account?.label || (email ? account?.email : null);
+      return accountName ? `${accountName} · ${model}` : model;
+    };
+    const note = (email: boolean) =>
+      spent && left
+        ? sourceText("status.agent.modelSwitchedForSpentBalance", {
+            previous: name(left, email),
+            model: name(joined, email),
+          })
+        : sourceText(MODEL_SWITCH_TEXT[reason], { model: name(joined, email) });
+    const text = note(true);
     try {
-      this.channels.noteModelSwitch(agent.id, text, MODEL_SWITCH_ITEM_TYPES[reason]);
+      this.channels.noteModelSwitch(agent.id, note(false), MODEL_SWITCH_ITEM_TYPES[reason]);
     } catch (error) {
       this.#emitError("model_switch_marker_failed", error, agent.id);
     }
@@ -4319,7 +4520,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     });
   }, Effect.uninterruptible).bind(this);
 
-  /** "Delete history" of a channel. The members forget it, as for `clearChannelContext`. */
+  /**
+   * "Delete history" of a channel. Each member's channel thread holds the channel text that its turns
+   * read and wrote, so its messages go as for `deleteAgentHistory`; the thread itself stays. The
+   * members forget the channel, as for `clearChannelContext`.
+   */
   readonly deleteChannelHistory = Effect.fn("AgentService.deleteChannelHistory")(function* (
     this: AgentService,
     channelId: string,
@@ -4329,18 +4534,35 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         const agents = new Map(this.#store.list().map((agent) => [agent.id, agent]));
         return contexts.some(({ agentId, threadId }) => this.#channelSessionBusy(agents.get(agentId), threadId));
       },
-      end: (threadIds) =>
+      forget: (contexts) =>
         Effect.forEach(
-          threadIds,
-          (threadId) => {
-            // The messages are gone, so the files that their turns used open from no other link.
-            this.#turn.fileHistory.forgetThread(threadId);
-            return this.#threads.endThreadContext(threadId);
-          },
+          contexts,
+          ({ agentId, threadId }) =>
+            Effect.gen({ self: this }, function* () {
+              // Also for a deleted agent: the channel keeps its thread until the channel goes.
+              yield* channelSync(() => this.#deleteChannelThreadHistory(agentId, threadId));
+              // The messages are gone, so the files that their turns used open from no other link.
+              this.#turn.fileHistory.forgetThread(threadId);
+              yield* this.#threads.endThreadContext(threadId);
+            }),
           { discard: true },
         ),
     });
   }, Effect.uninterruptible).bind(this);
+
+  /**
+   * Deletes the messages of one member's channel thread. A loaded copy in memory loses them too,
+   * so no reader shows them again.
+   */
+  #deleteChannelThreadHistory(agentId: string, threadId: string): void {
+    const revision = this.#store.database.deleteThreadHistory({ agentId, threadId });
+    this.#conversation.forgetDeletedHistory(threadId);
+    const loaded = this.#conversation.loadedExecutionSnapshot(threadId);
+    if (!loaded) return;
+    const snapshot = { ...loaded, messages: [], revision };
+    this.#conversation.setSnapshot(agentId, snapshot);
+    this.#conversation.publishConversation(snapshot);
+  }
 
   /** Whether a member's channel session runs a turn, or a compaction or a refused start holds it. */
   #channelSessionBusy(agent: AgentSummary | undefined, threadId: string): boolean {
@@ -4452,8 +4674,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   /**
    * The local user can open files outside a workspace when access is unrestricted, and in the agent's
-   * added folders in Workspace only. `exactPath` does not
-   * use a file with the same name from the thread's tool history, so an inline image shows no older file.
+   * added folders in Workspace only. `exactPath` does not use a file with the same name from the thread's
+   * tool history or an added folder, so an inline image shows no older file.
    */
   readonly resolveLocalWorkspaceFile = Effect.fn("AgentService.resolveLocalWorkspaceFile")(function* (
     this: AgentService,
@@ -4464,7 +4686,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     const agent = yield* lifecycleStep("find workspace agent", () => this.#agentForFile(agentId));
     return yield* resolveWorkspaceFile(agent, inputPath, {
       ...localWorkspaceAccess(agent),
-      ...(options.exactPath ? {} : { fileHistory: this.#turn.fileHistory.paths(agent.id, agent.threadId) }),
+      ...(options.exactPath
+        ? { exactPath: true }
+        : { fileHistory: this.#turn.fileHistory.paths(agent.id, agent.threadId) }),
     }).pipe(
       Effect.mapError(
         (failure) => new AgentLifecycleFailed({ operation: "resolve local workspace file", cause: failure.cause }),
@@ -4693,6 +4917,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   ): Effect.Effect<AgentStatus, AgentLifecycleFailed> {
     return this.#providers
       .connectProviderAccount(provider, accountId, openExternal)
+      .pipe(
+        Effect.mapError(
+          (failure) => new AgentLifecycleFailed({ operation: "connectProviderAccount", cause: failure.cause }),
+        ),
+      );
+  }
+
+  /** See `ProviderRuntime.connectProviderAccountKey`. */
+  connectProviderAccountKey(
+    provider: AgentProvider,
+    accountId: string | null,
+    key: string,
+  ): Effect.Effect<AgentStatus, AgentLifecycleFailed> {
+    return this.#providers
+      .connectProviderAccountKey(provider, accountId, key)
       .pipe(
         Effect.mapError(
           (failure) => new AgentLifecycleFailed({ operation: "connectProviderAccount", cause: failure.cause }),
@@ -5750,6 +5989,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       return found;
     });
     this.#tasks.close(task);
+    // A closed thread takes no message, so a question that waits for one there expires.
+    this.#attention.expireDetached(task.agentId, task.threadId);
     yield* this.#memoryReview.threadClosed(task.agentId, task.threadId);
     // A task lane that waited for a free task can start now.
     this.#drain.scheduleDrain(task.agentId);
@@ -5805,6 +6046,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       if (wasOpen) this.#tasks.close(found);
       return { task: found, wasOpen };
     });
+    // Before the thread's messages go, so the question's card can still record that it expired.
+    this.#attention.expireDetached(task.agentId, task.threadId);
     // A deleted thread is not reviewed: the person discarded it.
     yield* this.#memoryReview.forgetThread(task.agentId, task.threadId);
     yield* this.#returnTaskAnswers(task);

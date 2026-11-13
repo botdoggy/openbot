@@ -117,6 +117,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "Bellek işlemi başarısız oldu. Tekrar deneyin.",
   "error.backend.memoryGone": "Bu bellek artık mevcut değil.",
   "error.backend.routineGone": "Bu rutin artık mevcut değil.",
+  "error.backend.routineRunGone": "Bu rutin çalıştırması artık mevcut değil.",
   "error.backend.turnNotStarted": "Sağlayıcı bu turu başlatmadı.",
   "error.backend.routineResultConnectionOff": "Bu mesajlaşma bağlantısı kapalı veya kaldırılmış. Başka bir yer seçin.",
   "error.backend.routineResultNoDelivery": "Bu çalıştırmanın yeniden gönderilecek bir yanıtı yok.",
@@ -349,6 +350,8 @@ export const messages = {
   "error.backend.browserProxySignInRefused": "{name} proxy'si oturum açmayı reddetti, bu yüzden sayfa açılmadı.",
   "error.backend.browserProxyComputerUnreachable":
     "Bu profilin kullandığı bilgisayar yanıt vermiyor, bu yüzden sayfa açılmadı.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "Bu profilin kullandığı bilgisayar yalnızca herkese açık siteleri açar. Yerel ağdaki adresleri açmaz, bu yüzden sayfa açılmadı.",
   "error.backend.browserCertificateUntrusted":
     "Bu sitenin güvenlik sertifikasına güvenilmiyor, bu yüzden sayfa açılmadı.",
   "error.backend.browserLowMemory":

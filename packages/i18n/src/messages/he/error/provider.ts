@@ -200,7 +200,9 @@ export const messages = {
   "error.provider.opencodeInvalidUpload":
     "ספק המודלים של OpenCode דיווח על בקשת העלאה לא תקינה. יש לבחור מודל אחר ולהמשיך. כדאי לבדוק שגרות שמורות לפני שיוצרים אותן שוב.\n{detail}",
   "error.provider.opencodeUnreadableContent":
-    "המודל הזה לא יכול לקרוא קובץ או תמונה בצ'אט הזה. יש לבחור מודל שיכול לקרוא קבצים, ואז לשלוח את ההודעה שוב.",
+    'המודל הזה לא יכול לקרוא קובץ או תמונה בצ\'אט הזה. OpenBot התחיל סשן OpenCode חדש עם היסטוריית הצ\'אט. יש לשלוח את ההודעה שוב בלי הקובץ, או לבחור מודל שיכול לקרוא קבצים. אם הוספת את המודל הזה לספק מותאם אישית, יש לבטל את הסימון של "תמונות" ב"מקבל" בהגדרות שלו.',
+  "error.provider.opencodeContextTooSmall":
+    "השיחה הזו לא נכנסת בחלון ההקשר של המודל. ב-Ollama או ב-LM Studio, טען את המודל עם אורך הקשר גדול יותר, והזן את אותו חלון בהגדרות הספק שלו ב-OpenBot. או בחר מודל גדול יותר.",
   "error.provider.opencodeFreeLimit":
     "מודלי OpenCode החינמיים הגיעו למגבלת השימוש. כל המודלים החינמיים חולקים את המגבלה הזו. כדי להמשיך, יש להדביק מפתח OpenCode Go בהגדרות OpenCode, או לבחור מודל מספק אחר.",
   "error.provider.opencodeProviderFailed":
@@ -283,6 +285,8 @@ export const messages = {
   "error.provider.hermesSignIn": "יש להתחבר עם Nous Portal, או להריץ `hermes setup` בטרמינל, כדי להשתמש ב-Hermes.",
   "error.provider.hermesTurnFailed":
     "Hermes לא הצליח לסיים את התור הזה. אם התשובה שלו מציינת סיבה, פעל לפיה. אם לא, ייתכן ששרת MCP של הסוכן הזה אינו זמין: בדוק אותו בהגדרות השרת › MCP, ואז שלח את ההודעה שוב.",
+  "error.provider.copilotThinkingRejected":
+    "GitHub Copilot לא הצליח להשתמש במודל הזה: המודל לא קיבל את הגדרת החשיבה שלו. בחרו מודל אחר לסוכן הזה ושלחו שוב את ההודעה.",
   "error.provider.usageLimitReached": "החשבון הגיע למגבלת השימוש שלו.",
   "error.provider.claudeContextFull":
     "הצ'אט הזה נעשה ארוך מדי עבור Claude. OpenBot התחיל סשן חדש של Claude Code עם היסטוריית הצ'אט. יש לנסות שוב.",
@@ -298,6 +302,8 @@ export const messages = {
     "המודל לא קיבל את הצ'אט הזה כי יש בו יותר מדי תמונות. OpenBot התחיל סשן {provider} חדש עם היסטוריית הצ'אט. נסה שוב.",
   "error.provider.opencodeSessionRejected":
     "OpenCode דחה את הבקשה ולא מסר את הסיבה. זה יכול לקרות בצ'אט ארוך או אחרי החלפת מודל. OpenBot התחיל סשן חדש של OpenCode עם היסטוריית הצ'אט. יש לנסות שוב. אם השגיאה נמשכת, יש לבחור מודל אחר או רמת מאמץ נמוכה יותר.",
+  "error.provider.opencodeCompactionFailed":
+    "המודל לא הצליח לסכם את הצ'אט הארוך הזה כדי לפנות מקום בחלון ההקשר. OpenBot התחיל סשן חדש של OpenCode עם היסטוריית הצ'אט. יש לנסות שוב. אם השגיאה נמשכת, יש לבחור מודל חזק יותר.",
   "error.provider.museMcpStartupFault":
     "Muse לא הצליח להפעיל שרת MCP וחסם MCP בסשן הזה. OpenBot התחיל סשן חדש של Muse עם היסטוריית הצ'אט. יש לנסות שוב. אם השגיאה נמשכת, יש לכבות את שליטה במחשב או את שרת ה-MCP שנכשל עבור הסוכן הזה.",
   "error.provider.claudeSessionMissing":
@@ -318,6 +324,10 @@ export const messages = {
   "error.provider.httpsSignInLinkOnly": "רק קישורי התחברות מסוג HTTPS יכולים להיפתח בדפדפן.",
   "error.provider.geminiKeyRefused":
     "Gemini דחה את מפתח ה-API השמור. יש להחליף או להסיר את המפתח בהגדרות, ואז להתחבר שוב.",
+  "error.provider.geminiAccountSettingsUnreadable":
+    "Gemini לא יכול לפתוח את קובץ ההגדרות של החשבון הזה, ולכן אינו יכול להתחבר. יש להסיר את החשבון ולהוסיף אותו שוב.",
+  "error.provider.geminiSettingsUnreadable":
+    "Gemini לא יכול לפתוח את קובץ ההגדרות שלו במחשב הזה, ולכן אינו יכול להתחבר. יש לסגור את האפליקציות האחרות שמשתמשות ב-Gemini, ואז לסגור ולפתוח שוב את OpenBot.",
   "error.provider.geminiVerificationRequired":
     "נדרש אימות של החשבון שלך ב-Google לפני ש-Gemini יוכל לענות. יש לאמת את חשבון Google בדפדפן, ואז לשלוח את ההודעה שוב.",
   "error.provider.keyProviderRefused":
@@ -372,6 +382,12 @@ export const messages = {
   "error.provider.accountDefault": "לא ניתן להסיר את חשבון {provider} הראשון.",
   "error.provider.accountUsesKey":
     "חשבון {provider} הזה משתמש במפתח ה-API השמור ואין לו התחברות. יש לשנות את המפתח בהגדרות שרת ← ספקים.",
+  "error.provider.accountNeedsKey":
+    "חשבון {provider} חדש צריך מפתח API. יש לעדכן את OpenBot במכשיר הזה ואז להוסיף את החשבון שוב.",
+  "error.provider.accountKeyRefused": "{provider} לא קיבל את מפתח ה-API הזה. יש לבדוק את המפתח ולנסות שוב.",
+  "error.provider.accountKeyUnreachable":
+    "OpenBot לא הצליח להגיע אל {provider} כדי לבדוק את מפתח ה-API. יש לבדוק את החיבור לאינטרנט ולנסות שוב.",
+  "error.provider.accountKeySignedOut": "{provider} כבר לא מקבל את מפתח ה-API של החשבון הזה. יש לתת לחשבון מפתח חדש.",
   "error.provider.accountInUse": "סוכן בחשבון הזה עובד. יש לנסות שוב כשהסוכן יעצור.",
   "error.provider.accountsReadOnly": "לא ניתן לקרוא את חשבונות הספקים השמורים. יש לעדכן את OpenBot לפני שינוי שלהם.",
   "error.provider.accountSignedOut": "חשבון {provider} הזה מנותק. יש להתחבר שוב.",

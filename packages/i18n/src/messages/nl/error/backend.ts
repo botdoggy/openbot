@@ -121,6 +121,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "De geheugenbewerking is mislukt. Probeer het opnieuw.",
   "error.backend.memoryGone": "Deze herinnering bestaat niet meer.",
   "error.backend.routineGone": "Deze routine bestaat niet meer.",
+  "error.backend.routineRunGone": "Deze routine-uitvoering bestaat niet meer.",
   "error.backend.turnNotStarted": "De aanbieder heeft deze beurt niet gestart.",
   "error.backend.routineResultConnectionOff":
     "Deze berichtenverbinding staat uit of is verwijderd. Kies een andere plek.",
@@ -372,6 +373,8 @@ export const messages = {
     "De proxy {name} heeft de aanmelding geweigerd, dus de pagina is niet geopend.",
   "error.backend.browserProxyComputerUnreachable":
     "De computer van dit profiel reageert niet, dus de pagina is niet geopend.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "De computer die dit profiel gebruikt, opent alleen openbare sites. Hij opent geen adressen in een lokaal netwerk, dus de pagina is niet geopend.",
   "error.backend.browserCertificateUntrusted":
     "Het beveiligingscertificaat van deze site wordt niet vertrouwd, dus de pagina is niet geopend.",
   "error.backend.browserLowMemory":

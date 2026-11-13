@@ -107,6 +107,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "记忆操作失败，请重试。",
   "error.backend.memoryGone": "该记忆已不存在。",
   "error.backend.routineGone": "该自动化任务已不存在。",
+  "error.backend.routineRunGone": "该自动化任务的此次运行已不存在。",
   "error.backend.turnNotStarted": "服务商未启动本轮对话。",
   "error.backend.routineResultConnectionOff": "该消息连接已关闭或已移除，请另选投递位置。",
   "error.backend.routineResultNoDelivery": "本次运行没有可再次发送的回答。",
@@ -326,6 +327,8 @@ export const messages = {
   "error.backend.browserProxyUnreachable": "代理 {name} 没有响应，因此页面没有打开。",
   "error.backend.browserProxySignInRefused": "代理 {name} 拒绝了登录，因此页面没有打开。",
   "error.backend.browserProxyComputerUnreachable": "此配置文件使用的计算机没有响应，因此页面没有打开。",
+  "error.backend.browserProxyComputerLocalAddress":
+    "此配置文件使用的计算机只打开公共网站。它不打开本地网络上的地址，因此页面没有打开。",
   "error.backend.browserCertificateUntrusted": "此网站的安全证书不受信任，因此页面没有打开。",
   "error.backend.browserLowMemory": "该服务器内存不足，浏览器无法再打开标签页。请关闭一个标签页，或等其他助手结束。",
   "error.backend.browserOpenFailed": "无法打开 {url}：{reason}",

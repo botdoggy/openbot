@@ -125,6 +125,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "Der Vorgang für die Erinnerung ist fehlgeschlagen. Versuche es erneut.",
   "error.backend.memoryGone": "Diese Erinnerung existiert nicht mehr.",
   "error.backend.routineGone": "Diese Routine existiert nicht mehr.",
+  "error.backend.routineRunGone": "Dieser Routinelauf existiert nicht mehr.",
   "error.backend.turnNotStarted": "Der Anbieter hat diesen Durchlauf nicht gestartet.",
   "error.backend.routineResultConnectionOff":
     "Diese Messaging-Verbindung ist aus oder entfernt. Wähle einen anderen Ort.",
@@ -383,6 +384,8 @@ export const messages = {
     "Der Proxy {name} hat die Anmeldung abgelehnt, daher wurde die Seite nicht geöffnet.",
   "error.backend.browserProxyComputerUnreachable":
     "Der Computer dieses Profils antwortet nicht, daher wurde die Seite nicht geöffnet.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "Der Computer, den dieses Profil verwendet, öffnet nur öffentliche Websites. Adressen in einem lokalen Netzwerk öffnet er nicht, daher wurde die Seite nicht geöffnet.",
   "error.backend.browserCertificateUntrusted":
     "Das Sicherheitszertifikat dieser Website ist nicht vertrauenswürdig, daher wurde die Seite nicht geöffnet.",
   "error.backend.browserLowMemory":

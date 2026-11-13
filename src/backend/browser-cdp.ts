@@ -47,6 +47,7 @@ import {
   CardValueScrub,
   collectBoundedSnapshot,
   collectFocus,
+  controlIdentity,
   cssObjectMatch,
   describeTargetCandidates,
   fallbackRole,
@@ -101,6 +102,13 @@ const DOCUMENT_ID_PROPERTY = "__openbot_browser_document_id__";
 const MAX_SNAPSHOT_FRAMES = 12;
 const DOM_QUIET_MS = 250;
 const CHOOSER_WAIT_MS = 5_000;
+/**
+ * Many page editors find the drop position in an animation frame that `dragover` requests. A drop
+ * before that frame finds no position and adds nothing, so a drag lets one frame render first. A
+ * tab can draw only one frame each second, and a tab that draws no frames waits only this limit.
+ */
+const DROP_FRAME_WAIT_MS = 1_500;
+const DROP_FRAME_SCRIPT = "new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))";
 
 type ActionDispatch = () => void;
 
@@ -363,10 +371,14 @@ export class BrowserCdpEngine {
        * field is a password field, or every field asks for a one-time code. A text field that the page
        * masks with `-webkit-text-security` is a password field. A code field has
        * `autocomplete="one-time-code"`, or is a text, tel or number input with a strong code word such as
-       * otp, 2fa or verification code in its id, name or aria-label, as older Keycloak sign-in pages have.
-       * A name that also has backup, recovery, mail, phone, sms, name or label is not one: it is another
-       * code or not a code. The fingerprint check of `enter` keeps
-       * this true until the fill; the mask is read here only, because a page can change it as it fills.
+       * otp, totp, authentication code or verification code in its id, name, aria-label, placeholder,
+       * title or label, as older Keycloak, Squarespace and Kite ("External TOTP") sign-in pages have.
+       * A field named only "code" or "passcode", as Okta's `credentials.passcode`, is one when the visible
+       * text of its form names an authenticator app and no email or SMS. A name that also has backup,
+       * recovery, mail, phone, sms, name, label, or a promo, address or card word is not one: it is
+       * another code or not a code. The fingerprint
+       * check of `enter` keeps the field, its form, and its id, name and autocomplete until the fill;
+       * the mask and the label text are read here only, because a page can change them as it fills.
        */
       fields: { password: boolean; oneTimeCode: boolean };
       /**
@@ -417,6 +429,19 @@ export class BrowserCdpEngine {
             node.backendNodeId,
             `function(origin, input) { if (this.isConnected && this.ownerDocument !== document) return 'frame'; return this.isConnected && location.origin === origin && (!input || (this.localName === 'input' && !this.disabled && !this.readOnly && ['password','text','tel','number'].includes(this.type))); }`,
             [origin, input],
+          ).pipe(
+            // The top frame's world cannot reach a node in a frame of another origin in the page's
+            // process, so the check fails before it can name the frame. Only a child frame that holds
+            // the node changes the reason.
+            Effect.catch((failure) =>
+              Effect.gen({ self: this }, function* () {
+                const holder = yield* Effect.gen({ self: this }, function* () {
+                  const childFrames = frameIds(yield* send("Page.getFrameTree", {})).slice(1);
+                  return yield* this.#nodeFrameWorld(send, node.backendNodeId, undefined, childFrames);
+                }).pipe(Effect.catch(() => Effect.succeed(undefined)));
+                return holder === undefined ? yield* Effect.fail(failure) : "frame";
+              }),
+            ),
           );
           if (valid === "frame") return yield* inFrame(index);
           if (valid !== true)
@@ -446,8 +471,14 @@ export class BrowserCdpEngine {
             send,
             node.backendNodeId,
             `function() {
-              const named = [this.id, this.name, this.getAttribute('aria-label') ?? ''].join(' ').replace(/([a-z])([A-Z0-9])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-              const oneTimeCode = (this.getAttribute('autocomplete') ?? '').toLowerCase().split(/\\s+/).includes('one-time-code') || (['text', 'tel', 'number'].includes(this.type) && /totp|\\b(?:otp|2fa|mfa)+(?:code|token|pin)?\\b|\\bauthenticator\\b|\\bone ?time ?(?:code|password|passcode|pin)\\b|\\bverification ?code\\b|\\btwo ?factor\\b/.test(named) && !/backup|recovery|mail|phone|sms|name|label/.test(named));
+              const words = (text) => text.replace(/([a-z])([A-Z0-9])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+              const labelledBy = (this.getAttribute('aria-labelledby') ?? '').split(/\\s+/).map((id) => (id && this.getRootNode().getElementById?.(id)?.textContent) || '');
+              const named = words([this.id, this.name, this.getAttribute('aria-label') ?? '', this.getAttribute('placeholder') ?? '', this.title, ...[...(this.labels ?? [])].map((label) => label.textContent ?? ''), ...labelledBy].join(' '));
+              const codeWord = /totp|\\b(?:otp|2fa|mfa)+(?:code|token|pin)?\\b|\\bauthenticator\\b|\\bauthentication ?(?:app|code)\\b|\\bone ?time ?(?:code|password|passcode|pin)\\b|\\bverification ?code\\b|\\btwo ?(?:factor|step)\\b|\\bmulti ?factor\\b/;
+              // Okta names its email, SMS and app code fields the same, so a plain code or passcode
+              // field counts only in a form whose visible text names an app and no email or SMS.
+              const authenticatorForm = () => { const text = words(this.form?.innerText ?? ''); return /\\bauthenticator\\b|\\bauthentication ?app\\b|\\btotp\\b/.test(text) && !/\\be ?mail(?:ed)?\\b|\\bsms\\b|\\btext (?:message|messaged)\\b|\\btexted\\b/.test(text); };
+              const oneTimeCode = (this.getAttribute('autocomplete') ?? '').toLowerCase().split(/\\s+/).includes('one-time-code') || (['text', 'tel', 'number'].includes(this.type) && (codeWord.test(named) || (/\\b(?:pass)?code\\b/.test(named) && authenticatorForm())) && !/backup|recovery|mail|phone|sms|name|label|promo|coupon|voucher|discount|gift|invite|referral|zip|postal|country|card|cvc|cvv|csc/.test(named));
               return { password: this.type === 'password' || (this.type === 'text' && !['', 'none'].includes(getComputedStyle(this).getPropertyValue('-webkit-text-security'))), oneTimeCode, network: ${LOADED_FROM_NETWORK} };
             }`,
             [],
@@ -730,6 +761,8 @@ export class BrowserCdpEngine {
   #retainDebugger = false;
   #ownsDebugger = false;
   #idleDetach: NodeJS.Immediate | undefined;
+  /** The host turned emulated focus off for a hidden, idle tab (`setIdleFocus`). */
+  #idleFocusOff = false;
   #closing = false;
   #disposed = false;
   readonly #scope = Scope.makeUnsafe();
@@ -848,7 +881,8 @@ export class BrowserCdpEngine {
         const emptyWait =
           settle !== null &&
           !settle.busy &&
-          parsed.elements.length === 0 &&
+          // A fallback result can be a page that fades in from opacity 0: it waits as an empty page did.
+          (parsed.elements.length === 0 || parsed.fallback) &&
           settle.emptyWaitMs > 0 &&
           settle.document !== this.#emptyWaitedDocument;
         // The second collect needs time before the read's deadline.
@@ -891,7 +925,16 @@ export class BrowserCdpEngine {
         const retainedRefs = new Set(snapshot.elements.map((element) => element.ref));
         this.#targets = new Map([...parsed.targets].filter(([ref]) => retainedRefs.has(ref)));
         this.#lastSnapshot = snapshot;
-        const lowCoverage = parsed.elements.length < 3 && parsed.text.length > 200;
+        // An empty snapshot of a web page also needs the image: the page draws nothing that the snapshot can read.
+        // A document with no root element, such as a load stopped before the first tag, draws no frame,
+        // and a capture of it waits until its deadline.
+        const emptyPage =
+          parsed.elements.length === 0 &&
+          !parsed.text &&
+          parsed.hasRoot &&
+          !snapshot.loading &&
+          /^https?:/u.test(snapshot.url);
+        const lowCoverage = (parsed.elements.length < 3 && parsed.text.length > 200) || emptyPage;
         const recommendImage = parsed.hasVisualSurface || parsed.hasFrame || lowCoverage;
         const imageReason = parsed.hasVisualSurface
           ? "canvas-or-video"
@@ -1723,6 +1766,21 @@ export class BrowserCdpEngine {
           if (!dragData) return yield* browserFailure(new Error("The source did not start a native drag operation."));
           yield* send("Input.dispatchDragEvent", { type: "dragEnter", x: to.x, y: to.y, data: dragData }, sessionId);
           yield* send("Input.dispatchDragEvent", { type: "dragOver", x: to.x, y: to.y, data: dragData }, sessionId);
+          // The wait only helps the page. The drop still goes, before the deadline, when no frame comes.
+          const frameWaitMs =
+            deadline === undefined
+              ? DROP_FRAME_WAIT_MS
+              : Math.min(DROP_FRAME_WAIT_MS, deadline - Date.now() - SETTLE_RESERVE_MS);
+          if (frameWaitMs > 0) {
+            yield* Effect.gen(function* () {
+              const contextId = yield* automationContextId(send, sessionId);
+              yield* send(
+                "Runtime.evaluate",
+                { expression: DROP_FRAME_SCRIPT, contextId, awaitPromise: true },
+                sessionId,
+              );
+            }).pipe(Effect.timeoutOrElse({ duration: frameWaitMs, orElse: () => Effect.void }), Effect.ignore);
+          }
           yield* send("Input.dispatchDragEvent", { type: "drop", x: to.x, y: to.y, data: dragData }, sessionId);
           yield* send(
             "Input.dispatchMouseEvent",
@@ -2157,6 +2215,21 @@ export class BrowserCdpEngine {
     this.#detachOwnedDebugger();
     return true;
   }
+
+  /**
+   * A lease emulates focus, and a page with emulated focus stays visible also when its tab is hidden
+   * and throttled. A debugger that `setEnvironment` keeps attached keeps that focus after the lease,
+   * so the host turns it off for a hidden tab and on again when the tab is shown or used. Until then,
+   * each lease that ends turns it off again (`#restoreIdleFocus`), as a preview capture of the tab.
+   */
+  readonly setIdleFocus = Effect.fn("BrowserCdp.setIdleFocus")(function* (
+    this: BrowserCdpEngine,
+    enabled: boolean,
+  ): Effect.fn.Return<void, BrowserOperationError> {
+    this.#idleFocusOff = !enabled;
+    if (!this.#mayEmulateIdleFocus()) return;
+    yield* browserCall(() => this.#contents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled }));
+  });
 
   readonly setEnvironment = Effect.fn("BrowserCdp.setEnvironment")(function* (
     this: BrowserCdpEngine,
@@ -2960,7 +3033,7 @@ export class BrowserCdpEngine {
       const sessionId = record.targetId ? this.#targetSessions.get(record.targetId)?.sessionId : undefined;
       if (deadline !== undefined) {
         yield* browserSync(() => assertBeforeDeadline(deadline));
-        const current = yield* this.#targetFingerprint(send, record.backendNodeId, sessionId).pipe(
+        const current = yield* this.#targetFingerprint(send, record.backendNodeId, sessionId, record.drawnOnly).pipe(
           Effect.catch(() => Effect.succeed(null)),
         );
         yield* browserSync(() => assertBeforeDeadline(deadline));
@@ -3207,6 +3280,7 @@ export class BrowserCdpEngine {
     send: SendCommand,
     backendNodeId: number,
     sessionId?: string,
+    drawnOnly = false,
   ): Effect.fn.Return<
     { role: string; name: string; tag: string; visibleText: string; visible: boolean },
     BrowserOperationError
@@ -3218,13 +3292,14 @@ export class BrowserCdpEngine {
         this.#callOnNode(
           send,
           backendNodeId,
-          String.raw`function() {
+          // A ref of the fallback snapshot pass is in an aria-hidden or opacity 0 container that the page draws.
+          String.raw`function(drawnOnly) {
           if (this.nodeType !== 1 || !this.isConnected || this.getClientRects().length === 0) return null;
           let element = this;
           while (element) {
-            if (Element.prototype.hasAttribute.call(element, 'hidden') || Element.prototype.hasAttribute.call(element, 'inert') || String(element.getAttribute('aria-hidden')).toLowerCase() === 'true') return null;
+            if (Element.prototype.hasAttribute.call(element, 'hidden') || Element.prototype.hasAttribute.call(element, 'inert') || (!drawnOnly && String(element.getAttribute('aria-hidden')).toLowerCase() === 'true')) return null;
             const style = getComputedStyle(element);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.contentVisibility === 'hidden' || style.opacity === '0') return null;
+            if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.contentVisibility === 'hidden' || (!drawnOnly && style.opacity === '0')) return null;
             const parent = element.parentElement;
             if (parent) element = parent;
             else {
@@ -3234,7 +3309,7 @@ export class BrowserCdpEngine {
           }
           return { visibleText: String(this.innerText ?? this.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 500) };
         }`,
-          [],
+          [drawnOnly],
           sessionId,
         ),
       ],
@@ -3244,11 +3319,17 @@ export class BrowserCdpEngine {
     const axNodes = Array.isArray(partialAxTree.nodes) ? partialAxTree.nodes.filter(isRecord) : [];
     const ax = axNodes.find((candidate) => numberValue(candidate.backendDOMNodeId) === backendNodeId) ?? axNodes[0];
     const state = recordValue(pageState);
+    const visibleText = stringValue(state?.visibleText);
+    const identity = drawnOnly
+      ? controlIdentity(node ?? {}, ax, visibleText)
+      : {
+          role: ax ? axValue(ax.role).toLowerCase() || fallbackRole(node ?? {}) : fallbackRole(node ?? {}),
+          name: ax ? axValue(ax.name).slice(0, 500) : "",
+        };
     return {
-      role: ax ? axValue(ax.role).toLowerCase() || fallbackRole(node ?? {}) : fallbackRole(node ?? {}),
-      name: ax ? axValue(ax.name).slice(0, 500) : "",
+      ...identity,
       tag: (stringValue(node?.localName) || stringValue(node?.nodeName)).toLowerCase(),
-      visibleText: stringValue(state?.visibleText),
+      visibleText,
       visible: state !== undefined,
     };
   });
@@ -3554,10 +3635,28 @@ export class BrowserCdpEngine {
         Effect.sync(() => {
           this.#activeLeases -= 1;
           this.#releaseIdleDebugger();
+          this.#restoreIdleFocus();
         }),
       ),
     );
   });
+
+  /** As `#releaseIdleDebugger`, on a later task: a lease can end inside a CDP message. */
+  #restoreIdleFocus(): void {
+    if (!this.#idleFocusOff || this.#activeLeases > 0) return;
+    setImmediate(() => {
+      if (!this.#idleFocusOff || !this.#mayEmulateIdleFocus()) return;
+      void this.#contents.debugger
+        .sendCommand("Emulation.setFocusEmulationEnabled", { enabled: false })
+        .catch(() => {});
+    });
+  }
+
+  /** Only a debugger that this engine keeps attached, between leases, holds a focus that a lease set. */
+  #mayEmulateIdleFocus(): boolean {
+    if (!this.#ownsDebugger || this.#activeLeases > 0 || this.#disposed || this.#closing) return false;
+    return !this.#contents.isDestroyed() && this.#contents.debugger.isAttached();
+  }
 
   #detachOwnedDebugger(): void {
     if (!this.#ownsDebugger) return;

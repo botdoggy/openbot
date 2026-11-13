@@ -211,7 +211,9 @@ export const messages = {
   "error.provider.opencodeInvalidUpload":
     "Dostawca modelu OpenCode zgłosił nieprawidłowe żądanie przesłania. Wybierz inny model i kontynuuj. Sprawdź zapisane rutyny, zanim utworzysz je ponownie.\n{detail}",
   "error.provider.opencodeUnreadableContent":
-    "Ten model nie może odczytać pliku lub obrazu w tym czacie. Wybierz model, który odczytuje pliki, a potem wyślij wiadomość ponownie.",
+    "Ten model nie może odczytać pliku lub obrazu w tym czacie. OpenBot rozpoczął nową sesję OpenCode z historią czatu. Wyślij wiadomość ponownie bez pliku albo wybierz model, który odczytuje pliki. Jeśli ten model dodano do własnego dostawcy, odznacz „Obrazy” przy „Przyjmuje” w jego ustawieniach.",
+  "error.provider.opencodeContextTooSmall":
+    "Ten czat nie mieści się w oknie kontekstu modelu. W Ollama lub LM Studio wczytaj model z większą długością kontekstu i wpisz to samo okno w ustawieniach jego dostawcy w OpenBot. Możesz też wybrać większy model.",
   "error.provider.opencodeFreeLimit":
     "Darmowe modele OpenCode osiągnęły limit użycia. Wszystkie darmowe modele mają wspólny limit. Aby kontynuować, wklej klucz OpenCode Go w ustawieniach OpenCode albo wybierz model innego dostawcy.",
   "error.provider.opencodeProviderFailed":
@@ -299,6 +301,8 @@ export const messages = {
     "Zaloguj się przez Nous Portal lub uruchom `hermes setup` w terminalu, aby używać Hermes.",
   "error.provider.hermesTurnFailed":
     "Hermes nie mógł dokończyć tej tury. Jeśli odpowiedź podaje powód, postępuj zgodnie z nią. Jeśli nie, serwer MCP tego agenta może być niedostępny: sprawdź go w Ustawienia serwera › MCP, a potem wyślij wiadomość ponownie.",
+  "error.provider.copilotThinkingRejected":
+    "GitHub Copilot nie mógł użyć tego modelu: model nie przyjął jego ustawienia myślenia. Wybierz inny model dla tego agenta, a potem wyślij wiadomość ponownie.",
   "error.provider.usageLimitReached": "Konto osiągnęło limit użycia.",
   "error.provider.claudeContextFull":
     "Ten czat stał się za długi dla Claude. OpenBot rozpoczął nową sesję Claude Code z historią czatu. Spróbuj ponownie.",
@@ -316,6 +320,8 @@ export const messages = {
     "OpenCode odrzucił żądanie i nie podał przyczyny. Może się to zdarzyć w długim czacie lub po zmianie modelu. OpenBot rozpoczął nową sesję OpenCode z historią czatu. Spróbuj ponownie. Jeśli błąd się powtarza, wybierz inny model lub niższy wysiłek.",
   "error.provider.acpContextOverflow":
     "Sesja agenta przekroczyła limit kontekstu, a agent nie mógł jej odzyskać przez kompaktowanie. OpenBot rozpoczął nową sesję z historią czatu. Spróbuj ponownie. Jeśli błąd się powtarza, rozpocznij nowy czat.",
+  "error.provider.opencodeCompactionFailed":
+    "Model nie zdołał streścić tego długiego czatu, aby zwolnić miejsce w oknie kontekstu. OpenBot rozpoczął nową sesję OpenCode z historią czatu. Spróbuj ponownie. Jeśli błąd się powtarza, wybierz mocniejszy model.",
   "error.provider.museMcpStartupFault":
     "Muse nie mógł uruchomić serwera MCP i zablokował MCP w tej sesji. OpenBot rozpoczął nową sesję Muse z historią czatu. Spróbuj ponownie. Jeśli błąd się powtarza, wyłącz Sterowanie komputerem lub serwer MCP, który zawiódł, dla tego agenta.",
   "error.provider.claudeSessionMissing":
@@ -336,6 +342,10 @@ export const messages = {
   "error.provider.httpsSignInLinkOnly": "W przeglądarce można otworzyć tylko linki logowania HTTPS.",
   "error.provider.geminiKeyRefused":
     "Gemini odrzucił zapisany klucz API. Zastąp lub usuń klucz w Ustawieniach, a następnie połącz ponownie.",
+  "error.provider.geminiAccountSettingsUnreadable":
+    "Gemini nie może otworzyć pliku ustawień tego konta, więc nie może się zalogować. Usuń to konto i dodaj je ponownie.",
+  "error.provider.geminiSettingsUnreadable":
+    "Gemini nie może otworzyć swojego pliku ustawień na tym komputerze, więc nie może się zalogować. Zamknij inne aplikacje, które używają Gemini, a następnie zamknij i otwórz ponownie OpenBot.",
   "error.provider.geminiVerificationRequired":
     "Google musi zweryfikować twoje konto, zanim Gemini będzie mógł odpowiedzieć. Zweryfikuj konto Google w przeglądarce, a następnie wyślij wiadomość ponownie.",
   "error.provider.keyProviderRefused":
@@ -397,6 +407,13 @@ export const messages = {
   "error.provider.accountDefault": "Nie można usunąć pierwszego konta {provider}.",
   "error.provider.accountUsesKey":
     "To konto {provider} używa zapisanego klucza API i nie ma logowania. Zmień klucz w Ustawienia serwera → Dostawcy.",
+  "error.provider.accountNeedsKey":
+    "Nowe konto {provider} wymaga klucza API. Zaktualizuj OpenBot na tym urządzeniu, a potem dodaj konto ponownie.",
+  "error.provider.accountKeyRefused": "{provider} nie przyjął tego klucza API. Sprawdź klucz i spróbuj ponownie.",
+  "error.provider.accountKeyUnreachable":
+    "OpenBot nie mógł połączyć się z {provider}, aby sprawdzić klucz API. Sprawdź połączenie z internetem i spróbuj ponownie.",
+  "error.provider.accountKeySignedOut":
+    "{provider} nie przyjmuje już klucza API tego konta. Podaj nowy klucz dla konta.",
   "error.provider.accountInUse": "Agent korzystający z tego konta pracuje. Spróbuj ponownie, gdy agent się zatrzyma.",
   "error.provider.accountsReadOnly":
     "Nie można odczytać zapisanych kont dostawców. Zaktualizuj OpenBot, zanim je zmienisz.",

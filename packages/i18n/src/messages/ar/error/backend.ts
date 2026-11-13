@@ -110,6 +110,7 @@ export const messages = {
   "error.backend.memoryOperationFailed": "فشلت عملية الذاكرة. حاول مرة أخرى.",
   "error.backend.memoryGone": "هذه الذكرى لم تعد موجودة.",
   "error.backend.routineGone": "هذه المهمة الدورية لم تعد موجودة.",
+  "error.backend.routineRunGone": "تشغيل المهمة الدورية هذا لم يعد موجودًا.",
   "error.backend.turnNotStarted": "لم يبدأ المزوّد هذا الدور.",
   "error.backend.routineResultConnectionOff": "اتصال المراسلة هذا متوقف أو تمت إزالته. اختر مكانًا آخر.",
   "error.backend.routineResultNoDelivery": "لا توجد لهذا التشغيل إجابة لإرسالها مرة أخرى.",
@@ -339,6 +340,8 @@ export const messages = {
   "error.backend.browserProxySignInRefused": "رفض الوكيل {name} تسجيل الدخول، لذلك لم تُفتح الصفحة.",
   "error.backend.browserProxyComputerUnreachable":
     "الكمبيوتر الذي يستخدمه هذا الملف الشخصي لا يستجيب، لذلك لم تُفتح الصفحة.",
+  "error.backend.browserProxyComputerLocalAddress":
+    "الكمبيوتر الذي يستخدمه هذا الملف الشخصي يفتح المواقع العامة فقط. ولا يفتح العناوين على شبكة محلية، لذلك لم تُفتح الصفحة.",
   "error.backend.browserCertificateUntrusted": "شهادة الأمان لهذا الموقع غير موثوقة، لذلك لم تُفتح الصفحة.",
   "error.backend.browserLowMemory":
     "ذاكرة هذا الخادم منخفضة، لذا لا يمكن للمتصفح فتح علامة تبويب أخرى. أغلق علامة تبويب، أو انتظر حتى ينتهي الوكلاء الآخرون.",
