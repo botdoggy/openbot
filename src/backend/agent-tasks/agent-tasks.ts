@@ -143,9 +143,7 @@ export class AgentTasks implements TaskLanes {
 
   limit(agentId: string): number {
     const agent = this.#hooks.agent(agentId);
-    return agent
-      ? agentTaskLimit(agent, this.#hooks.customAgents?.() ?? [], this.#hooks.defaultTaskLimit())
-      : 1;
+    return agent ? agentTaskLimit(agent, this.#hooks.customAgents?.() ?? [], this.#hooks.defaultTaskLimit()) : 1;
   }
 
   /**

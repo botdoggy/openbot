@@ -225,6 +225,8 @@ export const messages = {
     "De modelaanbieder had een storing aan zijn kant. Het ligt niet aan je verbinding. Probeer het later opnieuw of kies een ander model.\n{detail}",
   "error.provider.opencodeIncompleteReply":
     "Het antwoord van het model werd afgebroken of was ongeldig. Stuur je bericht opnieuw of kies een ander model.\n{detail}",
+  "error.provider.opencodeReasoningOverlap":
+    "OpenCode kon de redenering van dit model bij dit denkniveau niet lezen. Kies een lager denkniveau of een ander model en stuur je bericht dan opnieuw.",
   "error.provider.opencodeNetwork":
     "OpenCode kon geen verbinding maken met de modelaanbieder. Controleer de netwerkverbinding van de computer waarop OpenBot draait en probeer het opnieuw.\n{detail}",
   "error.provider.codexStateBusy":
@@ -259,6 +261,8 @@ export const messages = {
     "De Gemini-server in OPENBOT_ANTIGRAVITY_PATH ontbreekt of is niet uitvoerbaar. Corrigeer het pad of verwijder de variabele en start OpenBot daarna opnieuw.",
   "error.provider.antigravityVersionUnreadable": "Kan de versie van de Gemini-server niet lezen.",
   "error.provider.antigravitySignIn": "Log in met Google om Gemini te gebruiken.",
+  "error.provider.antigravityModelAtCapacity":
+    "Google heeft nu geen vrije capaciteit voor dit Gemini-model. Het quotum van je abonnement is niet de oorzaak. Probeer het over een paar minuten opnieuw, of kies een ander model.\n{detail}",
   "error.provider.antigravityRateLimited":
     "Gemini heeft het verzoek geweigerd, omdat een limiet op het aantal verzoeken of het quotum van het abonnement is bereikt. Wacht een paar minuten of kies een ander model, en probeer het opnieuw.\n{detail}",
   "error.provider.antigravityQuotaReached":
@@ -358,6 +362,8 @@ export const messages = {
     "{provider} heeft de opgeslagen API-sleutel geweigerd. Vervang of verwijder de sleutel in Instellingen en probeer het opnieuw.",
   "error.provider.keyProviderNoBalance":
     "Het {provider}-account van de opgeslagen API-sleutel heeft geen saldo. Voeg tegoed toe aan het account en probeer het opnieuw.",
+  "error.provider.keyProviderLowCredit":
+    "Het {provider}-account van de opgeslagen API-sleutel heeft niet genoeg tegoed voor een antwoord van dit model. Voeg tegoed toe aan het account of kies een ander model en probeer het opnieuw.",
   "error.provider.modelServiceRefused":
     "De modeldienst heeft het verzoek geweigerd. Kies een ander model of controleer je toegang tot dit model bij de dienst.",
   "error.provider.modelServiceRefusedReason":

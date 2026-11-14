@@ -1,9 +1,10 @@
-import { BILLING_PLAN_IDS, planStorageGb } from "@openbot/contracts/billing";
+import { BILLING_PLAN_IDS } from "@openbot/contracts/billing";
 import {
   HOST_KEY_HANDOVER_LIMIT,
   type HostKeyHandover,
   hostKeyHandoverStatement,
 } from "@openbot/contracts/host-key-handover";
+import { type HostedServerSize, hostedServerStorageGb } from "@openbot/contracts/hosted-servers";
 import { DEFAULT_TEAM_MEMBER_LIMIT } from "@openbot/contracts/input-limits";
 import { isAvatarColor } from "@openbot/contracts/ipc";
 import type { MobileConnectHostBinding } from "@openbot/contracts/mobile-connect";
@@ -52,6 +53,12 @@ import {
   WEBHOOK_ROUTES_LIMIT,
   type WebhookRoute,
 } from "@openbot/contracts/signal-protocol/webhook-route";
+import {
+  isServerAppearanceColor,
+  isServerAppearanceShape,
+  type ServerAppearance,
+  serverAppearanceOrNull,
+} from "@openbot/contracts/team-protocol/host-appearance-v1";
 import { sourceText } from "@openbot/i18n/source";
 import { Context, Effect, Layer, Option, Result, Schema } from "effect";
 import { importJWK, type JWK, type JWTPayload, SignJWT } from "jose";
@@ -152,8 +159,12 @@ export type { RemoteMemberRole };
  * The plan storage of a hosted server, in GB. A server on a machine of the operator has more.
  * Nothing for a server without a known plan.
  */
-function hostedStorage(plan: string | null, onOperatorHost: boolean): { storageGb: number } | Record<string, never> {
-  return isOneOf(BILLING_PLAN_IDS, plan) ? { storageGb: planStorageGb(plan, onOperatorHost) } : {};
+function hostedStorage(
+  plan: string | null,
+  onOperatorHost: boolean,
+  size: HostedServerSize | null,
+): { storageGb: number } | Record<string, never> {
+  return isOneOf(BILLING_PLAN_IDS, plan) ? { storageGb: hostedServerStorageGb(plan, onOperatorHost, size) } : {};
 }
 
 export class RemoteControlPlaneError extends Schema.TaggedError<RemoteControlPlaneError>()("RemoteControlPlaneError", {
@@ -908,11 +919,15 @@ export class RemoteControlPlane {
       const result = yield* remoteCall(() =>
         dependencies.database
           .prepare(
-            `SELECT h.host_id, h.name, h.logo_key, h.device_public_key, h.auth_epoch, m.membership_id, m.role,
+            `SELECT h.host_id, h.name, h.logo_key, h.appearance_shape, h.appearance_color, h.device_public_key,
+           h.auth_epoch, m.membership_id, m.role,
            (SELECT s.plan FROM hosted_servers s WHERE s.server_id = h.host_id
              AND s.desired_state NOT IN ('deleted', 'stopped')) AS hosted_plan,
            (SELECT s.operator_host FROM hosted_servers s WHERE s.server_id = h.host_id
-             AND s.desired_state NOT IN ('deleted', 'stopped')) AS operator_host
+             AND s.desired_state NOT IN ('deleted', 'stopped')) AS operator_host,
+           (SELECT CASE WHEN s.provider_template IS NULL THEN NULL ELSE COALESCE(s.pending_size, s.size) END
+             FROM hosted_servers s WHERE s.server_id = h.host_id
+             AND s.desired_state NOT IN ('deleted', 'stopped')) AS hosted_size
          FROM remote_memberships m
          JOIN remote_hosts h ON h.host_id = m.host_id
          WHERE m.user_id = ? AND m.status = 'active'
@@ -923,12 +938,15 @@ export class RemoteControlPlane {
             host_id: string;
             name: string;
             logo_key: string | null;
+            appearance_shape: string | null;
+            appearance_color: string | null;
             device_public_key: string | null;
             auth_epoch: number;
             membership_id: string;
             role: RemoteMemberRole;
             hosted_plan: string | null;
             operator_host: string | null;
+            hosted_size: HostedServerSize | null;
           }>(),
       );
       const keyHandovers = yield* this.#keyHandoversByHost({
@@ -945,6 +963,7 @@ export class RemoteControlPlane {
               hostId: row.host_id,
               name: row.name,
               logoKey: row.logo_key,
+              appearance: storedAppearance(row.appearance_shape, row.appearance_color),
               devicePublicKey: row.device_public_key,
               keyHandovers: keyHandovers.get(row.host_id) ?? [],
               authEpoch: row.auth_epoch,
@@ -959,7 +978,7 @@ export class RemoteControlPlane {
               // the restart. A client from before this field shows it, and gets the refusal of the restart.
               ...(row.operator_host === null ? {} : { restartAvailable: false }),
               // The storage that the plan of a hosted server gives, so a client warns before the plan is full.
-              ...hostedStorage(row.hosted_plan, row.operator_host !== null),
+              ...hostedStorage(row.hosted_plan, row.operator_host !== null, row.hosted_size),
             };
           }),
         { concurrency: "unbounded" },
@@ -1205,6 +1224,40 @@ export class RemoteControlPlane {
           .run(),
       );
       return host.logo_key;
+    },
+    (operation) => operation.pipe(Effect.provide(this.#layer)),
+  ).bind(this);
+
+  /**
+   * Stores the look of a server with no logo (`host-appearance-v1`), which the host copies here.
+   * `null` gives the server its automatic look again. Returns the stored value.
+   */
+  readonly setHostAppearance = Effect.fn("RemoteControlPlane.setHostAppearance")(
+    function* (
+      this: RemoteControlPlane,
+      userId: string,
+      hostId: string,
+      value: unknown,
+    ): Effect.fn.Return<ServerAppearance | null, RemoteFailure, RemoteDependencies> {
+      const dependencies = yield* RemoteDependencies;
+      yield* this.#requireRole(hostId, userId, ["owner"]);
+      const host = yield* this.#host(hostId);
+      if (!host) return yield* new RemoteControlPlaneError(404, "host_not_found", "The remote host does not exist.");
+      const appearance = yield* remoteValidate(() => {
+        if (value === null) return null;
+        const parsed = serverAppearanceOrNull(value);
+        if (!parsed) throw invalid("server appearance");
+        return parsed;
+      });
+      yield* remoteCall(() =>
+        dependencies.database
+          .prepare(
+            "UPDATE remote_hosts SET appearance_shape = ?, appearance_color = ?, updated_at = ? WHERE host_id = ?",
+          )
+          .bind(appearance?.shape ?? null, appearance?.color ?? null, dependencies.now(), hostId)
+          .run(),
+      );
+      return appearance;
     },
     (operation) => operation.pipe(Effect.provide(this.#layer)),
   ).bind(this);
@@ -3777,6 +3830,12 @@ function requiredText(value: string, maximum: number, name: string): string {
   const text = value.trim();
   if (!text || text.length > maximum) throw invalid(name);
   return text;
+}
+
+/** The stored look of a server. An unknown shape is the automatic look; an unknown colour is the automatic colour. */
+function storedAppearance(shape: string | null, color: string | null): ServerAppearance | null {
+  if (!isServerAppearanceShape(shape)) return null;
+  return { shape, color: isServerAppearanceColor(color) ? color : null };
 }
 
 function invalid(name: string): RemoteControlPlaneError {

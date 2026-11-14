@@ -93,8 +93,17 @@ function geminiMcpLoadFailure(text: string): { name: string; reason: string } | 
  * or `HTTP`: a bare 404 or "unavailable" can be an MCP server or a tool. Antigravity does not
  * document its failure texts. A proxy's answer in the stream comes as a raw status line with the
  * HTTP version, such as `HTTP/1.0 502 Bad Gateway` (#5752).
+ *
+ * A model at capacity comes as RESOURCE_EXHAUSTED or UNAVAILABLE with the reason
+ * MODEL_CAPACITY_EXHAUSTED and "No capacity available for model …". It is not the plan's quota,
+ * so it is matched before the rate limit (#8554). Not the word "capacity" alone: Google's quota
+ * text "You have exhausted your capacity on this model" is a spent quota.
  */
 const GEMINI_REQUEST_FAILURES = [
+  [
+    "error.provider.antigravityModelAtCapacity",
+    /\bMODEL_CAPACITY_EX(?:HAUSTED|CEEDED)\b|\b[Nn]o capacity available for model\b/u,
+  ],
   ["error.provider.antigravityRateLimited", /\bRESOURCE_EXHAUSTED\b/u],
   [
     "error.provider.antigravityRateLimited",
@@ -298,6 +307,9 @@ export const ANTIGRAVITY_ACP_FLAVOR: AcpFlavor = {
   // Its SDK waits for FULLY_IDLE even after halt_request. Stop waiting locally, then rebuild the
   // harness through session/resume before accepting another prompt.
   cancelLocallyThenResume: true,
+  // `agy acp` 1.5.0 steers a running turn with another prompt. A probe of 1.5.8: the first prompt
+  // answered `end_turn` at once, its shell command ran on, and the model read the new message.
+  steerByPromptSince: "1.5.0",
   // A stopped stream cannot provide another tool result. Preserve its last output without
   // reporting successful execution.
   interruptToolsOnStop: true,
@@ -306,6 +318,9 @@ export const ANTIGRAVITY_ACP_FLAVOR: AcpFlavor = {
   streamAnswerBeforePromptReturns: true,
   // A silent prompt can be a background task that still runs, so the turn is not ended as stalled.
   promptOpenForBackgroundTasks: true,
+  // 1.5.x ends the prompt when its model waits for a command over 10 s, and sends nothing for the
+  // wake-up. The idle release then stopped the process 5 minutes later (#8660).
+  wakesAfterPromptEnds: true,
   // Antigravity 1.3.0 sends `usage_update` but has no ACP method or command that compacts.
   contextCompaction: "handoff",
   // Antigravity 1.4.4 starts a `localharness_external` of about 100 MB for each session and keeps it

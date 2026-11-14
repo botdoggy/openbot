@@ -19,7 +19,12 @@ import type { AgentProvider } from "../agent-client";
 import { causeHelpers } from "../effect-boundary";
 import type { McpOperationError } from "../mcp-effects";
 import { McpHandoffLog } from "../mcp-handoff-log";
-import { type McpOAuthAuthority, type McpSignInOpener, mcpOAuthAccountKey } from "../mcp-oauth-provider";
+import {
+  type McpOAuthAuthority,
+  type McpSignInOffer,
+  type McpSignInOpener,
+  mcpOAuthAccountKey,
+} from "../mcp-oauth-provider";
 import { McpOAuthProxy, type McpOAuthProxyTarget, mcpOAuthProxyAgentKey, mcpOAuthProxyRoute } from "../mcp-oauth-proxy";
 import { hasCredentialHeader, inspectMcpServer, type McpProbeOutcome, type McpSignInPlace } from "../mcp-probe";
 import {
@@ -52,6 +57,8 @@ export interface TestMcpServerOptions {
   signInPlace?: McpSignInPlace;
   /** Where an interactive sign-in shows its page, when not in this computer's own browser. */
   open?: McpSignInOpener;
+  /** The link that the computer of `open` returns to OpenBot on. See `McpOAuth.signIn`. */
+  deepLinkRedirectUrl?: string;
 }
 
 export interface McpGatewayHooks {
@@ -209,16 +216,21 @@ export class McpGateway {
     this: McpGateway,
     configs: readonly McpServerConfig[],
   ): Effect.fn.Return<string | null, McpGatewayFailed> {
-    const proxied = configs
-      .filter((config) => config.enabled && this.#proxied(config))
-      .map((config) => config.id)
-      .sort();
+    const proxied = this.proxiedServerIds(configs);
     if (proxied.length === 0) return null;
     const identity = yield* this.#proxy.identity().pipe(Effect.result);
     // The hand-off leaves these rows out in this case, and the manifest records that.
     if (Result.isFailure(identity)) return JSON.stringify([null, proxied]);
     return JSON.stringify([identity.success, proxied]);
   });
+
+  /** The sorted ids of the enabled rows in `configs` that go through the proxy: the rows with a sign-in. */
+  proxiedServerIds(configs: readonly McpServerConfig[]): string[] {
+    return configs
+      .filter((config) => config.enabled && this.#proxied(config))
+      .map((config) => config.id)
+      .sort();
+  }
 
   /** Stops the OAuth proxy. Called once, after every provider process has stopped. */
   readonly close = Effect.fnUntraced(function* (this: McpGateway) {
@@ -375,7 +387,10 @@ export class McpGateway {
     const open = options.open;
     const opened: Pick<McpOAuthAuthority, "accessToken" | "signIn"> | undefined =
       stored && open
-        ? { accessToken: (url) => stored.accessToken(url), signIn: (url) => stored.signIn(url, open) }
+        ? {
+            accessToken: (url) => stored.accessToken(url),
+            signIn: (url) => stored.signIn(url, open, options.deepLinkRedirectUrl),
+          }
         : (stored ?? undefined);
     const oauth = options.interactive ? opened : silent;
     const outcome = yield* inspectMcpServer(
@@ -441,8 +456,18 @@ export class McpGateway {
    * next turn is handed the new token rather than the tools staying absent until a restart. A draft
    * no agent uses yet refreshes nothing: its save does that.
    */
-  readonly signIn = Effect.fnUntraced(function* (this: McpGateway, input: TestMcpServerInput, open?: McpSignInOpener) {
-    const result = yield* this.test(input, { interactive: true, signInPlace: "here", ...(open ? { open } : {}) });
+  readonly signIn = Effect.fnUntraced(function* (
+    this: McpGateway,
+    input: TestMcpServerInput,
+    open?: McpSignInOpener,
+    deepLinkRedirectUrl?: string,
+  ) {
+    const result = yield* this.test(input, {
+      interactive: true,
+      signInPlace: "here",
+      ...(open ? { open } : {}),
+      ...(open && deepLinkRedirectUrl !== undefined ? { deepLinkRedirectUrl } : {}),
+    });
     const resource = mcpOAuthAccountKey(input.config.url);
     const inUse =
       resource !== null &&
@@ -577,13 +602,13 @@ export class McpGateway {
   }
 
   /**
-   * Whether an http row that answered without a sign-in offers one. A key the user pasted into a
-   * header is theirs to manage: a sign-in would not replace it.
+   * What Sign in would do for an http row that answered without a sign-in. A key the user pasted
+   * into a header is theirs to manage: a sign-in would not replace it.
    */
-  offersSignIn(config: McpServerConfig): Effect.Effect<boolean> {
+  signInOffer(config: McpServerConfig): Effect.Effect<McpSignInOffer> {
     const oauth = this.#oauth;
-    if (!oauth || config.transport !== "http" || hasCredentialHeader(config)) return Effect.succeed(false);
-    return oauth.offersSignIn(config.url);
+    if (!oauth || config.transport !== "http" || hasCredentialHeader(config)) return Effect.succeed("none");
+    return oauth.signInOffer(config.url);
   }
 
   /**
