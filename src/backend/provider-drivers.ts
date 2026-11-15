@@ -29,8 +29,13 @@ import {
   KIMI_ACP_FLAVOR,
   MISTRAL_ACP_FLAVOR,
 } from "./acp-flavor";
-import { ANTIGRAVITY_ACP_FLAVOR, antigravityGeminiHome, GEMINI_DIR_FLAG } from "./acp-flavor-antigravity";
-import { OPENCODE_ACP_FLAVOR } from "./acp-flavor-opencode";
+import {
+  ANTIGRAVITY_ACP_FLAVOR,
+  antigravityGeminiHome,
+  GEMINI_DIR_FLAG,
+  geminiSavedKeyLimitFailure,
+} from "./acp-flavor-antigravity";
+import { OPENCODE_ACP_FLAVOR, openCodeSteers, steerOpenCode } from "./acp-flavor-opencode";
 import type { AcpArgv, AcpExtensionMethod } from "./acp-sign-in";
 import { readMuseAccount } from "./agent/muse-login";
 import { claudeModelName, modelsAfterOpenCodeDiscoveryFailure, serviceTierFields } from "./agent/provider-models";
@@ -316,6 +321,8 @@ function antigravityKeyOptions(context: ProviderClientContext, agentEnvironment:
         ? providerCall(() => connection.authenticate({ methodId: GEMINI_API_KEY_METHOD })).pipe(Effect.asVoid)
         : Effect.void,
     savedKeyRefusedMessage: () => (key() ? sourceText("error.provider.geminiKeyRefused") : null),
+    savedKeyLimitMessage: (detail: string, error?: unknown) =>
+      key() ? geminiSavedKeyLimitFailure(detail, error) : null,
     authBlockedMessage: () =>
       antigravitySettingsUnreadable(antigravityAppDataDir({ ...process.env, ...account }))
         ? sourceText(
@@ -1163,6 +1170,8 @@ export const BUILT_IN_PROVIDER_DRIVERS: readonly BuiltInProviderDriver[] = [
           readOpenCodeGoUsage(context.apiKey("opencode")).pipe(
             Effect.mapError((failure) => providerFailure(failure.cause)),
           ),
+        steer: steerOpenCode,
+        steers: openCodeSteers,
         history: context.history?.("opencode"),
       }),
     createProfileClient: (cli, timeout, context) =>
