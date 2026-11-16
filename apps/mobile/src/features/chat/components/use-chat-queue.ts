@@ -13,11 +13,12 @@ import {
   useMobileWorkspaceSelector,
 } from "@/features/workspace/context/mobile-workspace-context";
 import { queryKeys } from "@/features/workspace/model/query-keys";
+import { withUploadCancel } from "@/features/workspace/model/upload-cancels";
 import { currentText, useText } from "@/shared/lib/text";
 import { useHiddenReplies } from "../context/queued-messages-context";
 import { type AwaitingReply, awaitingReplies } from "../model/awaiting-replies";
 import {
-  readQueueAttachment,
+  queueAttachmentUpload,
   removeQueueAttachment,
   restoredQueueAttachments,
   writeQueueAttachment,
@@ -41,11 +42,18 @@ const DRAFT_ERROR_KEYS = {
   pendingSave: "mobile.chat.queue.readPendingSaveFailed",
 } as const satisfies Record<QueueEditDraftError["part"], MobileTextKey>;
 
+/** The ids of every queued delivery, answers included, with `delivery` first and the others in their order. */
+function firstIds(waiting: readonly QueueDelivery[], delivery: QueueDelivery): string[] {
+  return [delivery.id, ...waiting.filter((item) => item.id !== delivery.id).map((item) => item.id)];
+}
+
 export function useChatQueue(
   agentId: string,
   serverId: string,
   online: boolean,
   activeTurnId: string | null,
+  /** False for an agent that cannot take a message into its running turn: it offers Send now, not Steer. */
+  steers: boolean,
   /** The loaded conversation. Its outgoing exchanges name the teammates the agent waits for. */
   messages: readonly ConversationMessage[] = EMPTY_MESSAGES,
 ) {
@@ -65,6 +73,9 @@ export function useChatQueue(
     retry: false,
   });
   const [error, setError] = useState<string | null>(null);
+  // Send now reads the turn after the reorder: a turn that ended meanwhile has nothing to stop.
+  const activeTurnRef = useRef(activeTurnId);
+  activeTurnRef.current = activeTurnId;
   const [restored] = useState(() => {
     try {
       return { edit: decodeQueueEditDraft(SecureStore.getItem(storageKey)), error: null };
@@ -313,10 +324,11 @@ export function useChatQueue(
         await uploadChatAttachments(files, {
           upload: async (file) => {
             const stored = edit.addedAttachments.find((item) => item.id === file.id);
-            return workspace().uploadAttachment(
-              agentId,
-              stored ? { ...file, base64: await readQueueAttachment(edit.editId, stored) } : file,
-              serverId,
+            const upload = stored ? await queueAttachmentUpload(edit.editId, stored, file) : file;
+            return withUploadCancel(
+              upload,
+              () => cancelled.current,
+              () => workspace().uploadAttachment(agentId, upload, serverId),
             );
           },
           // Once Save can reach the host, these IDs must survive an uncertain response.
@@ -390,6 +402,7 @@ export function useChatQueue(
       canEdit: canEditQueue,
       online,
       activeTurnId,
+      steers,
       begin,
       save,
       refresh,
@@ -438,13 +451,25 @@ export function useChatQueue(
             expectedTurnId: activeTurnId,
           });
         }),
+      // As on desktop: the message goes first, and the running turn stops, so the message runs next.
+      sendNow: (delivery: QueueDelivery) =>
+        run(async () => {
+          const turnId = activeTurnId;
+          if (!turnId) return;
+          const waiting = orderedQueue(query.data?.deliveries ?? []);
+          // An edited message keeps its place. The actions screen disables Send now in this state.
+          if (waiting[0]?.editing && waiting[0].id !== delivery.id) return;
+          if (waiting[0]?.id !== delivery.id)
+            await workspace().changeQueue(agentId, serverId, "reorder", { deliveryIds: firstIds(waiting, delivery) });
+          if (activeTurnRef.current !== turnId) return;
+          await workspace().interruptTurn(agentId, turnId, serverId);
+        }),
       moveFirst: (delivery: QueueDelivery) =>
         run(async () => {
           // The host checks the order against every queued delivery, so the answers the sheet does
           // not list keep their places behind the moved message.
-          const waiting = orderedQueue(query.data?.deliveries ?? []);
           await workspace().changeQueue(agentId, serverId, "reorder", {
-            deliveryIds: [delivery.id, ...waiting.filter((item) => item.id !== delivery.id).map((item) => item.id)],
+            deliveryIds: firstIds(orderedQueue(query.data?.deliveries ?? []), delivery),
           });
         }),
     }),
@@ -468,6 +493,7 @@ export function useChatQueue(
       canEditQueue,
       online,
       activeTurnId,
+      steers,
       begin,
       save,
       refresh,

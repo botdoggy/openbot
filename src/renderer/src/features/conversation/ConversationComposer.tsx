@@ -1,9 +1,8 @@
-import { type AgentProviderId, isKnownAgentProvider } from "@openbot/contracts/agent-providers";
+import { type AgentProviderId, agentSteersTurns, isKnownAgentProvider } from "@openbot/contracts/agent-providers";
 import { supportedAttachmentExtensions } from "@openbot/contracts/attachment-files";
 import {
   type AccountUsageLimit,
   type AgentWait,
-  agentSteers,
   canPreviewAttachment,
   DEFAULT_PROVIDER_ACCOUNT_ID,
   type QueueSnapshot,
@@ -49,6 +48,8 @@ import { speechReading } from "../speech/speech-playback";
 import { stopSpokenReply } from "../speech/speech-replies";
 import { copyComposerSelection, readComposerCopy } from "./composer-clipboard";
 import { createComposerResize } from "./composer-resize";
+import { useConversationController } from "./conversation-controller-context";
+import { composerDraftKey } from "./conversation-keys";
 import { useConversationViewScope } from "./conversation-scope";
 import { currentConversationTarget } from "./stores/composer-store";
 
@@ -216,6 +217,14 @@ export function ConversationComposer() {
     const target = currentConversationTarget(props);
     return target && `${target.serverId}:${target.agentId}`;
   };
+  const controller = useConversationController();
+  /** Fix on a thank-you card put a request in this draft. The notice stays until a send, Cancel or an empty draft. */
+  const feedbackFix = () => {
+    const target = currentConversationTarget(props);
+    if (!target || channel) return undefined;
+    const fix = controller.feedbackFixes()[composerDraftKey(target)];
+    return fix && currentDraft().text.trim() ? { target, fix } : undefined;
+  };
   const awaitingVisible = () => awaitingReplies().length > 0;
   const waitItems = createMemo(() => openWaitItems(props.waits ?? [], props.queue));
   const waitsVisible = () => waitItems().length > 0 && Boolean(props.onCancelWait);
@@ -260,14 +269,17 @@ export function ConversationComposer() {
     return status?.state === "sign-in-required" ? status : null;
   });
   /**
-   * An expired OpenCode key is replaced in this server's Providers settings, so its banner opens
-   * them (#2544). The banner holds the error in the reader's language, and that text has no
-   * placeholder, so it is compared whole.
+   * An expired or refused OpenCode key is replaced in this server's Providers settings, so its
+   * banner opens them (#2544, #9095). The banner holds the error in the reader's language, and
+   * these texts have no placeholder, so each is compared whole.
    */
   const updateOpenCodeKey = () => {
     if (props.agent?.provider !== "opencode") return undefined;
-    const expired = localizeSourceText(sourceText("error.provider.opencodeKeyExpired"));
-    return currentChatError() === expired ? props.onManageProviders : undefined;
+    const error = currentChatError();
+    const keyError = (["error.provider.opencodeKeyExpired", "error.provider.opencodeKeyRefused"] as const).some(
+      (key) => error === localizeSourceText(sourceText(key)),
+    );
+    return keyError ? props.onManageProviders : undefined;
   };
   /** The button of the error banner: the fix that the error names, or none. */
   const errorBannerAction = () => {
@@ -306,11 +318,10 @@ export function ConversationComposer() {
     return undefined;
   };
   /**
-   * An ACP provider has no steer request, so its queued messages wait for the turn to end (#3689) —
-   * except a custom agent whose saved, check-seeded flag says it answers `_session/steering`.
+   * An ACP provider has no steer request, so its queued messages wait for the turn to end (#3689). A
+   * custom agent steers when its model reports it (#4977).
    */
-  const steers = () =>
-    !props.agent || agentSteers({ provider: props.agent.provider, model: props.agent.model }, props.customAgents ?? []);
+  const steers = () => !props.agent || agentSteersTurns(props.agent, props.modelOptions);
   /** Steer for a provider that can steer; else Send now, which stops the turn and runs the message next. */
   const sendQueued = () => (steers() ? props.onSteerQueuedMessage : props.onSendQueuedMessageNow);
   /** Tab sends the draft into the running turn, in place of Send and then Steer on its queue row. */
@@ -601,6 +612,23 @@ export function ConversationComposer() {
               />
             )}
           </ComposerStackCard>
+          <ComposerStackCard when={feedbackFix()}>
+            {(request) => (
+              <ComposerNotice
+                body={t("composer.feedbackFix.body", { number: String(request().fix.number) })}
+                action={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    onClick={() => controller.cancelFeedbackFix(request().target)}
+                  >
+                    {t("composer.feedbackFix.cancel")}
+                  </Button>
+                }
+              />
+            )}
+          </ComposerStackCard>
           <ComposerStackCard when={voiceLimitNotice()}>
             {() => (
               <ComposerNotice
@@ -763,6 +791,7 @@ export function ConversationComposer() {
               onOpenQuote={openQuote}
               browserTabs={taggableBrowserTabs()}
               threads={taggableThreads()}
+              onSearchThreads={props.onSearchThreads}
               onOpenTag={openTaggedReference}
               onValueChange={(text) => {
                 updateCurrentDraft({ text });
@@ -838,6 +867,7 @@ export function ConversationComposer() {
                   onStart={() => void startVoiceRecording()}
                   onCancel={cancelVoiceRecording}
                   onFinish={stopVoiceRecording}
+                  onSend={submitComposer}
                   send={<SendControl />}
                 />
               </Show>

@@ -12,6 +12,12 @@ export const messages = {
     "Narzędzie nie zostało uruchomione. W tool_call pole arguments musi być obiektem JSON, a nie tekstem. Wyślij wywołanie ponownie z arguments jako obiektem.",
   "error.agent.toolCallDiscoveryTool":
     "Narzędzie nie zostało uruchomione. tool_call nie może uruchomić openbot.tool_search ani openbot.tool_describe. Wywołaj je bezpośrednio z tymi samymi argumentami.",
+  "error.agent.toolCallEnvelopeKeys":
+    "Narzędzie nie zostało uruchomione. tool_call przyjmuje tylko name i arguments. Umieść argumenty narzędzia w arguments jako obiekt i wyślij wywołanie ponownie.",
+  "error.agent.toolCallUnknownTool":
+    "Narzędzie nie zostało uruchomione. tool_call nie znalazł narzędzia o tej nazwie. Użyj dokładnej pełnej nazwy z tool_search, na przykład openbot_browser.snapshot.",
+  "error.agent.toolCallUnknownToolSuggest":
+    "Narzędzie nie zostało uruchomione. tool_call nie znalazł narzędzia o tej nazwie. Pełna nazwa to prawdopodobnie {name}. Jeśli tak, wyślij wywołanie ponownie z tą nazwą.",
   "error.agent.routineScheduleArgumentsInvalid":
     "Harmonogram rutyny jest nieprawidłowy: {detail} Popraw harmonogram i spróbuj ponownie. openbot.tool_describe podaje schemat.",
   "error.agent.approvalWhileDeleting": "Nie można udzielić zatwierdzenia podczas usuwania agenta.",
@@ -87,6 +93,8 @@ export const messages = {
     "{provider} przestał odpowiadać, więc OpenBot zakończył tę turę. Wyślij wiadomość ponownie albo wybierz inny model.",
   "error.agent.toolLoopStopped":
     "{provider} wiele razy powtórzył nieudany krok, więc OpenBot zatrzymał tę turę. Wyślij wiadomość ponownie lub wybierz inny model.",
+  "error.agent.answerCutOff":
+    "Agent zatrzymał się przed ukończeniem odpowiedzi, więc odpowiedź jest niepełna. Wyślij wiadomość ponownie.",
   "error.agent.compactionConnectionLost":
     "Połączenie przerwało się, gdy agent kompaktował kontekst, więc zadanie się zatrzymało. Sprawdź połączenie z internetem, a potem wyślij wiadomość, aby kontynuować.",
   "error.agent.compactionLoopStopped":
@@ -147,6 +155,8 @@ export const messages = {
     "Tryb „Tylko obszar roboczy” wymaga piaskownicy Codex, której Codex nie może uruchomić na tym komputerze, więc polecenia agenta kończą się błędem. Wybierz „Najpierw pytaj” lub „Pełny dostęp” w ustawieniach agenta.",
   "error.agent.claudeSandboxUnavailable":
     "Tryb „Tylko obszar roboczy” wymaga piaskownicy Claude, której Claude nie może uruchomić na tym komputerze: {reason}. Wybierz pełny dostęp lub innego dostawcę w ustawieniach agenta.",
+  "error.agent.claudeSandboxBlocked":
+    "Tryb „Tylko obszar roboczy” wymaga piaskownicy Claude, której Claude nie może uruchomić na tym komputerze, więc polecenia agenta kończą się błędem. Wybierz pełny dostęp lub innego dostawcę w ustawieniach agenta.",
   "error.agent.screenCaptureOff":
     "Przechwytywanie ekranu jest wyłączone dla tego agenta. Użytkownik może włączyć Sterowanie komputerem w ustawieniach agenta.",
   "error.agent.screenCaptureUnavailable": "Przechwytywanie ekranu nie jest dostępne na tym komputerze.",
@@ -154,6 +164,8 @@ export const messages = {
     "Przechwytywanie ekranu nie działa w rozmowie w Slacku, Discordzie lub Telegramie, ponieważ jego pliki trafiają do innych osób.",
   "error.agent.screenCaptureDeclined":
     "Użytkownik nie zezwolił na to przechwycenie ekranu. Nic nie zostało przechwycone.",
+  "error.agent.mcpToolDeclined":
+    "Użytkownik nie zezwolił na to wywołanie narzędzia MCP. Narzędzie nie zostało uruchomione.",
   "error.agent.screenCaptureWindowMissing":
     "To okno nie jest teraz otwarte. Wywołaj list_capture_sources, aby pobrać bieżące identyfikatory okien.",
   "error.agent.screenCaptureDisplayMissing":

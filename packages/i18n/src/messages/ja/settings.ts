@@ -41,6 +41,19 @@ export const messages = {
   "settings.chatBackground.light": "ライトテーマのチャットの背景",
   "settings.chatBackground.dark": "ダークテーマのチャットの背景",
   "settings.chatBackground.default": "デフォルト",
+  "settings.chatBackdrop.title": "ウィンドウの背景",
+  "settings.chatBackdrop.description":
+    "このデバイスでウィンドウ全体の後ろに表示するシーン、画像、または GIF。エージェントにシーンを作るよう頼み、その返信で「背景に使う」を選びます。",
+  "settings.chatBackdrop.none": "なし",
+  "settings.chatBackdrop.pond": "鯉の池",
+  "settings.chatBackdrop.jellyfish": "クラゲ",
+  "settings.chatBackdrop.sunset": "レトロな夕焼け",
+  "settings.chatBackdrop.snowfall": "雪",
+  "settings.chatBackdrop.fireflies": "ホタル",
+  "settings.chatBackdrop.upload": "画像をアップロード…",
+  "settings.chatBackdrop.uploadRefused": "20 MB 以下の PNG、JPEG、GIF、WebP、または AVIF 画像を使ってください。",
+  "settings.chatBackdrop.saveFailed": "背景を保存できませんでした。",
+  "settings.chatBackdrop.removeFailed": "背景を削除できませんでした。",
   "settings.chatColor.title": "チャットの色",
   "settings.chatColor.description":
     "自分のメッセージの吹き出しに色を付けます。サーバーの他のメンバーにも表示されます。",
@@ -103,7 +116,7 @@ export const messages = {
   "settings.sendShortcut.title": "送信キー",
   "settings.sendShortcut.description": "このデバイスとこのブラウザーでメッセージを送信するキーを選びます。",
   "settings.chatOrder.description":
-    "このデバイスのサイドバーで未読チャットを表示する場所を選びます。手動にすると未読グループはオフになります。",
+    "このデバイスのサイドバーでチャットを並べる方法を選びます。手動または最近のアクティビティにすると未読グループはオフになります。",
   "settings.sendShortcut.enter": "Enter で送信",
   "settings.sendShortcut.modEnterMac": "⌘Enter で送信",
   "settings.sendShortcut.modEnterWin": "Ctrl+Enter で送信",

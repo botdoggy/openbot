@@ -31,7 +31,7 @@ import type {
   WorkspaceDirectory,
 } from "@openbot/contracts/ipc";
 import type { ConversationUiBlock } from "@openbot/contracts/ui-blocks";
-import type { AgentMessage, AgentProfile } from "@openbot/ui/data";
+import type { AgentMessage, AgentProfile, ComposerThreadMessageMatch } from "@openbot/ui/data";
 import type { BrowserViewRuntime } from "@openbot/ui/features/browser/BrowserLiveView";
 import type { ChannelWorker } from "@openbot/ui/features/channels/ChannelActivityIndicator";
 import type { AwaitingReplyItem } from "@openbot/ui/features/conversation/AwaitingReplies";
@@ -44,6 +44,7 @@ import type { ThreadHeaderProps, ThreadItem } from "@openbot/ui/features/convers
 import type { SidebarAgentWait } from "@openbot/ui/features/sidebar/sidebar-agent-states";
 import type { JSX } from "@solidjs/web";
 import type { ConnectorRegistry } from "../connectors/connector-registry";
+import type { AppSettingLinkId } from "../settings/setting-link-targets";
 import type { ConversationRuntime } from "./conversation-runtime";
 import type { ServerInstallWatch } from "./ServerInstallChatCard";
 import type { TurnStepLines } from "./turn-step-lines";
@@ -156,15 +157,26 @@ export interface ConversationProps {
    * pressed Connect or Install on the card: the page then starts the connect step.
    */
   onOpenMarketplaceApp?: ((request: { appId: string; connect: boolean }) => void) | undefined;
+  /**
+   * The action that opens Settings of this computer at the row of an app setting card, or undefined where
+   * this window does not show the row's tab. Absent in the web client: the card then says where it is.
+   */
+  appSettingOpener?: ((settingId: AppSettingLinkId) => (() => void) | undefined) | undefined;
   /** The connectors of the server on screen, which a suggestion card for a connector reads. */
   connectors?: ConnectorRegistry | undefined;
   /**
-   * Opens Server settings, MCP, and signs in to the row that an agent's sign-in card names. Absent
+   * Opens the Marketplace page of the row that an agent's sign-in card names, which signs in to it. Absent
    * where this client cannot sign in for the server on screen; the card then says where to sign in.
    */
   onOpenMcpSignIn?: ((mcpServerId: string, trigger: HTMLElement | null) => void) | undefined;
-  /** Whether the server on screen holds a sign-in for an MCP row, as Server settings last read it. */
+  /** Whether the server on screen holds a sign-in for an MCP row, as the Marketplace last read it. */
   mcpSignedIn?: ((mcpServerId: string) => boolean) | undefined;
+  /**
+   * Reads `mcpSignedIn` again from the server on screen. Called for each new Sign in card: the card
+   * shows Sign in or Continue from it, and a read from before the agent's test can still say that a
+   * sign-in the server has since refused is current (#6661).
+   */
+  refreshMcpSignIns?: (() => void) | undefined;
   /**
    * The server list that an install command card watches until its new server is online. Absent where
    * this client cannot open a server; the card then stays a marker.
@@ -352,6 +364,8 @@ export interface ConversationProps {
   onLoadOlder?: (() => void) | undefined;
   onLoadLatest?: (() => Promise<void>) | undefined;
   onSearchMessages?: ((query: string) => Promise<{ messageIds: string[]; total: number }>) | undefined;
+  /** Finds side thread messages for the `@` list. Absent when the host cannot name the thread of a message. */
+  onSearchThreads?: ((query: string) => Promise<ComposerThreadMessageMatch[]>) | undefined;
   onOpenSearchMessage?: ((messageId: string) => Promise<void>) | undefined;
   onTypingChange: (agentId: string, typing: boolean) => void;
   onAnswerPrompt: (answers: Record<string, string[]>, options?: PromptAnswerOptions) => Promise<boolean>;

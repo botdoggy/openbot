@@ -39,6 +39,16 @@ export function isMcpSignInDiagnostic(message: string): boolean {
 }
 
 /**
+ * Whether an MCP diagnostic says that the server did not answer in time. A provider can wait less
+ * than OpenBot's connection test, so a server that downloads packages at its start can pass the
+ * test and still time out in the provider. `deadline has elapsed` is the Rust `tokio` timeout text.
+ * A bare `timeout` does not count: a server name or a quoted option such as `--timeout` can hold it.
+ */
+export function isMcpTimeoutDiagnostic(message: string): boolean {
+  return /\btimed out\b|\bdeadline has elapsed\b/i.test(message);
+}
+
+/**
  * Whether a provider diagnostic is about the CLI's own telemetry export rather than about the
  * agent's work.
  *
@@ -361,6 +371,23 @@ export function isImageTooSmallDiagnostic(message: string): boolean {
 export function isImageTooLargeDiagnostic(message: string): boolean {
   return /\bimage\b[^.\n]{0,80}\bexceeds? (?:the )?max(?:imum)? (?:allowed size|dimensions?)\b/iu.test(message);
 }
+
+/**
+ * Whether Google's Gemini API refused an image in the request because it cannot read it:
+ * INVALID_ARGUMENT "Unable to process input image. Please retry or report in ...". The Antigravity
+ * CLI 1.5.9 keeps the image in the session and sends it on each turn, so each later message failed
+ * with the same 400 until a new chat (#9593). For each provider. Google's generic text
+ * (`GEMINI_INVALID_ARGUMENT`) is matched for Antigravity only: a refused tool schema also gives it.
+ */
+export function isImageUnreadableDiagnostic(message: string): boolean {
+  return /\bUnable to process input image\b/iu.test(message);
+}
+
+/**
+ * Google's text for a 400 INVALID_ARGUMENT that names no field. Not the status name: a refused API
+ * key is also INVALID_ARGUMENT.
+ */
+export const GEMINI_INVALID_ARGUMENT = /\bRequest contains an invalid argument\b/iu;
 
 /**
  * Whether a model endpoint refused the request because it holds more images than the endpoint

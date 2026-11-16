@@ -2,7 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { AGENT_PROVIDERS, agentProviderDescriptor, customAgentIdOfModel } from "@openbot/contracts/agent-providers";
+import {
+  AGENT_PROVIDERS,
+  agentProviderDescriptor,
+  agentSteersTurns,
+  customAgentIdOfModel,
+} from "@openbot/contracts/agent-providers";
 import { sortConversationMessages } from "@openbot/contracts/conversation-order";
 import { developmentStartingModel } from "@openbot/contracts/development-defaults";
 import type { FeedbackFacts } from "@openbot/contracts/feedback";
@@ -77,6 +82,8 @@ import type {
   McpTestResult,
   MessagePinner,
   PinnedMessagesSnapshot,
+  ProviderAccountCodeLoginStart,
+  ProviderAccountCodeLoginStatus,
   ProviderCodeLoginStart,
   ProviderUsageResets,
   QueuedMessageReceipt,
@@ -123,6 +130,8 @@ import type {
   VoiceLiveEvent,
   VoiceLiveSession,
   VoiceLiveStart,
+  WithdrawFeedbackInput,
+  WithdrawFeedbackResult,
 } from "@openbot/contracts/ipc";
 import {
   AGENT_TASK_LIMIT_DEFAULT,
@@ -131,7 +140,6 @@ import {
   agentAutomationAllowed,
   agentBrowserProfile,
   agentNewChatAllowed,
-  agentSteers,
   agentTaskLimit,
   type BusyMessageMode,
   CONTEXT_RESET_ITEM_TYPE,
@@ -141,6 +149,7 @@ import {
   DEFAULT_RESPONSE_STYLE,
   isContextResetMarker,
   isCustomProviderHarness,
+  isReservedMcpServerName,
   MODEL_SWITCH_ITEM_TYPES,
   type ModelSwitchReason,
   type QueueSteerFallback,
@@ -181,6 +190,7 @@ import type { AgentBrowserProfiles } from "./agent/browser-profile-tool";
 import { BrowserUploads } from "./agent/browser-uploads";
 import type { ChatVisualPreviewHost } from "./agent/chat-visual-preview";
 import { CodexIdleSessions } from "./agent/codex-idle-sessions";
+import type { SetCommitCoAuthor } from "./agent/commit-co-author-tool";
 import { ContextCompaction, compactsOnRequest } from "./agent/context-compaction";
 import { ConversationReader } from "./agent/conversation-reader";
 import { ConversationRuntime } from "./agent/conversation-runtime";
@@ -191,6 +201,7 @@ import type { SectionTeammates } from "./agent/developer-instructions";
 import { DrainScheduler } from "./agent/drain-scheduler";
 import { DuplicationGate, toAgentDuplicationFailed } from "./agent/duplication-gate";
 import type { FailureContext, FailureSignal } from "./agent/failure-signal";
+import { FeedbackWithdrawal } from "./agent/feedback-withdrawal";
 import { type AgentHostedSites, HostedSiteCoordinator } from "./agent/hosted-site-coordinator";
 import { ImageGenRuntime } from "./agent/image-gen-runtime";
 import {
@@ -270,6 +281,7 @@ import { toUsageReadFailed, UsageLimitGate, type UsageLimitKey } from "./agent/u
 import type { VideoReaderHost } from "./agent/video-reader";
 import { WarmGenerations } from "./agent/warm-generations";
 import type { WebhookRoutineWriter } from "./agent/webhook-routine-tool";
+import { workflowGenerationError } from "./agent/workflow-generation-error";
 import { confinedWritesAllowed } from "./agent/workspace-sandbox";
 import type { AgentApiKeys } from "./agent-api-keys";
 import type { AgentProvider } from "./agent-client";
@@ -293,8 +305,10 @@ import { ChannelRoutineScheduler } from "./channel-routine-scheduler";
 import { ChannelService } from "./channel-service";
 import type { BundledProviderExecutables } from "./cli";
 import type { ConversationMarkerExclusions } from "./conversation-read-store";
+import type { CrmHandle } from "./crm/crm";
 import type { ProviderSession } from "./database/provider-sessions";
 import { reportOriginalFailure } from "./effect-boundary";
+import { encodedModelId } from "./encoded-model-id";
 import type { HostMemory } from "./host-memory";
 import type { SignInRegion } from "./kimi-region";
 import type { LinkWallet } from "./link-wallet";
@@ -320,6 +334,7 @@ import type { SidebarLayoutStore } from "./sidebar-layout-store";
 import { shortenDiagnostic } from "./stderr-diagnostics";
 import type { UserBrowsingLog } from "./user-browsing-log";
 import type { VaultItems } from "./vault-items";
+import { generateHiggsfieldMedia, HIGGSFIELD_MCP_HOST, readHiggsfieldCredits } from "./workflows/higgsfield-media";
 import { generateSunraMedia, readSunraCredits, SUNRA_MCP_HOST } from "./workflows/sunra-media";
 import type { WorkflowTools } from "./workflows/workflow-tools";
 import { type MediaImageRole, mediaInputText } from "./workflows/workflow-walk";
@@ -384,6 +399,8 @@ export interface AgentServiceOptions {
   hostedSites?: AgentHostedSites | null;
   /** Draws pages for `html_preview`. Without it the tool tells the agent to show the page unchecked. */
   visualPreview?: ChatVisualPreviewHost | null;
+  /** Saves the `commitCoAuthor` agent default for `set_commit_co_author`. Without it the tool fails. */
+  setCommitCoAuthor?: SetCommitCoAuthor | undefined;
   /**
    * Decodes a picture, makes its flat background clear (`clearFlatBackground`) and gives it back as a
    * PNG; null when the picture has no flat background. Without it a transparent Grok image keeps the
@@ -416,8 +433,12 @@ export interface AgentServiceOptions {
   serverClaims?: AgentServerClaims | null;
   /** The named browser profiles, for `read_agent` and `set_browser_profile`. */
   browserProfiles?: (() => AgentBrowserProfiles | null) | undefined;
+  /** The CRM, for the `crm_*` tools; null until it starts. */
+  crm?: (() => CrmHandle | null) | undefined;
+  /** Whether a member who is not an owner or admin can see the agent; the `crm_*` tools then refuse it. */
+  crmAgentVisibleToMembers?: ((agentId: string) => boolean) | undefined;
   sidebarLayout?: AgentSidebar | null;
-  /** The Library folders of this host, for the `folder` of an attach call and `list_library_folders`. */
+  /** The Library folders of this host, for the `folder` of an attach call, `list_library_folders` and `organize_library`. */
   libraryFolders?: AgentLibraryFolders | null;
   /**
    * What a spawned CLI is given beyond its own binary: the stored keys, and the user's own model
@@ -614,6 +635,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #tasks: AgentTasks;
   readonly #history: AgentHistoryTransfer;
   readonly #messageDeletion: MessageDeletion;
+  readonly #feedbackWithdrawal: FeedbackWithdrawal;
   readonly #messagePins: MessagePins;
   readonly #tables: AgentTables | null;
   readonly #routines: RoutineScheduler;
@@ -801,6 +823,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       mailbox,
       conversation: this.#conversation,
       tasks: this.#tasks,
+    });
+    this.#feedbackWithdrawal = new FeedbackWithdrawal({
+      store,
+      conversation: this.#conversation,
+      tasks: this.#tasks,
+      feedback: options.feedback ?? null,
     });
     this.#messagePins = new MessagePins({
       store,
@@ -1006,6 +1034,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             Effect.ensuring(
               Effect.sync(() => {
                 for (const agent of this.#store.list()) this.#drain.scheduleDrain(agent.id);
+                // An edit from before the restart holds its message for a new time.
+                for (const agentId of this.#mailbox.agentsWithEditHolds()) this.#queue.wakeAfterEditHold(agentId);
               }),
             ),
             toProviderOperationFailed,
@@ -1109,7 +1139,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           for (const agent of this.#store.list()) {
             if (providerForAgent(agent) === provider) this.#drain.scheduleDrain(agent.id);
           }
+          this.#retryHeldMoves();
         },
+        onAccountsChanged: () => this.#retryHeldMoves(),
       },
       emit: (event) => this.#emit(event),
       emitError: (code, error, agentId, context) => this.#emitError(code, error, agentId, context),
@@ -1175,6 +1207,16 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           const endpoint = credentials.customProviders().find((provider) => provider.id === endpointId);
           return endpoint ? (endpoint.harness ?? DEFAULT_CUSTOM_PROVIDER_HARNESS) : null;
         },
+        savedEndpoints: () =>
+          new Map(
+            credentials.customProviders().map((endpoint) => [
+              endpoint.id,
+              {
+                harness: endpoint.harness ?? DEFAULT_CUSTOM_PROVIDER_HARNESS,
+                models: endpoint.models.map((model) => encodedModelId(`${endpoint.id}/`, model.id)),
+              },
+            ]),
+          ),
         // The model list reaches the renderer by pull, refreshed on a status event, and an exclusion
         // changes what that pull answers while no provider state moves.
         modelsChanged: () => this.#emit({ type: "status", status: this.getStatus() }),
@@ -1339,7 +1381,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       browser,
       attachments: this.#attachments,
       isStopping: () => this.#stopping,
-      hasTakeover: (agentId) => this.#attention.hasBrowserTakeoverForAgent(agentId),
+      hasTakeover: (agentId, threadId, tabId) => this.#attention.browserTakeoverBlocks(agentId, threadId, tabId),
     });
     this.#threads = new ThreadLifecycle({
       store,
@@ -1406,8 +1448,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       conversation: this.#conversation,
       mailboxSync: this.#mailboxSync,
       threads: this.#threads,
+      planContinuation: this.#planContinuation,
       hooks: {
         emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
+        turnFailed: (agentId, turnId) => this.#turn.markFailedTurn(agentId, turnId),
+        continuesAfterProviderExit: (agentId, turnId, deliveryIds) =>
+          this.#turn.continuesAfterProviderExit(agentId, turnId, deliveryIds),
         // A deleted routine takes its runs with it, so a run without a record counts as quiet:
         // otherwise the import would bring back the answers that its quiet turns settled.
         quietRoutineDelivery: (deliveryId) => {
@@ -1677,7 +1723,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             Effect.asVoid,
           ),
         // A channel task that went back to its queue is assigned again only by a pump. An agent that
-        // left this model for a backup goes back to it.
+        // left this model for a backup goes back to it, and an agent held on another model can move to it.
         released: (limit) =>
           this.channels.wake().pipe(
             Effect.catch((failure) => Effect.sync(() => this.#emitError("usage_limit_release_failed", failure.cause))),
@@ -1690,6 +1736,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
                 { discard: true },
               ),
             ),
+            Effect.andThen(Effect.sync(() => this.#retryHeldMoves())),
             Effect.forkIn(this.#scope, { startImmediately: true }),
             Effect.asVoid,
           ),
@@ -1791,6 +1838,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           }),
         ),
       reply: (agentId, deliveryId) => this.#liveVoiceReply(agentId, deliveryId),
+      // The rule of the drain for the agent's own chat: a task or a channel turn runs beside it.
+      busy: (agentId) => this.#drain.ownChatHold(agentId) !== null,
+      answer: (agentId, threadId, turnId) =>
+        this.#store.list().find((agent) => agent.id === agentId)?.threadId === threadId
+          ? this.#turnAnswer(agentId, turnId)
+          : null,
+      summarize: (agentId, prompt) => this.#liveVoiceSummary(agentId, prompt),
       emit: (event, memberId) => this.emit("liveVoice", event, memberId),
       redact: (text) => this.#mcp.redact(text),
     });
@@ -1960,16 +2014,30 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       ...(this.#workflowTools === undefined ? {} : { workflowTools: this.#workflowTools }),
       ...(options.approvalAutomation === undefined ? {} : { approvalAutomation: options.approvalAutomation }),
       ...(options.visualPreview === undefined ? {} : { visualPreview: options.visualPreview }),
+      ...(options.setCommitCoAuthor === undefined ? {} : { setCommitCoAuthor: options.setCommitCoAuthor }),
       ...(options.screenCapture === undefined ? {} : { screenCapture: options.screenCapture }),
       ...(options.videoReader === undefined ? {} : { videoReader: options.videoReader }),
       ...(options.fitImage === undefined ? {} : { fitImage: options.fitImage }),
-      mcpServers: mcpServersFromGateway(this.#mcp, options.prepareMcpTest),
+      // The saved http rows that the agent gets. The built-in servers are left out: OpenBot gives their
+      // tools another way, and their bearer is the main process's. A stdio server is left out too: a
+      // Workspace only provider starts it in its sandbox, and OpenBot would start it outside.
+      mcpServers: mcpServersFromGateway(this.#mcp, options.prepareMcpTest, (agentId) => {
+        const saved = new Set(this.#mcp.list().map((config) => config.id));
+        return this.enabledMcpServers(agentId).filter(
+          (config) => saved.has(config.id) && config.transport === "http" && !isReservedMcpServerName(config.name),
+        );
+      }),
       ...(options.marketplaceAppServer === undefined ? {} : { marketplaceAppServer: options.marketplaceAppServer }),
       githubConnected: () => Boolean(githubConnector?.mcpServer()),
       feedbackFacts: options.feedbackFacts ?? null,
       feedback: options.feedback ?? null,
+      feedbackWithdrawal: this.#feedbackWithdrawal,
       serverClaims: options.serverClaims ?? null,
       ...(options.browserProfiles === undefined ? {} : { browserProfiles: options.browserProfiles }),
+      ...(options.crm === undefined ? {} : { crm: options.crm }),
+      ...(options.crmAgentVisibleToMembers === undefined
+        ? {}
+        : { crmAgentVisibleToMembers: options.crmAgentVisibleToMembers }),
       apiKeys: options.agentApiKeys ?? null,
       vaultItems: options.vaultItems ?? null,
       codexSubagentParent: (childThreadId) => this.#turn.codexSubagentParent(childThreadId),
@@ -1979,6 +2047,16 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         agentModels: (choice) => this.#agentModels(choice),
         providerAccounts: (provider) => this.getStatus().providers?.find((row) => row.id === provider)?.accounts,
         providerStatuses: () => this.getStatus().providers ?? [],
+        customEndpoints: () =>
+          credentials.customProviders().map((endpoint) => {
+            const provider = endpoint.harness ?? DEFAULT_CUSTOM_PROVIDER_HARNESS;
+            return {
+              id: endpoint.id,
+              name: endpoint.name,
+              provider,
+              loading: this.#endpoints.waits(provider, endpoint.id),
+            };
+          }),
         preferredProvider: () => this.preferredProvider(),
         createAgent: (input, configure) =>
           this.createAgent(
@@ -1996,6 +2074,27 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         updateAgent: (input, initiatingAgentId) =>
           this.updateAgent(input, initiatingAgentId).pipe(toToolOperationFailed),
         setAvatar: (agentId, image) => this.setAvatar(agentId, image).pipe(toToolOperationFailed),
+        ensureAgentDeletable: (agentId) => this.ensureAgentDeletable(agentId).pipe(toToolOperationFailed),
+        // The same steps as the app's Delete agent and the Team API: the agent, then its sidebar and Library
+        // places. After the agent is gone, a failed place cleanup is only logged, so the tool does not say that
+        // the agent stays. The next start removes the places of agents that the host no longer has.
+        deleteAgent: (agentId) =>
+          this.deleteAgent(agentId).pipe(
+            toToolOperationFailed,
+            Effect.andThen(() =>
+              Effect.all([
+                this.#sidebarLayout?.removeAgent(agentId) ?? Effect.void,
+                this.#libraryFolders?.removeAgent(agentId) ?? Effect.void,
+              ]).pipe(
+                Effect.catch((failure) =>
+                  Effect.sync(() =>
+                    logger.warn("Could not remove the places of a deleted agent.", { agentId, error: failure.cause }),
+                  ),
+                ),
+              ),
+            ),
+            Effect.asVoid,
+          ),
         enabledMcpServers: (agentId) => this.enabledMcpServers(agentId),
         emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
         redactMcp: (text) => this.#mcp.redact(text),
@@ -2716,6 +2815,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#emit({ type: "routine-flows-changed", agentId });
   }
 
+  /** The CRM changed, so each open CRM page reads it again. */
+  notifyCrmChanged(): void {
+    this.#emit({ type: "crm-changed" });
+  }
+
   /**
    * A workflow changed, so every view showing it reads it again. `agentId` names the agent whose tool
    * call changed it; the Team API leaves it out.
@@ -2931,7 +3035,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             failed(
               failure instanceof GenerationUsageLimitError
                 ? sourceText("error.provider.usageLimitReached")
-                : sourceText("error.workflow.modelFailed"),
+                : workflowGenerationError(failure.cause, provider),
             ),
           ),
         );
@@ -2943,22 +3047,40 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   /** The media services beyond the agent providers that a workflow step can use now. */
   workflowMediaProviders(): WorkflowMediaProviders {
-    return { sunra: this.#mcp.serviceSignIn(SUNRA_MCP_HOST) !== null };
+    return {
+      sunra: this.#mcp.serviceSignIn(SUNRA_MCP_HOST) !== null,
+      higgsfield: this.#mcp.serviceSignIn(HIGGSFIELD_MCP_HOST) !== null,
+    };
   }
 
-  /** The credits of the media services that a workflow step can spend now. A failed read has none. */
-  readonly workflowMediaCredits = Effect.fn("AgentService.workflowMediaCredits")(function* (this: AgentService) {
-    const signIn = this.#mcp.serviceSignIn(SUNRA_MCP_HOST);
-    if (!signIn || this.#stopping) return { sunra: null } satisfies WorkflowMediaCredits;
-    const sunra = yield* readSunraCredits(signIn).pipe(
-      Effect.catch((failure) =>
-        Effect.sync(() => {
-          logger.warn("Could not read the Sunra credits.", { error: failure.message });
-          return null;
-        }),
-      ),
+  /**
+   * The credits of the media services that a workflow step can spend now. A failed read has none.
+   * With `only`, it reads that service alone and the other one is null.
+   */
+  readonly workflowMediaCredits = Effect.fn("AgentService.workflowMediaCredits")(function* (
+    this: AgentService,
+    only?: keyof WorkflowMediaCredits,
+  ) {
+    if (this.#stopping) return { sunra: null, higgsfield: null } satisfies WorkflowMediaCredits;
+    const sunraSignIn = only === "higgsfield" ? null : this.#mcp.serviceSignIn(SUNRA_MCP_HOST);
+    const higgsfieldSignIn = only === "sunra" ? null : this.#mcp.serviceSignIn(HIGGSFIELD_MCP_HOST);
+    const orNull = <A>(read: Effect.Effect<A, { readonly message: string }>, service: string) =>
+      read.pipe(
+        Effect.catch((failure) =>
+          Effect.sync(() => {
+            logger.warn("Could not read the media credits.", { service, error: failure.message });
+            return null;
+          }),
+        ),
+      );
+    const [sunra, higgsfield] = yield* Effect.all(
+      [
+        sunraSignIn ? orNull(readSunraCredits(sunraSignIn), "sunra") : Effect.succeed(null),
+        higgsfieldSignIn ? orNull(readHiggsfieldCredits(higgsfieldSignIn), "higgsfield") : Effect.succeed(null),
+      ],
+      { concurrency: "unbounded" },
     );
-    return { sunra } satisfies WorkflowMediaCredits;
+    return { sunra, higgsfield } satisfies WorkflowMediaCredits;
   }).bind(this);
 
   /**
@@ -2971,9 +3093,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       input: {
         kind: GeneratedMediaKind;
         provider: WorkflowMediaProvider;
-        /** The id of the model at its provider. Sunra reads it; Codex and Grok use their default. */
+        /** The id of the model at its provider. Sunra and Higgsfield read it; Codex and Grok use their default. */
         model: string;
-        /** The account of the provider that pays. Null is its own sign-in; Sunra ignores it. */
+        /** The account of the provider that pays. Null is its own sign-in; Sunra and Higgsfield ignore it. */
         account: string | null;
         specs: WorkflowMediaSpecs;
         prompt: string;
@@ -2994,6 +3116,24 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         ).pipe(
           Effect.tapError((failure) =>
             Effect.sync(() => logger.warn("Could not make workflow media with Sunra.", { error: failure.message })),
+          ),
+          Effect.mapError((failure) => failed(failure.message)),
+        );
+      }
+      if (input.provider === "higgsfield") {
+        if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
+        return yield* generateHiggsfieldMedia(
+          {
+            signIn: () => this.#mcp.serviceSignIn(HIGGSFIELD_MCP_HOST),
+            resolveAttachment: (attachmentId) => this.#mailbox.resolveAttachment(attachmentId),
+            store: (file) => this.#mailbox.storeGeneratedAttachment(file),
+          },
+          { kind: input.kind, model: input.model, prompt: input.prompt, specs: input.specs, images: input.images },
+        ).pipe(
+          Effect.tapError((failure) =>
+            Effect.sync(() =>
+              logger.warn("Could not make workflow media with Higgsfield.", { error: failure.message }),
+            ),
           ),
           Effect.mapError((failure) => failed(failure.message)),
         );
@@ -3109,7 +3249,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             this.#mailbox.storeGeneratedAttachment({
               sourcePath: savedPath,
               kind: input.kind,
-              name: input.kind === "video" ? generatedVideoName(savedPath) : generatedImageName(savedPath),
+              name:
+                input.kind === "video" ? generatedVideoName(savedPath, input.prompt) : generatedImageName(savedPath),
             }),
           )
         : null;
@@ -4164,6 +4305,22 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   /**
+   * Starts the drain of each agent that a usage limit holds, with waiting work and a backup that is
+   * ready now, so the drain moves it. A backup can become ready after the limit started, as when its
+   * account connects or its own limit ends; nothing else reads the held queue again before the reset (#9877).
+   */
+  #retryHeldMoves(): void {
+    for (const agent of this.#store.list())
+      if (
+        !this.#usageLimits.mayDrain(agent.id) &&
+        this.#hasWaitingWork(agent.id) &&
+        (this.#usageLimitBackup(agent.id, this.#queuedContinuation(agent.id)) !== undefined ||
+          this.#poolBackup(agent.id))
+      )
+        this.#drain.scheduleDrain(agent.id);
+  }
+
+  /**
    * Whether the next queued work of the agent, in its chat, a task or a channel, continues work that
    * a limit stopped.
    */
@@ -4309,7 +4466,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   });
 
-  /** Appends a system line to the agent's own chat, outside any turn. */
+  /** Appends a system line to the agent's own chat, outside any turn unless the line names one. */
   #appendSystemMessage(agentId: string, message: ConversationMessage, eventType: string): void {
     const database = this.#store.database;
     this.#conversation.withConversationTransaction(agentId, ({ threadId, snapshot }) => {
@@ -4389,11 +4546,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     } catch (error) {
       this.#emitError("model_switch_marker_failed", error, agent.id);
     }
+    // The note goes into the turn of the chat's next message, under its delivery's id until that turn
+    // starts (`MailboxSync.syncDeliveryMessage`). A note outside that turn showed after the turn's
+    // answer, which the new model wrote after the switch. A continuation and a plan step run in a turn
+    // of their own, which starts after the note.
+    const next = this.#mailbox.nextQueued(agent.id);
+    const turnId = next && !next.resumeAfterUsageLimit && !next.planContinuation ? next.delivery.id : undefined;
     try {
       this.#appendSystemMessage(
         agent.id,
         {
           id: `model-switch-${randomUUID()}`,
+          ...(turnId ? { turnId } : {}),
           author: "system",
           source: "system",
           text,
@@ -4850,7 +5014,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       ...localWorkspaceAccess(agent),
       ...(options.exactPath
         ? { exactPath: true }
-        : { fileHistory: this.#turn.fileHistory.paths(agent.id, agent.threadId) }),
+        : {
+            fileHistory: this.#turn.fileHistory.paths(agent.id, agent.threadId),
+            workFolders: this.#turn.fileHistory.folders(agent.id, agent.threadId),
+          }),
     }).pipe(
       Effect.mapError(
         (failure) => new AgentLifecycleFailed({ operation: "resolve local workspace file", cause: failure.cause }),
@@ -5034,6 +5201,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
+  /** See `ProviderRuntime.spawnSettingsChanged`. */
+  providerSpawnSettingsChanged(provider: AgentProvider): Effect.Effect<AgentStatus, AgentLifecycleFailed> {
+    return this.#providers
+      .spawnSettingsChanged(provider)
+      .pipe(
+        Effect.mapError(
+          (failure) => new AgentLifecycleFailed({ operation: "providerSpawnSettingsChanged", cause: failure.cause }),
+        ),
+      );
+  }
+
   /** See `ProviderRuntime.restartProviderWhenIdle`. */
   restartProvider(provider: AgentProvider): Effect.Effect<AgentStatus, AgentLifecycleFailed> {
     return this.#providers
@@ -5084,6 +5262,30 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           (failure) => new AgentLifecycleFailed({ operation: "connectProviderAccount", cause: failure.cause }),
         ),
       );
+  }
+
+  /** See `ProviderRuntime.startProviderAccountCodeLogin`. */
+  startProviderAccountCodeLogin(
+    provider: AgentProvider,
+    accountId: string | null,
+  ): Effect.Effect<ProviderAccountCodeLoginStart, AgentLifecycleFailed> {
+    return this.#providers
+      .startProviderAccountCodeLogin(provider, accountId)
+      .pipe(
+        Effect.mapError(
+          (failure) => new AgentLifecycleFailed({ operation: "connectProviderAccount", cause: failure.cause }),
+        ),
+      );
+  }
+
+  /** See `ProviderRuntime.submitProviderAccountCodeLogin`. */
+  submitProviderAccountCodeLogin(provider: AgentProvider, accountId: string, code: string): void {
+    this.#providers.submitProviderAccountCodeLogin(provider, accountId, code);
+  }
+
+  /** See `ProviderRuntime.providerAccountCodeLoginStatus`. */
+  providerAccountCodeLoginStatus(provider: AgentProvider, accountId: string): ProviderAccountCodeLoginStatus {
+    return this.#providers.providerAccountCodeLoginStatus(provider, accountId);
   }
 
   /** See `ProviderRuntime.connectProviderAccountKey`. */
@@ -5603,6 +5805,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     yield* this.#turn.dispose();
     yield* this.#usageLimits.dispose();
     this.#drain.dispose();
+    this.#queue.dispose();
     this.#planContinuation.dispose();
     this.#browser.clearControls();
     yield* Effect.forEach(clients, (client) => client.stop().pipe(Effect.catch(() => Effect.void)), {
@@ -5771,6 +5974,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   /**
+   * The model of a small Codex side job that only passes on or reads text: the default Codex model, with
+   * low effort when the model has it.
+   */
+  #sideCodexModel(): AgentModelOption | undefined {
+    const models = this.#endpoints.available().filter((model) => model.provider === "codex");
+    const model =
+      models.find((candidate) => candidate.id === agentProviderDescriptor("codex").defaultModel) ?? models[0];
+    if (!model) return undefined;
+    return model.supportedReasoningEfforts.includes("low") ? { ...model, defaultReasoningEffort: "low" } : model;
+  }
+
+  /**
    * The Codex process of a live voice session. An agent on Codex lends its own Codex account; any other
    * agent uses the Codex sign-in of this computer. The relay model only passes requests on, so it is
    * the small default model, with low effort.
@@ -5781,19 +5996,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   ) {
     const signIn = () => ({ cause: new Error(sourceText("error.voice.live.signIn")) });
     yield* this.#providers.ensureProvider("codex").pipe(Effect.mapError(signIn));
-    const models = this.#endpoints.available().filter((model) => model.provider === "codex");
-    const model =
-      models.find((candidate) => candidate.id === agentProviderDescriptor("codex").defaultModel) ?? models[0];
+    const model = this.#sideCodexModel();
     if (!model) return yield* Effect.fail({ cause: new Error(sourceText("error.provider.noModel")) });
     const client = yield* Effect.try({
       try: () =>
         this.#providers.createProfileClient("codex", agent.provider === "codex" ? agent.providerAccountId : undefined),
       catch: signIn,
     });
-    const effort: AgentReasoningEffort = model.supportedReasoningEfforts.includes("low")
-      ? "low"
-      : model.defaultReasoningEffort;
-    return { client, model: model.id, effort };
+    return { client, model: model.id, effort: model.defaultReasoningEffort };
   }).bind(this);
 
   /**
@@ -5822,13 +6032,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     // Codex can take a while to start, and a shutdown or other generations can begin in that time.
     if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
     if (!this.#profileClients.hasSpare()) return yield* failed(sourceText("error.agent.webSearchBusy"));
-    const models = this.#endpoints.available().filter((model) => model.provider === "codex");
-    const model =
-      models.find((candidate) => candidate.id === agentProviderDescriptor("codex").defaultModel) ?? models[0];
+    const model = this.#sideCodexModel();
     if (!model) return yield* failed(sourceText("error.provider.noModel"));
-    const effort: AgentReasoningEffort = model.supportedReasoningEfforts.includes("low")
-      ? "low"
-      : model.defaultReasoningEffort;
     const client = yield* Effect.try({
       try: () => this.#providers.createProfileClient("codex"),
       catch: () => failed(sourceText("error.agent.webSearchSignIn")),
@@ -5837,7 +6042,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       .run(client, (cancelled) =>
         generateTextWithoutTools(
           client,
-          { ...model, defaultReasoningEffort: effort },
+          model,
           query,
           cancelled,
           sideSessionUsageObserver("web-search", this.#store.database.usage, agent.id, "codex", model.id),
@@ -5879,17 +6084,63 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         return { success: false, text: delivery.error ?? "The agent could not finish the request." };
       case "completed": {
         const turnId = delivery.turnId;
-        const ofTurn = (messages: readonly ConversationMessage[]) =>
-          messages.filter((message) => message.turnId === turnId);
-        const loaded = ofTurn(this.#conversation.loadedSnapshot(agentId)?.messages ?? []);
-        const threadId = this.#store.list().find((agent) => agent.id === agentId)?.threadId ?? null;
-        const messages =
-          loaded.length > 0 ? loaded : ofTurn(this.#store.database.readConversation(agentId, threadId).messages);
-        const answer = turnId ? messages.findLast(isAnswer)?.text : undefined;
-        return { success: true, text: answer ?? "The agent finished and gave no answer." };
+        const answer = turnId ? this.#turnAnswer(agentId, turnId) : null;
+        return {
+          success: true,
+          text: answer ?? "The agent finished and gave no answer.",
+          ...(turnId ? { turnId } : {}),
+        };
       }
     }
   }
+
+  /** The answer of a turn in the agent's own chat, or null when the turn wrote none. */
+  #turnAnswer(agentId: string, turnId: string): string | null {
+    const ofTurn = (messages: readonly ConversationMessage[]) =>
+      messages.filter((message) => message.turnId === turnId);
+    const loaded = ofTurn(this.#conversation.loadedSnapshot(agentId)?.messages ?? []);
+    const threadId = this.#store.list().find((agent) => agent.id === agentId)?.threadId ?? null;
+    const messages =
+      loaded.length > 0 ? loaded : ofTurn(this.#store.database.readConversation(agentId, threadId).messages);
+    return messages.findLast(isAnswer)?.text ?? null;
+  }
+
+  /**
+   * A spoken summary of a long answer for live voice, from one turn on a new Codex thread with no tools.
+   * Like the relay, it uses the agent's own Codex account when the agent is on Codex, and else the Codex
+   * sign-in of this computer. Also like the relay, it uses the small default model with low effort,
+   * and its usage counts for the agent. Like other background work, it leaves one generation slot for the
+   * user's own.
+   */
+  readonly #liveVoiceSummary = Effect.fn("AgentService.liveVoiceSummary")(function* (
+    this: AgentService,
+    agentId: string,
+    prompt: string,
+  ) {
+    const failed = (message: string) => ({ cause: new Error(message) });
+    if (this.#stopping || !this.#profileClients.hasSpare()) return yield* Effect.fail(failed("No generation slot."));
+    yield* this.#providers.ensureProvider("codex").pipe(Effect.mapError((failure) => ({ cause: failure })));
+    if (this.#stopping || !this.#profileClients.hasSpare()) return yield* Effect.fail(failed("No generation slot."));
+    const model = this.#sideCodexModel();
+    if (!model) return yield* Effect.fail(failed("No Codex model."));
+    const agent = this.#store.list().find((candidate) => candidate.id === agentId);
+    const client = yield* Effect.try({
+      try: () =>
+        this.#providers.createProfileClient("codex", agent?.provider === "codex" ? agent.providerAccountId : undefined),
+      catch: (cause) => ({ cause }),
+    });
+    return yield* this.#profileClients
+      .run(client, (cancelled) =>
+        generateTextWithoutTools(
+          client,
+          model,
+          prompt,
+          cancelled,
+          sideSessionUsageObserver("voice-summary", this.#store.database.usage, agentId, "codex", model.id),
+        ),
+      )
+      .pipe(Effect.mapError((failure) => ({ cause: failure.cause })));
+  }).bind(this);
 
   /** Keeps the Opus/WebM recording of a spoken message as a draft, for the message to replay. */
   prepareVoiceRecording(audio: Uint8Array): Effect.Effect<DraftAttachment[], AgentLifecycleFailed> {
@@ -6262,6 +6513,22 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     );
   }
 
+  /**
+   * The Remove action of a thank-you card: takes the report off GitHub with the account of this
+   * computer, and marks the card as removed.
+   */
+  withdrawFeedback(input: WithdrawFeedbackInput): Effect.Effect<WithdrawFeedbackResult, AgentLifecycleFailed> {
+    return this.#feedbackWithdrawal.withdrawCard(input).pipe(
+      Effect.map(({ status }) => ({ status })),
+      Effect.catchTags({
+        StoredStateFailure: ({ cause }) =>
+          Effect.fail(new AgentLifecycleFailed({ operation: "withdrawFeedback", cause })),
+        ToolOperationFailed: ({ cause }) =>
+          Effect.fail(new AgentLifecycleFailed({ operation: "withdrawFeedback", cause })),
+      }),
+    );
+  }
+
   /** The pinned messages of all chats of the agent: its own chat and its side threads. The newest pin is first. */
   listPinnedMessages(agentId: string): PinnedMessagesSnapshot {
     return this.#messagePins.list(agentId);
@@ -6585,9 +6852,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     // These reasons come first, so the sender is not told to select Steer when Steer would not help.
     // Only a message sent to steer gets a reason on its row.
     const steers = (agent.busyMessageMode ?? this.#busyMessageMode()) === "steer";
-    // A custom ACP agent steers only when its saved, check-seeded flag says it answers
-    // `_session/steering`; every other non-native provider keeps the message queued.
-    if (!agentSteers(agent, this.#providers.savedCustomAgents())) {
+    // A custom agent steers only when its process reported `_session/steering` (`steersTurns`).
+    const model = this.#drain.modelForTurn(agent.id, steerTurnId) ?? agent.model;
+    if (!agentSteersTurns({ provider: providerForAgent(agent), model }, this.#endpoints.available())) {
       if (explain && steers) yield* this.#markSteerFallback(agent.id, deliveryId, "provider-unsupported");
       return "provider-unsupported";
     }
@@ -6678,9 +6945,15 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
+  /**
+   * A new emoji on one of the agent's own replies is also the user's answer to that reply, so it is
+   * queued as a reply that quotes the message: the agent continues without a typed answer. A removed
+   * or unchanged reaction sends nothing. `sender` is the person the host saw react.
+   */
   readonly setMessageReaction = Effect.fn("AgentService.setMessageReaction")(function* (
     this: AgentService,
     input: SetMessageReactionInput,
+    sender?: ConversationMessageSender,
   ) {
     const agent = yield* this.#store
       .existing(input.agentId)
@@ -6694,21 +6967,38 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       const [message] = this.#store.database.readConversationMessages(agent.id, agent.threadId, [input.messageId]);
       if (message) snapshot.messages.push(message);
     }
-    if (!snapshot.messages.some((message) => message.id === input.messageId)) {
+    const message = snapshot.messages.find((candidate) => candidate.id === input.messageId);
+    if (!message) {
       return yield* new AgentLifecycleFailed({
         operation: "set message reaction",
         cause: new Error(sourceText("error.agent.messageUnavailable")),
       });
     }
-    yield* this.#mailbox
-      .setReaction(agent.id, input.messageId, { kind: "user" }, input.emoji)
-      .pipe(
+    const previous = this.#mailbox.reactionFor(agent.id, input.messageId);
+    // A reply that streams, failed or stopped is not one the user can answer yet.
+    const answer =
+      message.author === "assistant" && message.status === "completed" && input.emoji !== previous ? input.emoji : null;
+    const saveReaction = (emoji: SetMessageReactionInput["emoji"]) =>
+      this.#mailbox.setReaction(agent.id, input.messageId, { kind: "user" }, emoji).pipe(
         Effect.mapError(
           (failure) => new AgentLifecycleFailed({ operation: "set message reaction", cause: failure.cause }),
         ),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            this.#mailboxSync.syncMailboxMessages(snapshot);
+            this.#conversation.emitConversation(snapshot);
+          }),
+        ),
       );
-    this.#mailboxSync.syncMailboxMessages(snapshot);
-    this.#conversation.emitConversation(snapshot);
+    // The check and the save have no wait between them, so the same reaction twice sends one answer.
+    yield* saveReaction(input.emoji);
+    if (!answer) return;
+    // When the answer cannot go, the old reaction comes back, so the user sees the failure and can try again.
+    yield* this.#sendUserMessage(
+      { agentId: agent.id, text: answer, replyToMessageId: input.messageId },
+      sender,
+      undefined,
+    ).pipe(Effect.tapError(() => saveReaction(previous).pipe(Effect.ignore)));
   }, Effect.uninterruptible).bind(this);
 
   /** The channel, task or messaging thread of a delivery, or null for the agent's own chat. */
@@ -6879,9 +7169,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
-  respondToBrowserTakeover(input: RespondToBrowserTakeoverInput): Effect.Effect<void, AgentLifecycleFailed> {
+  /** `fromMember`: the answer came from a member's device through the Team API. */
+  respondToBrowserTakeover(
+    input: RespondToBrowserTakeoverInput,
+    fromMember = false,
+  ): Effect.Effect<void, AgentLifecycleFailed> {
     return this.#attention
-      .respondToBrowserTakeover(input)
+      .respondToBrowserTakeover(input, fromMember)
       .pipe(
         Effect.mapError(
           (failure) => new AgentLifecycleFailed({ operation: "respondToBrowserTakeover", cause: failure.cause }),

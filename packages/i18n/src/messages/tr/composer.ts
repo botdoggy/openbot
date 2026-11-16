@@ -5,6 +5,9 @@ export const messages = {
   "composer.queueEdit.body":
     "Kuyruktaki bir mesajı düzenliyorsunuz. Çalışmasına izin vermek için düzenlemeyi kaydedin veya iptal edin.",
   "composer.queueEdit.cancel": "Düzenlemeyi iptal et",
+  "composer.feedbackFix.body":
+    "#{number} numaralı rapor düzeltiliyor. İsteği gönderin veya raporu olduğu gibi bırakmak için iptal edin.",
+  "composer.feedbackFix.cancel": "İptal",
   "composer.providerWait.offlineTitle": "İnternet bağlantısı yok",
   "composer.providerWait.offline": "Bu bilgisayar yeniden çevrimiçi olana kadar {provider} yanıt veremez.",
   "composer.providerWait.silent": "{provider} {duration} süredir bir şey göndermedi.",
@@ -114,6 +117,12 @@ export const messages = {
   "composer.error.holdQueued": "Kuyruktaki mesaj düzenleme için bekletilemedi.",
   "composer.error.cancelEdit": "Kuyruk düzenlemesi iptal edilemedi. Tekrar deneyin.",
   "composer.error.updateQueued": "Kuyruktaki mesaj güncellenemedi. Tekrar deneyin.",
+  "composer.queueEdit.received": "Ajan bu mesajı zaten aldı, bu yüzden düzenlemeniz sona erdi.",
+  "composer.queueEdit.receivedKept":
+    "Ajan bu mesajı zaten aldı, bu yüzden düzenlemeniz sona erdi. Değişiklikleriniz hâlâ mesaj kutusunda.",
+  "composer.queueEdit.deletedKept":
+    "Bu mesaj silindi, bu yüzden düzenlemeniz sona erdi. Değişiklikleriniz hâlâ mesaj kutusunda.",
+  "composer.queueEdit.endedKept": "Bu düzenleme kaydedilmeden önce sona erdi. Değişiklikleriniz hâlâ mesaj kutusunda.",
   "composer.voice.prepareFailed": "Ses modeli hazırlanamadı. Tekrar deneyin.",
   "composer.voice.noSpeechRecorded": "Hiçbir konuşma kaydedilmedi.",
   "composer.voice.noSpeechDetected": "Hiçbir konuşma algılanmadı.",
@@ -158,6 +167,7 @@ export const messages = {
   "composer.picker.section.files": "Dosyalar",
   "composer.picker.section.tabs": "Tarayıcı sekmeleri",
   "composer.picker.section.threads": "Mesaj dizileri",
+  "composer.picker.section.messages": "Mesajlarda",
   "composer.token.tab": "Tarayıcı sekmesi {name}",
   "composer.token.thread": "Mesaj dizisi {name}",
   "composer.token.unavailableTab": "Kapalı tarayıcı sekmesi {name}",

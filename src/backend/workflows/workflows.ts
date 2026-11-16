@@ -269,8 +269,8 @@ export interface WorkflowsDependencies {
   ) => Effect.Effect<string | "missing" | "type", { readonly cause: unknown }>;
   /** The media services beyond the agent providers that this host can use now. Absent: none. */
   mediaProviders?: () => WorkflowMediaProviders;
-  /** The credits of the media services that this host can spend now. Absent: none. */
-  mediaCredits?: () => Effect.Effect<WorkflowMediaCredits>;
+  /** The credits of the media services that this host can spend now; with `only`, of that one. Absent: none. */
+  mediaCredits?: (only?: keyof WorkflowMediaCredits) => Effect.Effect<WorkflowMediaCredits>;
   notify(notice: WorkflowNotice): void;
   /** Whether a messaging connection of this host is on. */
   connectionOn(connectionId: string): boolean;
@@ -382,8 +382,12 @@ interface WorkflowsShape {
   /** The graph that a restore of the version would put back, or null when there is no such version. */
   /** The graph that a version keeps, so a person can look at it before a restore. */
   versionGraph(input: WorkflowVersionInput): Effect.Effect<WorkflowGraph, WorkflowFailed>;
-  /** Starts a run of the whole workflow, from a trigger, or from one node. Idempotent by request id. */
-  startRun(input: StartWorkflowRunInput): Effect.Effect<WorkflowRunDetail, WorkflowFailed>;
+  /**
+   * Starts a run of the whole workflow, from a trigger, or from one node. Idempotent by request id.
+   * `runInput` is the text that the triggers of a full run give to the next steps; only an agent's
+   * `run_workflow` call gives it.
+   */
+  startRun(input: StartWorkflowRunInput, runInput?: string): Effect.Effect<WorkflowRunDetail, WorkflowFailed>;
   /** Starts the run of a schedule trigger's occurrence; see `workflow-triggers.ts`. */
   startScheduled(start: ScheduledWorkflowStart): Effect.Effect<void, WorkflowFailed>;
   /** Starts the run of a verified webhook request. The same delivery again starts nothing. */
@@ -414,10 +418,13 @@ interface WorkflowsShape {
    * asset step. Answers its file id. The draft goes away.
    */
   keepPicture(draftId: string): Effect.Effect<string, WorkflowFailed>;
-  /** Whether this host can use Sunra for an image step now. */
+  /** Whether this host can use Sunra and Higgsfield for an image step now. */
   mediaProviders(): WorkflowMediaProviders;
-  /** The credits that this host's Sunra sign-in can spend now. A failed read has none. */
-  mediaCredits(): Effect.Effect<WorkflowMediaCredits>;
+  /**
+   * The credits that this host's Sunra and Higgsfield sign-ins can spend now. A failed read has none.
+   * With `only`, it reads that service alone and the other one is null.
+   */
+  mediaCredits(only?: keyof WorkflowMediaCredits): Effect.Effect<WorkflowMediaCredits>;
   /** Runs one node alone, with the newest answers of the nodes before it. */
   runStep(input: RunWorkflowStepInput): Effect.Effect<WorkflowStep, WorkflowFailed>;
   stopStep(stepId: string): Effect.Effect<void, WorkflowFailed>;
@@ -1453,7 +1460,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
           return { run: runs.run(started.run.id) ?? started.run, created: started.created };
         });
 
-        const startRun = Effect.fn("Workflows.startRun")(function* (input: StartWorkflowRunInput) {
+        const startRun = Effect.fn("Workflows.startRun")(function* (input: StartWorkflowRunInput, runInput?: string) {
           return yield* locked(
             Effect.gen(function* () {
               const detail = yield* attempt(() => detailOf(input.workflowId));
@@ -1463,7 +1470,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
                 source: "manual",
                 scheduledFor: null,
                 idempotencyKey: `manual:${input.requestId}`,
-                payload: null,
+                payload: runInput ?? null,
               });
               return runDetail(run);
             }),
@@ -1909,9 +1916,10 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
           return kept;
         });
 
-        const mediaProviders = (): WorkflowMediaProviders => dependencies.mediaProviders?.() ?? { sunra: false };
-        const mediaCredits = (): Effect.Effect<WorkflowMediaCredits> =>
-          dependencies.mediaCredits?.() ?? Effect.succeed({ sunra: null });
+        const mediaProviders = (): WorkflowMediaProviders =>
+          dependencies.mediaProviders?.() ?? { sunra: false, higgsfield: false };
+        const mediaCredits = (only?: keyof WorkflowMediaCredits): Effect.Effect<WorkflowMediaCredits> =>
+          dependencies.mediaCredits?.(only) ?? Effect.succeed({ sunra: null, higgsfield: null });
 
         const runStep = Effect.fn("Workflows.runStep")(function* (input: RunWorkflowStepInput) {
           return yield* locked(

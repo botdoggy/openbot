@@ -43,6 +43,14 @@ export const messages = defineMessages("error.provider", {
   "error.provider.detectionEntriesTooMany": "There are too many addresses or folders.",
   "error.provider.credentialFileUnreadable": "The provider credential file is unreadable.",
   "error.provider.credentialFileTooLarge": "The provider credential file is too large.",
+  "error.provider.environmentNameInvalid":
+    "{name} is not a valid variable name. Use letters, digits and _, and do not start with a digit.",
+  "error.provider.environmentNameReserved": "OpenBot sets {name} for this provider. Remove this variable.",
+  "error.provider.environmentNameDuplicate": "{name} is in the list more than one time.",
+  "error.provider.environmentValueTooLong": "The value of {name} is too long.",
+  "error.provider.environmentTooMany": "A provider can have at most {limit} variables.",
+  "error.provider.environmentSecretsTooLarge":
+    "The sensitive values are too long together. Save shorter values or fewer of them.",
   "error.provider.archiveSpecialFile": "The runtime archive contains a link or special file.",
   "error.provider.archiveUnsafePath": "The runtime archive contains an unsafe path.",
   "error.provider.runtimeSpecialFile": "The runtime contains a link or special file.",
@@ -202,6 +210,8 @@ export const messages = defineMessages("error.provider", {
     'The endpoint "{provider}" needs an API key. Add the key in Server settings → Providers, then try again.',
   "error.provider.opencodeKeyExpired":
     "Your OpenCode API key expired. Create a new key in OpenCode Console, paste it in the OpenCode settings, then try again.",
+  "error.provider.opencodeKeyRefused":
+    "OpenCode Go refused your saved API key. The key may have expired. Create a new key in OpenCode Console, paste it in the OpenCode settings, then try again.",
   "error.provider.opencodeServiceFailure":
     "OpenCode could not complete this turn because its local service failed. Try again. If the error continues, reconnect OpenCode in Settings.",
   "error.provider.opencodeRateLimited":
@@ -266,10 +276,16 @@ export const messages = defineMessages("error.provider", {
     "Google's Gemini service did not complete the request. Try again in a few minutes.\n{detail}",
   "error.provider.antigravityRequestRejected":
     "Gemini refused this request. Choose another model, then send your message again. If it fails again, start a new chat.\n{detail}",
+  "error.provider.antigravitySessionRejected":
+    "Gemini refused this request and did not give the cause. An item in the chat history can cause this, such as an image that the agent opened. OpenBot started a new Gemini session with the chat history. Try again. If the error continues, choose another model.",
   "error.provider.antigravityLocationUnsupported":
     "Google does not let Gemini work from the network location of the computer that runs this agent. Use Gemini on another computer, or choose another provider for this agent.\n{detail}",
   "error.provider.antigravityConnectionLost":
     "Gemini lost the connection to its agent and stopped. Send a message to continue.",
+  "error.provider.grokServiceFailure":
+    "The Grok service is busy or has an error. Try again in a few minutes, or choose another model.",
+  "error.provider.grokConnectionFailed":
+    "Grok cannot connect to its service. Check your internet connection, then send the message again.",
   "error.provider.antigravityRemoteWindowsSignIn":
     "On a Windows host, Gemini opens the Google page on the host itself. Connect Gemini on the host computer.",
   "error.provider.cursorArchivePath": "The Cursor archive has an unexpected file.",
@@ -304,7 +320,7 @@ export const messages = defineMessages("error.provider", {
   "error.provider.hermesVersionUnreadable": "Unable to read the Hermes Agent version.",
   "error.provider.hermesSignIn": "Sign in with Nous Portal, or run `hermes setup` in a terminal, to use Hermes.",
   "error.provider.hermesTurnFailed":
-    "Hermes could not finish this turn. If its reply gives a reason, do what it says. If not, an MCP server of this agent can be unavailable: check it in Server settings › MCP, then send your message again.",
+    "Hermes could not finish this turn. If its reply gives a reason, do what it says. If not, an MCP server of this agent can be unavailable: check it in Marketplace, Apps, then send your message again.",
   "error.provider.hermesRefused":
     "Hermes refused this message before it started. Send it again. If Hermes refuses each message, restart OpenBot on the computer that runs this agent.",
   "error.provider.copilotThinkingRejected":
@@ -314,14 +330,20 @@ export const messages = defineMessages("error.provider", {
     "This chat became too long for Claude. OpenBot started a new Claude Code session with the chat history. Try again.",
   "error.provider.claudeApiKeyNoCredit":
     "The credit balance of the Anthropic API key is too low. A Claude plan does not pay for requests with an API key. Add credit in the Anthropic Console, or sign in to Claude in Settings and select the Claude account in the agent's model menu.",
+  "error.provider.claudeServiceBlocked":
+    "Claude's service blocked this request. This is usually a short problem on Claude's side, not a problem with your account. Send the message again in a few minutes.",
   "error.provider.foreignReasoning":
     "{provider} did not accept the earlier reasoning in this chat, because a different account or API key received it. OpenBot started a new {provider} session with the chat history. Try again.",
+  "error.provider.codexHistoryItemMissing":
+    "Codex could not continue this chat, because an item in its saved history is missing. OpenBot started a new Codex session with the chat history. Try again.",
   "error.provider.imageTooSmall":
     "The model did not accept an image in this chat because the image is too small. OpenBot started a new {provider} session with the chat history. Try again.",
   "error.provider.imageTooLarge":
     "The model did not accept an image in this chat because the image is too large. OpenBot started a new {provider} session with the chat history. Try again.",
   "error.provider.imageCountLimit":
     "The model did not accept this chat because the chat has too many images. OpenBot started a new {provider} session with the chat history. Try again.",
+  "error.provider.imageUnreadable":
+    "The model could not read an image in this chat. OpenBot started a new {provider} session with the chat history. Try again. If you sent an image, send a different one.",
   "error.provider.requestTooLarge":
     "This chat became too large to send to the model. Images in the chat often cause this. OpenBot started a new {provider} session with the chat history. Try again.",
   "error.provider.opencodeSessionRejected":

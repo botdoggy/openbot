@@ -5,6 +5,9 @@ export const messages = {
   "composer.queueEdit.body":
     "Je bewerkt een bericht in de wachtrij. Sla de wijziging op of annuleer hem om het bericht te laten uitvoeren.",
   "composer.queueEdit.cancel": "Bewerking annuleren",
+  "composer.feedbackFix.body":
+    "Melding #{number} wordt gecorrigeerd. Verstuur het verzoek, of annuleer om de melding te laten zoals hij is.",
+  "composer.feedbackFix.cancel": "Annuleren",
   "composer.providerWait.offlineTitle": "Geen internetverbinding",
   "composer.providerWait.offline": "{provider} kan pas antwoorden als deze computer weer online is.",
   "composer.providerWait.silent": "{provider} heeft al {duration} geen update gestuurd.",
@@ -113,6 +116,13 @@ export const messages = {
   "composer.error.holdQueued": "Kan het bericht in de wachtrij niet vasthouden om te bewerken.",
   "composer.error.cancelEdit": "Kan de bewerking in de wachtrij niet annuleren. Probeer het opnieuw.",
   "composer.error.updateQueued": "Kan het bericht in de wachtrij niet bijwerken. Probeer het opnieuw.",
+  "composer.queueEdit.received": "De agent heeft dit bericht al ontvangen, dus je bewerking is beëindigd.",
+  "composer.queueEdit.receivedKept":
+    "De agent heeft dit bericht al ontvangen, dus je bewerking is beëindigd. Je wijzigingen staan nog in het berichtvak.",
+  "composer.queueEdit.deletedKept":
+    "Dit bericht is verwijderd, dus je bewerking is beëindigd. Je wijzigingen staan nog in het berichtvak.",
+  "composer.queueEdit.endedKept":
+    "Deze bewerking is beëindigd voordat ze werd opgeslagen. Je wijzigingen staan nog in het berichtvak.",
   "composer.voice.prepareFailed": "Kan het spraakmodel niet voorbereiden. Probeer het opnieuw.",
   "composer.voice.noSpeechRecorded": "Er is geen spraak opgenomen.",
   "composer.voice.noSpeechDetected": "Er is geen spraak gedetecteerd.",
@@ -157,6 +167,7 @@ export const messages = {
   "composer.picker.section.files": "Bestanden",
   "composer.picker.section.tabs": "Browsertabbladen",
   "composer.picker.section.threads": "Threads",
+  "composer.picker.section.messages": "In berichten",
   "composer.token.tab": "Browsertabblad {name}",
   "composer.token.thread": "Thread {name}",
   "composer.token.unavailableTab": "Gesloten browsertabblad {name}",

@@ -1,6 +1,11 @@
 import { feedbackSentIssue } from "@openbot/contracts/feedback";
 import { serverInstallEvent } from "@openbot/contracts/hosted-servers";
-import type { ClientAgentSummary, ConversationMessage, QueueDeliveryStatus } from "@openbot/contracts/ipc";
+import type {
+  ClientAgentSummary,
+  ConversationMessage,
+  ConversationSearchPage,
+  QueueDeliveryStatus,
+} from "@openbot/contracts/ipc";
 import {
   AGENT_INSTRUCTIONS_CHANGE_ITEM_TYPE,
   AGENT_WELCOME_ITEM_TYPE,
@@ -18,6 +23,7 @@ import {
   parseConversationPlanText,
   routineConversationEvent,
   routineRunConversationEvent,
+  settingLinkEvent,
   skillConversationEvent,
   skillSuggestionEvent,
 } from "@openbot/contracts/ipc";
@@ -30,6 +36,7 @@ import type {
   AgentMessagePlan,
   AgentProfile,
   ChatActionMarkerModel,
+  ComposerThreadMessageMatch,
 } from "@openbot/ui/data";
 import { formatChatTimestamp } from "@openbot/ui/features/conversation/chat-timestamp";
 import type { TaskListItem } from "@openbot/ui/features/conversation/TaskList";
@@ -38,8 +45,11 @@ import { isRoutineEventItem } from "./features/conversation/conversation-read-st
 
 /** The title in the host's thank-you text, which ends with it. Text from another host gives none. */
 function feedbackSentTitle(text: string): string {
-  const prefix = englishSourceText("status.agent.feedbackSent", { title: "" });
-  return text.startsWith(prefix) ? text.slice(prefix.length) : "";
+  for (const key of ["status.agent.feedbackSent", "status.agent.feedbackWithdrawn"] as const) {
+    const prefix = englishSourceText(key, { title: "" });
+    if (text.startsWith(prefix)) return text.slice(prefix.length);
+  }
+  return "";
 }
 
 export function toAgentProfile(stored: ClientAgentSummary): AgentProfile {
@@ -83,6 +93,42 @@ export function toAgentProfile(stored: ClientAgentSummary): AgentProfile {
   };
 }
 
+/** The text that a message shows: an agent reply without its markers, a user message as it was written. */
+function conversationMessageBody(message: ConversationMessage): string {
+  return message.author === "user" ? message.text : cleanAgentMessageText(message.text);
+}
+
+/** The pages that one `@` thread search reads at most. */
+const THREAD_MESSAGE_SEARCH_PAGES = 3;
+/**
+ * The threads that stop the `@` thread search. The list shows 5; the others cover threads that it
+ * cannot tag or that match by their title.
+ */
+const THREAD_MESSAGE_SEARCH_THREADS = 10;
+
+/**
+ * The side thread matches of a search that also gives the agent's own chat. Newer matches in the
+ * agent's own chat can fill a page, so it reads more pages until it has enough threads.
+ */
+export async function collectThreadMessageMatches(
+  readPage: (cursor: string | undefined) => Promise<ConversationSearchPage>,
+): Promise<ComposerThreadMessageMatch[]> {
+  const matches: ComposerThreadMessageMatch[] = [];
+  const threads = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < THREAD_MESSAGE_SEARCH_PAGES; page += 1) {
+    const result = await readPage(cursor);
+    for (const { taskId, message } of result.results) {
+      if (!taskId) continue;
+      threads.add(taskId);
+      matches.push({ threadId: taskId, body: conversationMessageBody(message) });
+    }
+    if (!result.nextCursor || threads.size >= THREAD_MESSAGE_SEARCH_THREADS) break;
+    cursor = result.nextCursor;
+  }
+  return matches;
+}
+
 export function toAgentMessage(message: ConversationMessage, ownerAgentId?: string): AgentMessage {
   const exchangeSenderId = message.senderAgentId ?? message.exchange?.senderAgentId;
   const routineEvent = routineConversationEvent(message);
@@ -109,7 +155,7 @@ export function toAgentMessage(message: ConversationMessage, ownerAgentId?: stri
     id: message.id,
     ...(message.turnId === undefined ? {} : { turnId: message.turnId }),
     author: message.author === "user" ? "you" : "agent",
-    body: message.author === "user" ? message.text : cleanAgentMessageText(message.text),
+    body: conversationMessageBody(message),
     time: formatMessageTime(message.createdAt),
     createdAt: message.createdAt,
     streaming: message.status === "streaming",
@@ -379,6 +425,8 @@ function chatActionMarker(
   if (skillEvent) return { ...skillEvent, kind: "skill-lifecycle", timestamp: message.createdAt };
   const suggestion = marketplaceSuggestionEvent(message);
   if (suggestion) return { kind: "marketplace-suggestion", appId: suggestion.appId, timestamp: message.createdAt };
+  const settingLink = settingLinkEvent(message);
+  if (settingLink) return { kind: "setting-link", settingId: settingLink.settingId, timestamp: message.createdAt };
   const skillSuggestion = skillSuggestionEvent(message);
   if (skillSuggestion) return { ...skillSuggestion, kind: "skill-suggestion", timestamp: message.createdAt };
   const signIn = mcpSignInEvent(message);
@@ -387,7 +435,13 @@ function chatActionMarker(
   if (install) return { kind: "server-install", ...install, timestamp: message.createdAt };
   const issue = feedbackSentIssue(message);
   if (issue)
-    return { kind: "feedback-sent", ...issue, title: feedbackSentTitle(message.text), timestamp: message.createdAt };
+    return {
+      kind: "feedback-sent",
+      messageId: message.id,
+      ...issue,
+      title: feedbackSentTitle(message.text),
+      timestamp: message.createdAt,
+    };
   if (routineEvent) {
     return {
       kind: "routine-lifecycle",

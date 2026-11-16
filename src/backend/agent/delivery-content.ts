@@ -28,6 +28,12 @@ export function visualReplyMessageId(threadId: string, turnId: string, callId: s
   return `visual-reply:${digest}`;
 }
 
+/** The id of the message that one `set_backdrop` call adds, so a retried call adds no second page. */
+export function backdropMessageId(threadId: string, turnId: string, callId: string): string {
+  const digest = createHash("sha256").update(`${threadId}\0${turnId}\0${callId}`).digest("hex").slice(0, 32);
+  return `window-backdrop:${digest}`;
+}
+
 /** A file name from a page title, without the characters that file systems refuse. */
 export function visualReplyFileName(title: string): string {
   return (
@@ -384,6 +390,7 @@ export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryP
         ? [
             "Do not create, delete, or test routines, and do not change other routines, during this run.",
             `When the task says to stop after a condition and the condition is met, pause this routine: call openbot.update_routine with routineId "${delivery.sender.routineId}" and active false, then give your report. Make no other change to this routine.`,
+            `A failure or a blocker, such as a file or a service that you cannot reach, is not a stop condition: keep this routine on, and call the ${ROUTINE_REPORT_FAILURE_TOOL} tool.`,
           ]
         : ["Do not create, update, delete, or test routines during this run."]),
       "Perform the task below now. Do not answer only that the routine or monitoring is active.",
@@ -424,7 +431,7 @@ export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryP
     );
     const continuation = [
       HANDOFF_START,
-      "The previous provider reached its usage limit after starting this task.",
+      "The previous provider stopped after starting this task: it reached its usage limit or failed with an error.",
       "Continue the unfinished task from the conversation and captured work steps. The request below is the original goal, not a new task. Do not repeat completed actions. Check the outcome of any interrupted action before you retry it. If the task is already complete, report the result.",
       ...(progress ? ["--- interrupted task progress ---", progress.slice(-8000)] : []),
       "--- captured work steps ---",
@@ -489,6 +496,17 @@ export function compactionContinuationPrompt(): string {
   return [
     "OpenBot note, not a message from the user. Your last turn stopped because the connection failed while your context was compacted.",
     "Continue the work now, from where you stopped. Do not repeat finished work or restate earlier answers. Check the result of an action that was interrupted before you do it again. This note does not approve a risky action. If the request is already done, say so in one short line and end your turn. If you must wait, need the user's input or approval, or are blocked, say so in one short line and end your turn.",
+  ].join("\n");
+}
+
+/**
+ * The note for a turn whose provider process exited during the agent's answer (#9729). The rest of the
+ * answer was never made, so the agent continues from what it said before.
+ */
+export function providerExitContinuationPrompt(): string {
+  return [
+    "OpenBot note, not a message from the user. Your last turn stopped because your provider process exited while you wrote your answer, so the user got only its first part.",
+    "Continue now: give the complete answer to the user's last message. Do not repeat finished work. An action that you started before the stop possibly finished or possibly still runs: check its result before you do it again, and if you cannot tell, say so instead of doing it again. This note does not approve a risky action. If you must wait, need the user's input or approval, or are blocked, say so in one short line and end your turn.",
   ].join("\n");
 }
 

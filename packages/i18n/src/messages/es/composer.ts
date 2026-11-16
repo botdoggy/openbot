@@ -4,6 +4,9 @@ import type { messages as source } from "../en/composer";
 export const messages = {
   "composer.queueEdit.body": "Estás editando un mensaje en cola. Guarda o cancela la edición para que se ejecute.",
   "composer.queueEdit.cancel": "Cancelar edición",
+  "composer.feedbackFix.body":
+    "Corrigiendo el informe #{number}. Envía la solicitud o cancela para dejar el informe como está.",
+  "composer.feedbackFix.cancel": "Cancelar",
   "composer.providerWait.offlineTitle": "Sin conexión a internet",
   "composer.providerWait.offline": "{provider} no puede responder hasta que este equipo vuelva a estar en línea.",
   "composer.providerWait.silent": "{provider} no ha enviado nada en {duration}.",
@@ -112,6 +115,13 @@ export const messages = {
   "composer.error.holdQueued": "No se pudo retener el mensaje en cola para editarlo.",
   "composer.error.cancelEdit": "No se pudo cancelar la edición de la cola. Vuelve a intentarlo.",
   "composer.error.updateQueued": "No se pudo actualizar el mensaje en cola. Vuelve a intentarlo.",
+  "composer.queueEdit.received": "El agente ya recibió este mensaje, así que tu edición terminó.",
+  "composer.queueEdit.receivedKept":
+    "El agente ya recibió este mensaje, así que tu edición terminó. Tus cambios siguen en el cuadro de mensaje.",
+  "composer.queueEdit.deletedKept":
+    "Este mensaje se eliminó, así que tu edición terminó. Tus cambios siguen en el cuadro de mensaje.",
+  "composer.queueEdit.endedKept":
+    "Esta edición terminó antes de guardarse. Tus cambios siguen en el cuadro de mensaje.",
   "composer.voice.prepareFailed": "No se pudo preparar el modelo de voz. Vuelve a intentarlo.",
   "composer.voice.noSpeechRecorded": "No se grabó ninguna voz.",
   "composer.voice.noSpeechDetected": "No se detectó ninguna voz.",
@@ -157,6 +167,7 @@ export const messages = {
   "composer.picker.section.files": "Archivos",
   "composer.picker.section.tabs": "Pestañas del navegador",
   "composer.picker.section.threads": "Hilos",
+  "composer.picker.section.messages": "En mensajes",
   "composer.token.tab": "Pestaña del navegador {name}",
   "composer.token.thread": "Hilo {name}",
   "composer.token.unavailableTab": "Pestaña del navegador cerrada {name}",

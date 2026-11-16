@@ -5,6 +5,9 @@ export const messages = {
   "composer.queueEdit.body":
     "Você está editando uma mensagem na fila. Salve ou cancele a edição para permitir a execução.",
   "composer.queueEdit.cancel": "Cancelar edição",
+  "composer.feedbackFix.body":
+    "Corrigindo o relato #{number}. Envie a solicitação ou cancele para manter o relato como está.",
+  "composer.feedbackFix.cancel": "Cancelar",
   "composer.providerWait.offlineTitle": "Sem conexão com a internet",
   "composer.providerWait.offline": "{provider} não pode responder até que este computador volte a ficar online.",
   "composer.providerWait.silent": "{provider} não envia nada há {duration}.",
@@ -113,6 +116,13 @@ export const messages = {
   "composer.error.holdQueued": "Não foi possível reservar a mensagem na fila para edição.",
   "composer.error.cancelEdit": "Não foi possível cancelar a edição da fila. Tente novamente.",
   "composer.error.updateQueued": "Não foi possível atualizar a mensagem na fila. Tente novamente.",
+  "composer.queueEdit.received": "O agente já recebeu esta mensagem, então sua edição terminou.",
+  "composer.queueEdit.receivedKept":
+    "O agente já recebeu esta mensagem, então sua edição terminou. Suas alterações ainda estão na caixa de mensagem.",
+  "composer.queueEdit.deletedKept":
+    "Esta mensagem foi excluída, então sua edição terminou. Suas alterações ainda estão na caixa de mensagem.",
+  "composer.queueEdit.endedKept":
+    "Esta edição terminou antes de ser salva. Suas alterações ainda estão na caixa de mensagem.",
   "composer.voice.prepareFailed": "Não foi possível preparar o modelo de voz. Tente novamente.",
   "composer.voice.noSpeechRecorded": "Nenhuma fala foi gravada.",
   "composer.voice.noSpeechDetected": "Nenhuma fala foi detectada.",
@@ -157,6 +167,7 @@ export const messages = {
   "composer.picker.section.files": "Arquivos",
   "composer.picker.section.tabs": "Abas do navegador",
   "composer.picker.section.threads": "Tópicos",
+  "composer.picker.section.messages": "Nas mensagens",
   "composer.token.tab": "Aba do navegador {name}",
   "composer.token.thread": "Tópico {name}",
   "composer.token.unavailableTab": "Aba do navegador fechada {name}",

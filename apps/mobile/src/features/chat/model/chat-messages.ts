@@ -8,10 +8,12 @@ import type {
   AttachmentSummary,
   ChannelMessage,
   ChannelRoutingConversationEvent,
+  ConversationMemoryChange,
   ConversationMessage,
   ConversationMessageSender,
   ConversationQuestionPrompt,
   ConversationReaction,
+  ConversationSubagent,
   ImageGenerationInfo,
   QueueDelivery,
   RoutineConversationEventAction,
@@ -19,7 +21,9 @@ import type {
   VideoGenerationInfo,
 } from "@openbot/contracts/ipc";
 import {
+  CONVERSATION_MEMORY_CHANGES_ITEM_TYPE,
   CONVERSATION_PLAN_ITEM_TYPE,
+  CONVERSATION_SUBAGENTS_ITEM_TYPE,
   channelRoutingConversationEvent,
   isAgentAnswer,
   isContextResetMarker,
@@ -27,6 +31,7 @@ import {
   parseConversationPlanText,
   routineConversationEvent,
   routineRunConversationEvent,
+  SETTING_LINK_ITEM_TYPE_PREFIX,
 } from "@openbot/contracts/ipc";
 import type { ConversationUiBlock } from "@openbot/contracts/ui-blocks";
 import type { MobileTextKey } from "@openbot/i18n/mobile";
@@ -124,6 +129,18 @@ export type ChatMessage =
       stopped: boolean;
       steps: { id: string; text: string; state: ChatPlanStepState }[];
     }
+  /** The subagents that the agent started in one turn, as the desktop group shows them. */
+  | {
+      id: string;
+      kind: "subagents";
+      subagents: ConversationSubagent[];
+    }
+  /** The memory changes that one turn committed. A host without memory-changes-v1 sends only a count. */
+  | {
+      id: string;
+      kind: "memory-changes";
+      changes: ConversationMemoryChange[];
+    }
   | {
       id: string;
       kind: "thinking";
@@ -211,6 +228,7 @@ export function presentChatMessages(
 const projectedBubbles = new WeakMap<ConversationMessage, { readerKey: string; bubble: ChatMessage }>();
 const projectedExchanges = new WeakMap<ConversationMessage, ChatMessage>();
 const projectedQuestions = new WeakMap<ConversationMessage, ChatMessage>();
+const projectedMemoryChanges = new WeakMap<ConversationMessage, ChatMessage>();
 const projectedRoutines = new WeakMap<ConversationMessage, ChatMessage>();
 const projectedResets = new WeakMap<ConversationMessage, ChatMessage>();
 const projectedUpdates = new WeakMap<ConversationMessage, ChatMessage>();
@@ -269,6 +287,15 @@ function suggestedApp(message: ConversationMessage): string | null {
   const appId = marketplaceSuggestionEvent(message)?.appId;
   if (!appId) return null;
   return isMobileConnectorId(appId) || MOBILE_PLUGINS.some((plugin) => plugin.slug === appId) ? appId : null;
+}
+
+/**
+ * A setting card that an agent showed. It opens a row of the desktop app's settings or of the agent
+ * settings side panel, and the phone has neither, so the phone shows no row. The agent's reply still
+ * says what the setting does.
+ */
+function settingLinkMessage(message: ConversationMessage): boolean {
+  return message.author === "system" && message.itemType?.startsWith(SETTING_LINK_ITEM_TYPE_PREFIX) === true;
 }
 
 const ROUTINE_RUN_LABELS = {
@@ -377,6 +404,16 @@ function projectPlan(message: ConversationMessage): ChatMessage | null {
   };
 }
 
+/**
+ * The subagents of a `subagents` message. A host without subagents-v1 sends only the list of titles
+ * as the text; that message then shows as text.
+ */
+function projectSubagents(message: ConversationMessage): ChatMessage | null {
+  if (message.author !== "assistant" || message.itemType !== CONVERSATION_SUBAGENTS_ITEM_TYPE) return null;
+  if (!message.subagents?.length) return null;
+  return { id: message.id, kind: "subagents", subagents: message.subagents };
+}
+
 /** Reuse the item projected from the same host message, so memoized rows skip unchanged items. */
 function projectedMarker(
   cache: WeakMap<ConversationMessage, ChatMessage>,
@@ -473,6 +510,7 @@ export function projectChatMessages(
         );
       continue;
     }
+    if (settingLinkMessage(message)) continue;
     if (message.delivery?.status === "queued" || message.delivery?.status === "cancelled") continue;
     if (message.exchange) {
       const { exchange } = message;
@@ -498,6 +536,18 @@ export function projectChatMessages(
           prompt,
           uiBlock: message.uiBlock,
         })),
+      );
+      continue;
+    }
+    // The memory changes of a turn are a system message. It shows only when the host sent the changes.
+    if (
+      message.author === "system" &&
+      message.itemType === CONVERSATION_MEMORY_CHANGES_ITEM_TYPE &&
+      message.memoryChanges?.length
+    ) {
+      const changes = message.memoryChanges;
+      result.push(
+        projectedMarker(projectedMemoryChanges, message, () => ({ id: message.id, kind: "memory-changes", changes })),
       );
       continue;
     }
@@ -534,24 +584,25 @@ export function projectChatMessages(
         const sender = message.author === "user" ? message.senderMember : undefined;
         const ownSender = sender !== undefined && (sender.id === reader || sender.id === readerAccount);
         const otherMember = sender !== undefined && reader !== null && !ownSender;
-        bubble = projectPlan(message) ?? {
-          id: message.id,
-          kind: "message",
-          // Another person's message stays a person's bubble, on the right, and adds their name.
-          author: message.author === "user" ? "user" : "agent",
-          ...(otherMember ? { sender } : {}),
-          ...(ownSender ? { mine: true } : {}),
-          body: message.exchange ? "" : message.text,
-          streaming: message.status === "streaming",
-          status: message.status,
-          attachments: message.attachments,
-          ...visualReply(message),
-          imageGeneration: message.imageGeneration,
-          videoGeneration: message.videoGeneration,
-          replyToMessageId: message.replyToMessageId,
-          createdAt: message.createdAt,
-          reactions: messageReactions(message),
-        };
+        bubble = projectPlan(message) ??
+          projectSubagents(message) ?? {
+            id: message.id,
+            kind: "message",
+            // Another person's message stays a person's bubble, on the right, and adds their name.
+            author: message.author === "user" ? "user" : "agent",
+            ...(otherMember ? { sender } : {}),
+            ...(ownSender ? { mine: true } : {}),
+            body: message.exchange ? "" : message.text,
+            streaming: message.status === "streaming",
+            status: message.status,
+            attachments: message.attachments,
+            ...visualReply(message),
+            imageGeneration: message.imageGeneration,
+            videoGeneration: message.videoGeneration,
+            replyToMessageId: message.replyToMessageId,
+            createdAt: message.createdAt,
+            reactions: messageReactions(message),
+          };
         projectedBubbles.set(message, { readerKey, bubble });
       }
       result.push(bubble);
@@ -898,6 +949,7 @@ function projectChannelMessage(
     const appId = suggestedApp(entry.message);
     return appId ? { id: entry.id, kind: "app-suggestion", appId } : null;
   }
+  if (settingLinkMessage(entry.message)) return null;
   const routing = channelRoutingConversationEvent(entry.message);
   if (routing) return { id: entry.id, kind: "channel-routing", event: routing };
   // Older hosts stored only the receipt text. Never reinterpret a typed event as legacy text.
@@ -999,4 +1051,10 @@ export function projectChannelMessages(
       projectedChannelMessages.set(entry, { self, latest, progress, rows });
       return rows;
     });
+}
+
+/** `previous` when it holds exactly `ids`, else a new set of them. */
+export function keptIdSet(previous: ReadonlySet<string> | null, ids: readonly string[]): ReadonlySet<string> {
+  if (previous && previous.size === ids.length && ids.every((id) => previous.has(id))) return previous;
+  return new Set(ids);
 }

@@ -29,9 +29,11 @@ import {
   type ThreadItem,
 } from "../protocol";
 import {
+  GEMINI_INVALID_ARGUMENT,
   isImageCountDiagnostic,
   isImageTooLargeDiagnostic,
   isImageTooSmallDiagnostic,
+  isImageUnreadableDiagnostic,
   isRequestBodyLimitDiagnostic,
   isUnreadableContentDiagnostic,
 } from "./provider-diagnostics";
@@ -145,6 +147,17 @@ function isForeignReasoningError(message: string): boolean {
 }
 
 /**
+ * Codex sends the Responses API `store: false` and an item ID for each history item. When the
+ * history refers to an item that OpenAI did not keep, OpenAI answers 404 "Item with id ... not found.
+ * Items are not persisted when `store` is set to false". Codex sends that history again on each turn,
+ * so each later turn failed the same way (#9809). Only a new session, given the OpenBot transcript,
+ * recovers. The text can come without the backticks.
+ */
+function isCodexUnstoredItem(provider: AgentProvider, message: string): boolean {
+  return provider === "codex" && /\bItems are not persisted when `?store`? is set to false\b/i.test(message);
+}
+
+/**
  * OpenCode's model gateway answers a request that it does not accept with one generic 400 that
  * names no field. A session that grew too long for its model, often after the agent moved to
  * another model on the same session, fails each turn this way, and OpenCode does not compact it
@@ -157,6 +170,19 @@ function isRejectedOpenCodeRequest(provider: AgentProvider, message: string): bo
     provider === "opencode" &&
     /\bthe request contains invalid parameters\b|\bInternal error: Invalid request parameters\b/i.test(message)
   );
+}
+
+/**
+ * Google's generic 400 INVALID_ARGUMENT that names no field, through Antigravity. The CLI keeps the
+ * refused item in the session and sends it on each turn, so each later message failed with the same
+ * 400 until a new chat (#9593). An image that the agent's own tool opened gives this text, not
+ * "Unable to process input image". Gemini CLI's reports show the same text for other items in the
+ * history: an SVG in tool output, and a tool answer that does not match its call. A new session,
+ * given the OpenBot transcript, recovers. A cause outside the history, such as a tool schema, fails
+ * the one retry too, and the text then tells the user to choose another model (#7116).
+ */
+function isRejectedAntigravityRequest(provider: AgentProvider, message: string): boolean {
+  return provider === "antigravity" && GEMINI_INVALID_ARGUMENT.test(message);
 }
 
 /**
@@ -222,17 +248,21 @@ function isClaudeContextOverflow(provider: AgentProvider, message: string): bool
 export function refusedSessionFailure(provider: AgentProvider, message: string): string | null {
   if (isForeignReasoningError(message))
     return sourceText("error.provider.foreignReasoning", { provider: providerLabel(provider) });
+  if (isCodexUnstoredItem(provider, message)) return sourceText("error.provider.codexHistoryItemMissing");
   if (isImageTooSmallDiagnostic(message))
     return sourceText("error.provider.imageTooSmall", { provider: providerLabel(provider) });
   if (isImageTooLargeDiagnostic(message))
     return sourceText("error.provider.imageTooLarge", { provider: providerLabel(provider) });
   if (isImageCountDiagnostic(message))
     return sourceText("error.provider.imageCountLimit", { provider: providerLabel(provider) });
+  if (isImageUnreadableDiagnostic(message))
+    return sourceText("error.provider.imageUnreadable", { provider: providerLabel(provider) });
   if (isRequestBodyLimitDiagnostic(message))
     return sourceText("error.provider.requestTooLarge", { provider: providerLabel(provider) });
   if (provider === "opencode" && isUnreadableContentDiagnostic(message))
     return sourceText("error.provider.opencodeUnreadableContent");
   if (isRejectedOpenCodeRequest(provider, message)) return sourceText("error.provider.opencodeSessionRejected");
+  if (isRejectedAntigravityRequest(provider, message)) return sourceText("error.provider.antigravitySessionRejected");
   if (isFailedOpenCodeCompaction(provider, message)) return sourceText("error.provider.opencodeCompactionFailed");
   if (isMuseMcpStartupFault(provider, message)) return sourceText("error.provider.museMcpStartupFault");
   if (isAcpContextOverflow(provider, message)) return sourceText("error.provider.acpContextOverflow");
@@ -602,9 +632,13 @@ export function toolProgressText(item: ThreadItem, completed: boolean): string |
   if (openBot === "remember" || openBot === "forget_memory" || openBot === "set_memory_inclusion") {
     return completed ? TOOL_RESULT_PROGRESS : sourceText("status.agent.memoriesUpdating");
   }
+  // Its name has `set`, and the page reads as a change of the window, not of a file.
+  if (openBot === "set_backdrop") return completed ? TOOL_RESULT_PROGRESS : sourceText("status.agent.backdropSetting");
   if (openBot === "read_local_skill") return completed ? TOOL_RESULT_PROGRESS : sourceText("status.agent.skillReading");
   // Its name has `send`, a word of the agent words below.
   if (openBot === "send_feedback") return completed ? TOOL_RESULT_PROGRESS : sourceText("status.agent.feedbackSending");
+  if (openBot === "withdraw_feedback")
+    return completed ? TOOL_RESULT_PROGRESS : sourceText("status.agent.feedbackWithdrawing");
   const skill = getString(item, "name") === "Skill" ? getString(item, "skill") : null;
   if (skill) return completed ? TOOL_RESULT_PROGRESS : sourceText("status.agent.skillUsing", { name: skill });
   if (descriptor.includes("capture_screen")) {

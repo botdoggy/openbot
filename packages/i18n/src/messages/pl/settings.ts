@@ -42,6 +42,19 @@ export const messages = {
   "settings.chatBackground.light": "Tło czatu w motywie Jasny",
   "settings.chatBackground.dark": "Tło czatu w motywie Ciemny",
   "settings.chatBackground.default": "Domyślne",
+  "settings.chatBackdrop.title": "Tło okna",
+  "settings.chatBackdrop.description":
+    "Scena, obraz lub GIF za całym oknem na tym urządzeniu. Poproś agenta o scenę, a potem wybierz „Użyj jako tła” przy jego odpowiedzi.",
+  "settings.chatBackdrop.none": "Brak",
+  "settings.chatBackdrop.pond": "Staw z karpiami koi",
+  "settings.chatBackdrop.jellyfish": "Meduzy",
+  "settings.chatBackdrop.sunset": "Retro zachód słońca",
+  "settings.chatBackdrop.snowfall": "Opady śniegu",
+  "settings.chatBackdrop.fireflies": "Świetliki",
+  "settings.chatBackdrop.upload": "Prześlij obraz…",
+  "settings.chatBackdrop.uploadRefused": "Użyj obrazu PNG, JPEG, GIF, WebP lub AVIF o rozmiarze do 20 MB.",
+  "settings.chatBackdrop.saveFailed": "Tło nie zostało zapisane.",
+  "settings.chatBackdrop.removeFailed": "Tło nie zostało usunięte.",
   "settings.chatColor.title": "Kolor czatu",
   "settings.chatColor.description": "Barwi dymki twoich wiadomości. Widzą go też osoby na twoich serwerach.",
   "settings.chatColor.yours": "Twój kolor czatu",
@@ -103,7 +116,7 @@ export const messages = {
   "settings.sendShortcut.description":
     "Wybierz klawisze, które wysyłają wiadomość na tym urządzeniu i w tej przeglądarce.",
   "settings.chatOrder.description":
-    "Wybierz, gdzie pasek boczny pokazuje nieprzeczytane czaty na tym urządzeniu. Ręcznie wyłącza grupę Nieprzeczytane.",
+    "Wybierz, jak pasek boczny sortuje czaty na tym urządzeniu. Ręcznie i Ostatnia aktywność wyłączają grupę Nieprzeczytane.",
   "settings.sendShortcut.enter": "Enter wysyła",
   "settings.sendShortcut.modEnterMac": "⌘Enter wysyła",
   "settings.sendShortcut.modEnterWin": "Ctrl+Enter wysyła",

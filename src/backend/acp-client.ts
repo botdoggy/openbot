@@ -49,7 +49,12 @@ import {
   OPENCODE_CHILD_UPDATE_METHOD,
   type OpenCodeLaunches,
 } from "./agent/acp-subagent-updates";
-import { BACKGROUND_WAKE_NOTE, isTurnContextBlock, withoutTurnContext } from "./agent/developer-instructions";
+import {
+  BACKGROUND_WAKE_NOTE,
+  isTurnContextBlock,
+  SELF_WAKE_NOTE,
+  withoutTurnContext,
+} from "./agent/developer-instructions";
 import type { GeneratedMediaKind } from "./agent/image-generation";
 import { acpPlanSteps, PLAN_UPDATED_METHOD } from "./agent/plan-updates";
 import { elicitationFieldQuestions, elicitationValue } from "./agent/prompts";
@@ -60,7 +65,7 @@ import {
   type SubagentChange,
   stopSubagents,
 } from "./agent/subagent-updates";
-import { visibleDynamicTools } from "./agent/tool-catalog";
+import { visibleDynamicTools, withCatalogTools } from "./agent/tool-catalog";
 import { TurnContext } from "./agent/turn-context";
 import {
   AgentProcessExitError,
@@ -162,6 +167,9 @@ const ACP_TURN_STALL_MS = 5 * 60_000;
  * after that, so this leaves room for a retry of its own.
  */
 const ACP_FIRST_UPDATE_MS = 3 * 60_000;
+
+/** How long before `AcpFlavor.mcpToolCallLimitMs` OpenBot answers a call that waits for the user. */
+const MCP_TOOL_CALL_ANSWER_MARGIN_MS = 15_000;
 
 /** The result of a prompt that got no update within `ACP_FIRST_UPDATE_MS`. */
 const SILENT_PROMPT = Symbol("silent prompt");
@@ -286,12 +294,14 @@ interface AcpTurn {
   readonly stop: AbortController;
   completing: boolean;
   task: Fiber.Fiber<void, ProviderClientOperationError> | null;
-  /** The replies to the prompts that steered this turn (`AcpFlavor.steerByPromptSince`), in the order sent. */
+  /** The replies to the prompts that steered this turn (`#steerByPrompt`), in the order sent. */
   readonly steerReplies: Deferred.Deferred<Result.Result<PromptResponse, ProviderClientOperationError>>[];
   /** When the agent last sent an update for this turn, or the user last answered it. */
   lastActivityAt: number;
   /** The agent sent an update, a question or a tool call for the prompt that it has now. */
   answered: boolean;
+  /** The chat shows a retry of a failed model request (`AcpFlavor.retryNotice`), and no output came after it. */
+  retrying?: true;
   /** Questions and approvals that wait for the user. The turn is not stalled while one is open. */
   waitingOnUser: number;
   /** OpenBot ended the turn because the agent did not. Its open tool calls get no more updates. */
@@ -310,6 +320,14 @@ interface AcpTurn {
    * Then it can be the answer sent again (`AcpFlavor.resendsAnswer`). Null otherwise.
    */
   lastChunkAt: number | null;
+  /** OpenBot started this turn with a wake prompt for the agent's own wake-up (`#watchSelfWake`). */
+  wake: boolean;
+  /**
+   * The updates of a wake turn before the agent echoes its wake prompt; null after the echo. Before
+   * it, the agent still sends what it wrote by itself for the wake-up, and the answer repeats it
+   * (#8993). They show only when the turn ends with no echo.
+   */
+  beforeWakeEcho: SessionUpdate[] | null;
 }
 
 /** The parts of a `session/load` request that open this session as it was opened. */
@@ -525,6 +543,8 @@ export interface AcpProviderOptions {
   modelName?: (id: string, name: string) => string;
   /** The custom endpoint that serves a model, when the provider is not this agent's own. */
   customEndpoint?: (modelId: string | null) => AcpCustomEndpoint | null;
+  /** Whether OpenBot sends a saved API key for the provider of a model. Never the key itself. */
+  savedKey?: (modelId: string | null) => boolean;
   /**
    * Values to mask in every diagnostic and error this client emits, read at each use: the custom
    * agent's environment values, which have no secret name that `redactText` could know them by.
@@ -642,6 +662,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     return this.options.provider;
   }
   readonly mcpToolsFixedAtStart = (): boolean => this.#flavor.mcpToolsFixedAtStart === true;
+  readonly catalogAsMcpTools = (): boolean => this.#flavor.catalogAsMcpTools === true;
   /** The memories and section-mates go with the prompts, so a memory change sends no instructions again. */
   readonly turnContext = true;
   readonly #turnContext = new TurnContext();
@@ -751,6 +772,12 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
   readonly #subagentThreads = new Map<string, string>();
   /** OpenCode subagent calls whose child session did not start yet. */
   readonly #openCodeLaunches: OpenCodeLaunches = new Map();
+  /**
+   * How many wake turns each session can still start for the work of its turns that wakes the agent
+   * (`AcpFlavor.selfWakeTools`), and until when: `ACP_BACKGROUND_WATCH_MS` after the last turn that
+   * started such work. Each turn end sets a new entry, which ends the watch before it.
+   */
+  readonly #selfWakes = new WeakMap<AcpThread, { left: number; until: number }>();
 
   constructor(
     cli: AgentCliInfo,
@@ -1311,6 +1338,8 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         }
         return yield* providerSync(() =>
           decoder({
+            // The steer request is per process, so it holds for each model. Initialization is done here.
+            ...(this.#steerExtension || this.#steersByPrompt ? { steersTurns: true } : {}),
             data: this.#models.map((model) => ({
               model: model.id,
               displayName: model.name,
@@ -1723,8 +1752,11 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     return this.#initialization && steers(this.#initialization) ? steer : undefined;
   }
 
-  /** Whether a second prompt joins the running turn (`AcpFlavor.steerByPromptSince`). */
+  /** Whether a second prompt joins the running turn (`AcpFlavor.steerByPromptSince`, `steerByPromptCapability`). */
   get #steersByPrompt(): boolean {
+    const capability = this.#flavor.steerByPromptCapability;
+    const meta = this.#initialization?.agentCapabilities?._meta;
+    if (capability !== undefined && isRecord(meta) && meta[capability] === true) return true;
     const since = this.#flavor.steerByPromptSince;
     const version = this.#initialization?.agentInfo?.version;
     return (
@@ -1843,7 +1875,8 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       return yield* providerFailure(new Error(`Unknown ACP session: ${requestedThreadId}`));
     }
     const cwd = yield* providerSync(() => requiredString(params, "cwd"));
-    const dynamicTools = getArray(params, "dynamicTools").filter(isDynamicToolNamespace);
+    const given = getArray(params, "dynamicTools").filter(isDynamicToolNamespace);
+    const dynamicTools = this.#flavor.catalogAsMcpTools ? withCatalogTools(given, this.provider) : given;
     const computerUse = computerUseParam(params);
     const agentId = mcpAgentParam(params);
     let threadRef: AcpThread | null = null;
@@ -1898,6 +1931,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
               ),
               this.#ownMcpServerNames(cwd),
               this.#flavor.mcpServerName,
+              this.#flavor.relayStdioMcpServers === true,
             );
             this.options.reportMcpDrops?.(this.provider, handoff.dropped);
             let given = handoff.servers;
@@ -2032,9 +2066,10 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
   /**
    * The session's stdio servers as http entries of relays in OpenBot, for an agent that drops stdio
    * (`relayStdioMcpServers`). A server starts with the environment of the agent's process, without
-   * its private temporary folder, in the session's folder, as the agent would start it. It runs
+   * its private temporary folder, in its own working directory or else the session's folder. It runs
    * outside a Workspace only sandbox: the Access setting does not limit MCP servers, as for Claude,
-   * Codex and Pi (#6191). `close` ends the relays and their servers.
+   * Codex and Pi (#6191). `close` ends the relays and their servers. A server that the agent stopped
+   * waiting for is reported: OpenCode 2.2.7 waits 30 seconds for it and tells no one (#8520).
    *
    * An agent that keeps one MCP server of each name for a directory (`mcpServersPerDirectory`) gets
    * one relay for each server of a directory, which the last of its sessions there ends: a relay of
@@ -2078,7 +2113,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         if ("type" in server) return server;
         // The agent keys its server by directory and name, so a session with another launch replaces it there.
         const key = this.#flavor.mcpServersPerDirectory ? JSON.stringify([cwd, server.name]) : null;
-        const launch = JSON.stringify([server.command, server.args, server.env]);
+        const launch = JSON.stringify([server.command, server.args, server.env, server.cwd]);
         const shared = key === null ? undefined : this.#sharedRelays.get(key);
         const entry: SharedStdioRelay = shared ?? { launch, relay: Deferred.makeUnsafe(), replaced: [], users: 0 };
         entry.users += 1;
@@ -2097,7 +2132,14 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
               command: server.command,
               args: server.args,
               env: { ...environment(), ...Object.fromEntries(server.env.map(({ name, value }) => [name, value])) },
-              cwd,
+              // A relative directory is written against the agent's workspace, where Claude and Codex start it.
+              cwd: server.cwd ? resolve(cwd, server.cwd) : cwd,
+              onStartAbandoned: () =>
+                this.#reportFailedMcpServer(
+                  cwd,
+                  server.name,
+                  sourceText("error.backend.mcpServerStartAbandoned", { provider: this.#label }),
+                ),
             }),
           ).pipe(
             Effect.flatMap((started) => {
@@ -2570,7 +2612,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
 
   /** A turn of the agent's own ends when OpenBot sees it end, so a message waits for it rather than joining it. */
   #turnActiveError(turn: AcpTurn): Error {
-    return turn.unprompted
+    return turn.unprompted || turn.wake
       ? new ProviderTurnActiveError(this.#label)
       : new Error("The ACP thread already has an active turn.");
   }
@@ -2578,7 +2620,16 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
   #beginTurn(
     thread: AcpThread,
     turnId: string,
-    { unprompted, answerOptional }: { unprompted: boolean; answerOptional: boolean },
+    {
+      unprompted,
+      answerOptional,
+      wake = false,
+    }: {
+      unprompted: boolean;
+      answerOptional: boolean;
+      /** OpenBot's own prompt connects the agent's wake-up (`#watchSelfWake`): no delivery started it. */
+      wake?: boolean;
+    },
   ): AcpTurn {
     const currentSecond = Date.now() / 1_000;
     const startedAt = Math.max(currentSecond, this.#lastTurnStartedAt + 0.001);
@@ -2627,6 +2678,8 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       textMessageStart: 0,
       messageChunks: 0,
       lastChunkAt: null,
+      wake,
+      beforeWakeEcho: wake ? [] : null,
     };
     thread.activeTurn = turn;
     this.#threads.holdForTurn(thread);
@@ -2636,7 +2689,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         threadId: thread.id,
         turn: { id: turn.id, status: "inProgress" },
         // `unprompted` tells the lifecycle that no delivery started this turn.
-        ...(unprompted ? { unprompted } : {}),
+        ...(unprompted || wake ? { unprompted: true } : {}),
       },
     });
     return turn;
@@ -2682,11 +2735,17 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       let staleWake = false;
       for (;;) {
         // A steer by prompt ends the prompt before it with `end_turn`, and the work goes on under the
-        // steer's prompt. The turn ends with the reply to the last one.
+        // steer's prompt. The turn ends with the reply to the last one. A reply that ends the same run
+        // as the next one carries the same usage (`AcpFlavor.promptRun`), so only the last one reports it.
         for (let steer = turn.steerReplies.shift(); steer; steer = turn.steerReplies.shift()) {
-          this.#reportPromptUsage(thread, turn, response);
-          response = providerResult(yield* Deferred.await(steer));
+          const run = this.#flavor.promptRun?.(response);
+          if (run === undefined) this.#reportPromptUsage(thread, turn, response);
+          const reply = yield* Deferred.await(steer);
+          // The earlier run's usage is kept when the turn ends or the steer fails during the wait.
+          if (run !== undefined && !(Result.isSuccess(reply) && this.#flavor.promptRun?.(reply.success) === run))
+            this.#reportPromptUsage(thread, turn, response);
           if (thread.activeTurn !== turn || turn.completing) return;
+          response = providerResult(reply);
         }
         // A command still runs in the background (`AcpFlavor.wakesAfterPromptEnds`). The turn stays
         // open until the session changes, and a prompt then connects the agent's wake-up to it.
@@ -2747,8 +2806,11 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
           // A turn that already produced output (such as a tool call) or needs no answer can end on
           // an empty model step, which Antigravity's harness reports as an empty-output error (#4505).
           if (!((turn.receivedOutput || turn.answerOptional) && sdkHarness.emptyOutputFailure?.test(detail))) {
-            turn.accountLink = sdkHarness.accountLink?.(detail) ?? null;
-            turn.failureCause = turn.accountLink ? "authentication" : classifyFailure(detail);
+            turn.accountLink = sdkHarness.accountLink?.(detail, this.options.argv, thread.id) ?? null;
+            turn.failureCause =
+              turn.accountLink || sdkHarness.accountVerification?.test(detail)
+                ? "authentication"
+                : classifyFailure(detail);
             turn.providerError =
               this.#mcpLoadFailureMessage(thread, detail) ??
               this.options.savedKeyLimitMessage?.(detail) ??
@@ -2881,8 +2943,9 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
   });
 
   /**
-   * Sends a message into the running turn as a second `session/prompt` (`AcpFlavor.steerByPromptSince`).
-   * The agent answers the prompt before it at once, and `#consumePrompt` then waits for this reply.
+   * Sends a message into the running turn as a second `session/prompt` (`AcpFlavor.steerByPromptSince`,
+   * `steerByPromptCapability`). The agent answers the prompt before it with `end_turn`: Antigravity at
+   * once, Devin when the run ends. `#consumePrompt` then waits for this reply.
    * The request returns when the prompt is sent: its reply comes at the end of the turn.
    */
   readonly #steerByPrompt = Effect.fn("AcpAgentClient.steerByPrompt")(function* (
@@ -2959,7 +3022,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         return Result.fail(
           providerFailure(
             sourceText("error.agent.turnStalled", {
-              provider: this.options.customEndpoint?.(thread.currentModelId)?.name ?? this.#label,
+              provider: this.#providerName(thread),
             }),
           ),
         );
@@ -3051,7 +3114,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     const failed = this.#failedMcpServer(thread, turn.text);
     if (!failed) return false;
     const { server, detail, started } = failed;
-    this.#reportFailedMcpServer(thread, server.name, detail);
+    this.#reportFailedMcpServer(thread.cwd, server.name, detail);
     // Antigravity 1.5.6 keeps the servers that a session's process started, also after a resume
     // without them. A server that started leaves only with that process (#7228).
     const stale = thread.transport;
@@ -3128,12 +3191,12 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       this.emit("diagnostic", this.#redact(`${this.#label} could not start OpenBot's MCP server ${name}: ${reason}`));
       return;
     }
-    this.#reportFailedMcpServer(thread, name, sourceText("error.backend.mcpServerFailedToStart", { reason }));
+    this.#reportFailedMcpServer(thread.cwd, name, sourceText("error.backend.mcpServerFailedToStart", { reason }));
   }
 
   /** Reports a server that OpenBot gave and the agent did not start, by the name that the user saved. */
-  #reportFailedMcpServer(thread: AcpThread, name: string, detail: string): void {
-    const own = this.#ownMcpServerNames(thread.cwd);
+  #reportFailedMcpServer(cwd: string, name: string, detail: string): void {
+    const own = this.#ownMcpServerNames(cwd);
     const configured = this.options
       .mcpServers?.()
       .find((config) => acpMcpServerName(config, own, this.#flavor.mcpServerName) === name);
@@ -3220,7 +3283,39 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     }
     const turn = thread.activeTurn;
     if (!turn || turn.completing) return;
+    if (turn.beforeWakeEcho) {
+      if (update.sessionUpdate === "user_message_chunk" && update.content.type === "text") {
+        if (isTurnContextBlock(update.content.text)) turn.beforeWakeEcho = null;
+      } else if (!SESSION_STATE_UPDATES.has(update.sessionUpdate)) {
+        // The agent works, so its prompt is not a silent one (`ACP_FIRST_UPDATE_MS`).
+        turn.answered = true;
+        turn.beforeWakeEcho.push(update);
+      }
+      return;
+    }
+    // The first output after a retry replaces the retry in the chat.
+    if (turn.retrying && !SESSION_STATE_UPDATES.has(update.sessionUpdate)) {
+      delete turn.retrying;
+      this.#emitTurnProgress(
+        thread,
+        turn,
+        sourceText("status.provider.retryRecovered", { provider: this.#providerName(thread) }),
+      );
+    }
     this.#applyTurnUpdate(thread, turn, update);
+  }
+
+  /** A provider's own status for a running turn, such as a retry of a failed model request. */
+  #emitTurnProgress(thread: AcpThread, turn: AcpTurn, detail: string): void {
+    this.emit("notification", {
+      method: "openbot/turn-progress",
+      params: { threadId: thread.id, turnId: turn.id, detail },
+    });
+  }
+
+  /** The name of the provider or custom endpoint that serves the thread's model, as the user knows it. */
+  #providerName(thread: AcpThread): string {
+    return this.options.customEndpoint?.(thread.currentModelId)?.name ?? this.#label;
   }
 
   /** Applies one output update of the agent to a turn: a live one, or one that a background replay found. */
@@ -3391,16 +3486,30 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
 
   // ACP cannot identify final text while streaming. A later step boundary assigns its phase.
   // Antigravity also publishes provisional answer text because its prompt can wait on background work.
-  #completeMessage(thread: AcpThread, turn: AcpTurn, phase: "commentary" | "final_answer"): void {
+  #completeMessage(
+    thread: AcpThread,
+    turn: AcpTurn,
+    phase: "commentary" | "final_answer",
+    failureReport = false,
+  ): void {
     if (phase === "final_answer") {
       if (!turn.text.trim() && turn.interruptedAnswer) turn.text = turn.interruptedAnswer;
       turn.interruptedAnswer = null;
     }
     if (!turn.text) return;
-    const item = { id: turn.itemId, type: "agentMessage", phase, text: turn.text } satisfies ThreadItem;
+    const item = {
+      id: turn.itemId,
+      type: "agentMessage",
+      phase,
+      text: turn.text,
+      ...(failureReport ? { failureReport: true } : {}),
+    } satisfies ThreadItem;
     turn.messages.push(item);
     this.emit("notification", { method: "item/completed", params: { threadId: thread.id, turnId: turn.id, item } });
     turn.text = "";
+    // An SDK failure ends the turn, so text that a later step follows was not one. A model's or the
+    // CLI's warning line ("\n⚠ ...") made the next step's answer the error (#7479).
+    turn.sdkFailureAt = null;
     turn.textMessageId = null;
     turn.textMessageStart = 0;
     turn.messageChunks = 0;
@@ -3550,7 +3659,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         turn,
         "failed",
         sourceText("error.agent.turnStalled", {
-          provider: this.options.customEndpoint?.(thread.currentModelId)?.name ?? this.#label,
+          provider: this.#providerName(thread),
         }),
       );
     }
@@ -3679,7 +3788,10 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       const active = thread.activeTurn;
       // A prompt's own updates show its turn. The replay after it finds nothing new.
       if ((active && !active.unprompted) || this.#openingTurns.has(thread.id)) continue;
-      const updatedAt = yield* this.#sessionUpdatedAt(thread).pipe(Effect.orElseSucceed(() => null));
+      // The change stays until the subagents end: `backgroundUpdatedAt` keeps its value.
+      const updatedAt = this.#backgroundSubagentRuns(thread)
+        ? null
+        : yield* this.#sessionUpdatedAt(thread).pipe(Effect.orElseSucceed(() => null));
       if (updatedAt !== null && updatedAt !== thread.backgroundUpdatedAt) {
         const replayed = yield* this.#replayBackground(thread).pipe(
           Effect.catch((error) =>
@@ -3705,6 +3817,19 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     thread.backgroundUpdatedAt = null;
     if (this.#threads.get(thread.id) === thread && !thread.activeTurn) yield* this.#threads.markIdle(thread);
   });
+
+  /**
+   * A background subagent of the session still runs. A `session/load` then stops OpenCode 2.2.7's
+   * updates of that subagent, and its card and the agent's avatar showed "Working" with no end (#8352).
+   */
+  #backgroundSubagentRuns(thread: AcpThread): boolean {
+    for (const [turnId, threadId] of this.#subagentThreads) {
+      if (threadId !== thread.id) continue;
+      const subagents = this.#subagents.turns.get(turnId)?.subagents ?? [];
+      if (subagents.some((subagent) => subagent.background && subagent.status === "running")) return true;
+    }
+    return false;
+  }
 
   /** The session's `updatedAt` on the first `session/list` page, which lists the latest first. */
   readonly #sessionUpdatedAt = Effect.fn("AcpAgentClient.sessionUpdatedAt")(function* (
@@ -3855,9 +3980,29 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
 
   /**
    * ACP extension notifications. OpenBot reads the MCP servers that an agent could not start
-   * (`AcpFlavor.mcpServerFailure`), and OpenCode's updates of its subagents' sessions.
+   * (`AcpFlavor.mcpServerFailure`), an agent's notice that it retries a request
+   * (`AcpFlavor.retryNotice`), and OpenCode's updates of its subagents' sessions.
    */
   #extNotification(method: string, params: DynamicRecord): void {
+    const retry = this.#flavor.retryNotice?.(method, params);
+    if (retry) {
+      const thread = this.#threads.get(retry.sessionId);
+      const turn = thread?.activeTurn;
+      // A stopped turn ends by its stop. The agent can ignore the cancel and keep sending notices.
+      if (!thread || !turn || turn.completing || turn.stopped) return;
+      turn.lastActivityAt = Date.now();
+      turn.retrying = true;
+      this.#emitTurnProgress(
+        thread,
+        turn,
+        sourceText(retry.unreachable ? "status.provider.retryUnreachable" : "status.provider.retryServerError", {
+          provider: this.#providerName(thread),
+          attempt: retry.attempt,
+          maxAttempts: retry.maxAttempts,
+        }),
+      );
+      return;
+    }
     const failure = this.#flavor.mcpServerFailure?.(method.replace(/^_/, ""), params);
     if (failure) {
       const thread = this.#threads.get(failure.sessionId);
@@ -3935,6 +4080,10 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     error: unknown,
   ) {
     if (thread.activeTurn !== turn || turn.completing) return;
+    // An agent that did not echo the wake prompt shows what it sent, rather than an empty turn.
+    const beforeEcho = turn.beforeWakeEcho ?? [];
+    turn.beforeWakeEcho = null;
+    for (const update of beforeEcho) this.#applyTurnUpdate(thread, turn, update);
     turn.completing = true;
     // The ACP SDK sends an extension notification through more handlers than `session/update`, so
     // OpenCode's child updates that came before the prompt's result can still be on their way.
@@ -3972,11 +4121,20 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
         });
     }
     turn.toolItems.clear();
+    // The turn started work that wakes the agent after it (`AcpFlavor.selfWakeTools`).
+    const selfWakes =
+      this.#flavor.wakesAfterPromptEnds === true && this.#steersByPrompt && status === "completed" && !turn.stopped
+        ? this.#selfWakesStarted(turn)
+        : 0;
     this.#emitSubagents(endSubagentTurn(this.#subagents, turn.id, new Date().toISOString()));
     // A turn that started no subagent sends no change, so its thread entry is removed here.
     if (!this.#subagents.turns.has(turn.id)) this.#subagentThreads.delete(turn.id);
     this.#dropStreamedCopy(turn);
-    this.#completeMessage(thread, turn, "final_answer");
+    // The answer of a failed turn can be the agent's report of the failure, with its reason
+    // (`AcpFlavor.failureCause`, `AcpFlavor.failureReport`).
+    const answer = turn.text;
+    const failureReport = status === "failed" && this.#flavor.failureReport?.test(answer) === true;
+    this.#completeMessage(thread, turn, "final_answer", failureReport);
     if (status === "failed" && error) {
       const detail = this.#redact(failureText(error));
       const message =
@@ -3988,10 +4146,11 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
           (text) => this.emit("diagnostic", this.#redact(text)),
           thread.currentModelId,
           this.options.customEndpoint?.(thread.currentModelId) ?? null,
+          this.options.savedKey?.(thread.currentModelId) ?? false,
         ) ??
         detail;
       // A fixed code, so analytics and failover need not read the cause again from the sentence.
-      const causeCode = turn.failureCause ?? acpFailureCause(error, this.#flavor, message);
+      const causeCode = turn.failureCause ?? acpFailureCause(error, this.#flavor, message, answer);
       this.emit("notification", {
         method: "error",
         params: {
@@ -4033,7 +4192,17 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     });
     thread.activeTurn = null;
     if (this.#threads.get(thread.id) !== thread) return;
-    if (workRuns) this.#holdForWork(thread);
+    // Work of earlier turns can still run until its watch ends. A stopped or failed turn ends its wake-ups.
+    const earlier = this.#selfWakes.get(thread);
+    const kept = earlier && Date.now() < earlier.until ? earlier : null;
+    const left = status === "completed" && !turn.stopped ? (kept?.left ?? 0) + selfWakes : 0;
+    if (left > 0) {
+      const until = selfWakes > 0 ? Date.now() + ACP_BACKGROUND_WATCH_MS : (kept?.until ?? 0);
+      const wake = { left, until };
+      this.#selfWakes.set(thread, wake);
+      Effect.runFork(this.#watchSelfWake(thread, wake).pipe(Effect.forkIn(this.#scope)));
+    } else this.#selfWakes.delete(thread);
+    if (workRuns || selfWakes > 0) this.#holdForWork(thread);
     yield* this.#threads.markIdle(thread);
   }, Effect.uninterruptible);
 
@@ -4074,6 +4243,68 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       if (!thread.activeTurn) yield* this.#threads.markIdle(thread);
       return;
     }
+  });
+
+  /**
+   * How many wake-ups the work that a completed turn started can cause (`AcpFlavor.selfWakeTools`): the
+   * length of the call's `Subagents` list, else 1. A failed call starts none.
+   */
+  #selfWakesStarted(turn: AcpTurn): number {
+    const tools = this.#flavor.selfWakeTools;
+    if (!tools) return 0;
+    let count = 0;
+    for (const item of turn.messages) {
+      if (item.type !== "toolCall" || item.toolKind !== "other" || item.status === "failed") continue;
+      if (!isString(item.name) || !tools.test(item.name)) continue;
+      const list = isRecord(item.arguments) ? item.arguments.Subagents : undefined;
+      count += Array.isArray(list) && list.length > 0 ? list.length : 1;
+    }
+    return count;
+  }
+
+  /**
+   * Starts a turn when the agent wakes its model for work that a turn started and that ran on after
+   * it, such as a subagent or a timer (`AcpFlavor.selfWakeTools`). With no prompt open, the chat does
+   * not show what the agent does, and the agent sends no approval request: a prompt connects the work.
+   * Each subagent or timer allows one wake turn, so a session that changes for another cause costs at
+   * most that many. The next turn ends this watch, and its end starts a new one. The wake-ups end
+   * `ACP_BACKGROUND_WATCH_MS` after the last turn that started such work.
+   */
+  readonly #watchSelfWake = Effect.fn("AcpAgentClient.watchSelfWake")(function* (
+    this: AcpAgentClient,
+    thread: AcpThread,
+    wake: { left: number; until: number },
+  ) {
+    // The first reading comes one poll after the turn ended, so the agent's own write of that end
+    // is not taken as a wake-up.
+    let before: string | undefined;
+    while (Date.now() < wake.until) {
+      yield* Effect.sleep(ACP_BACKGROUND_POLL_MS);
+      if (this.#selfWakes.get(thread) !== wake) return;
+      // A message connects the work by itself. A session that must resume first gets no wake prompt.
+      if (thread.activeTurn || this.#openingTurns.has(thread.id)) return;
+      if (this.#threads.get(thread.id) !== thread || thread.needsResume) break;
+      const read = yield* Effect.result(this.#sessionUpdatedAt(thread));
+      if (Result.isFailure(read)) continue;
+      if (read.success === null) break;
+      if (before === undefined || read.success === before) {
+        before = read.success;
+        continue;
+      }
+      // A message can start, and the session can close, while `session/list` runs.
+      if (this.#selfWakes.get(thread) !== wake || thread.activeTurn || this.#openingTurns.has(thread.id)) return;
+      if (this.#threads.get(thread.id) !== thread || thread.needsResume) break;
+      wake.left -= 1;
+      const turn = this.#beginTurn(thread, randomUUID(), { unprompted: false, answerOptional: true, wake: true });
+      turn.task = yield* Effect.forkIn(
+        this.#consumePrompt(thread, turn, [{ type: "text", text: SELF_WAKE_NOTE }], {}),
+        this.#scope,
+        { startImmediately: true },
+      );
+      yield* Effect.forkIn(this.#watchStall(thread, turn), this.#scope);
+      return;
+    }
+    if (this.#selfWakes.get(thread) === wake) this.#selfWakes.delete(thread);
   });
 
   /**
@@ -4281,8 +4512,17 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
     }
     const turn = this.#threads.get(params.threadId)?.activeTurn;
     if (turn) turn.answered = true;
+    // Only a call of the running turn: a call with no turn has a new turn id each time, so a card that
+    // waited past its call could not be joined again or closed with its turn (#9689).
+    const limit = turn?.id === params.turnId ? this.#flavor.mcpToolCallLimitMs : undefined;
     const result = yield* this.#serverRequests
-      .call("item/tool/call", params, signal, detachAfterMs)
+      .call(
+        "item/tool/call",
+        params,
+        signal,
+        detachAfterMs,
+        limit === undefined ? undefined : limit - MCP_TOOL_CALL_ANSWER_MARGIN_MS,
+      )
       .pipe(toProviderClientOperationError);
     if (!isDynamicToolResult(result))
       return yield* providerFailure(new Error("OpenBot returned an invalid dynamic tool result."));
@@ -4300,7 +4540,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
   }
 }
 
-function isDynamicToolNamespace(value: unknown): value is DynamicToolNamespace {
+export function isDynamicToolNamespace(value: unknown): value is DynamicToolNamespace {
   return (
     isRecord(value) &&
     value.type === "namespace" &&
@@ -4520,9 +4760,9 @@ function failureDetail(error: RequestError): string | null {
  * those name none. The flavor's sentence counts after the raw text: a flavor can read a field that
  * the generic rules do not know, such as Antigravity's `code: 429`.
  */
-function acpFailureCause(error: unknown, flavor: AcpFlavor, sentence: string): CauseCode {
-  if (error instanceof RequestError) return acpRequestCause(error, flavor, sentence);
-  const flavored = flavor.failureCause?.(error) ?? null;
+function acpFailureCause(error: unknown, flavor: AcpFlavor, sentence: string, answer: string): CauseCode {
+  if (error instanceof RequestError) return acpRequestCause(error, flavor, sentence, answer);
+  const flavored = flavor.failureCause?.(error, answer) ?? null;
   if (flavored) return flavored;
   // The stop reasons of a turn that ended before the model answered in full.
   if (error === "max_tokens" || error === "max_turn_requests") return "turn_limit";
@@ -4531,10 +4771,10 @@ function acpFailureCause(error: unknown, flavor: AcpFlavor, sentence: string): C
   return cause === "unknown" && error instanceof AgentProcessExitError ? "provider_exited" : cause;
 }
 
-function acpRequestCause(error: RequestError, flavor: AcpFlavor, sentence: string): CauseCode {
+function acpRequestCause(error: RequestError, flavor: AcpFlavor, sentence: string, answer: string): CauseCode {
   if (error.code === -32000) return "authentication";
   const status = dataHttpStatus(error.data);
-  const structured = flavor.failureCause?.(error) ?? (status === null ? null : httpStatusCause(status));
+  const structured = flavor.failureCause?.(error, answer) ?? (status === null ? null : httpStatusCause(status));
   const cause = structuredCause(structured, textCause(classifyFailure(failureText(error)), sentence));
   if (cause !== "unknown") return cause;
   if (error.code === -32600 || error.code === -32601 || error.code === -32602) return "invalid_request";
