@@ -11,6 +11,7 @@ import {
   type WAMessageKey,
 } from "@openbot/whatsapp/baileys";
 import { Effect, Result } from "effect";
+import { imageSize } from "../../image-size";
 import type { MessagingAnswerFile } from "../messaging-threads";
 import {
   type ConnectionIdentity,
@@ -24,6 +25,7 @@ import {
   MessagingConnectionError,
   type MessagingDriver,
   type MessagingPlace,
+  type MessagingPlaces,
   type RecentMessages,
   type StatusReaction,
   WhatsAppAnswerPartlySent,
@@ -36,7 +38,6 @@ import {
   whatsAppQuoteId,
   whatsAppThreadKey,
 } from "./whatsapp-events";
-import { imageSize } from "./whatsapp-image-size";
 import { downloadWhatsAppMedia } from "./whatsapp-media";
 import { whatsAppChunks, whatsAppText } from "./whatsapp-render";
 import type { WhatsAppConnectionHandle, WhatsAppRuntime } from "./whatsapp-runtime";
@@ -362,10 +363,10 @@ class WhatsAppAdapter implements MessagingAdapter {
   }
 
   /** The owner's own chat and the allowed chats. OpenBot posts nowhere else. */
-  places(): Effect.Effect<MessagingPlace[], MessagingAdapterError> {
+  places(): Effect.Effect<MessagingPlaces, MessagingAdapterError> {
     return Effect.gen({ self: this }, function* () {
       const identity = whatsAppIdentity(this.#handle);
-      if (!identity) return [];
+      if (!identity) return { places: [] };
       const rules = this.#runtime.policy.rules(identity.number);
       const places: MessagingPlace[] = [];
       if (rules.ownNumber)
@@ -374,14 +375,15 @@ class WhatsAppAdapter implements MessagingAdapter {
           name: sourceText("status.messaging.whatsappOwnChat"),
           kind: "chat",
         });
-      for (const contact of rules.contacts)
+      // The name that the user saved in the app settings comes first, so an agent finds the contact by it.
+      for (const [contact, savedName] of rules.contacts)
         places.push({
           id: userJid(contact),
-          name: this.#handle.chats.name(contact) ?? maskedNumber(contact),
+          name: savedName || (this.#handle.chats.name(contact) ?? maskedNumber(contact)),
           kind: "chat",
         });
       for (const group of rules.groups) places.push({ id: group, name: yield* this.placeName(group), kind: "channel" });
-      return places;
+      return { places };
     });
   }
 

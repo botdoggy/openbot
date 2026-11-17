@@ -42,6 +42,7 @@ import { useBrowserTabs } from "../browser/browser-context";
 import { useChannels } from "../channels/channels-context";
 import { useConnectors } from "../connectors/connectors-context";
 import { useCustomAgents } from "../custom-agents/custom-agents-context";
+import { useCustomProviders } from "../custom-providers/custom-providers-context";
 import { useRemoteDesktop } from "../remote-desktop/remote-desktop-context";
 import { useServerActions } from "../servers/server-actions";
 import { remoteMcpSignIn, serverCanAdminister, serverSupportsCapability } from "../servers/server-capabilities";
@@ -127,6 +128,7 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
   const signInWithCode = (provider: AgentProviderId) => connection.alternative(provider, "composer");
   const responseStyle = createServerResponseStyle(activeServer, window.openbot.hostAdmin);
   const { customAgents } = useCustomAgents();
+  const localEndpoints = useCustomProviders();
   const {
     agentStatus,
     hostAccountLimits,
@@ -208,7 +210,7 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
   // active agent's provider and model and cleared on a switch, because a second request would hit
   // the provider's rate-limit endpoint for a card the user may never see.
   const auth = useAuth();
-  const { teamPresence, currentTeamMember } = usePresence();
+  const { teamPresence, readerMemberId } = usePresence();
   const { selectAgent, openAgentMessage, messageFocusRequest, globalSearchOpen } = useNavigation();
   const channels = useChannels();
   const conversationController = useConversationController();
@@ -419,7 +421,7 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
   const isOwnSender = (senderId: string) => {
     const state = auth.centralAuth();
     return isReaderAuthor(senderId, {
-      memberId: currentTeamMember()?.id ?? null,
+      memberId: readerMemberId(),
       accountUserId: state.status === "signed_in" ? state.user.id : null,
       onOwnComputer: activeServer()?.kind === "local",
     });
@@ -589,6 +591,8 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
         accountUsage={withHostAccountUsage(auth.accountUsage(), hostAccountLimits())}
         providerRuntimeStatuses={providerDownloads() ? providerRuntimeStatuses() : undefined}
         customProviders={activeCustomProviders()}
+        // Only this computer's list has what each model accepts. See `onUpdateCustomProvider`.
+        onUpdateCustomProvider={activeServer()?.kind === "local" ? localEndpoints.updateCustomProvider : undefined}
         // The custom agents are this computer's. A joined host's picker counts its own from its models.
         customAgents={activeServer()?.kind === "local" ? customAgents() : undefined}
         onDownloadProvider={providerDownloads() ? downloadProviderRuntime : undefined}

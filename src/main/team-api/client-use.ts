@@ -52,12 +52,14 @@ import { PROVIDER_ACCOUNT_MODELS_ROUTES } from "@openbot/contracts/team-protocol
 import { PROVIDER_ACCOUNT_POOL_ROUTES } from "@openbot/contracts/team-protocol/provider-account-pool-v1";
 import { PROVIDER_DEFAULT_ROUTES } from "@openbot/contracts/team-protocol/provider-default-v1";
 import { PROVIDER_ENVIRONMENT_ROUTES } from "@openbot/contracts/team-protocol/provider-environment-v1";
+import { PROVIDER_MODEL_SOURCE_ROUTES } from "@openbot/contracts/team-protocol/provider-model-source-v1";
 import { PROVIDER_USE_ROUTES } from "@openbot/contracts/team-protocol/provider-use-v1";
 import { PROVIDERS_ADMIN_ROUTES } from "@openbot/contracts/team-protocol/providers-v1";
 import { PROVIDERS_RUNTIMES_V2_ROUTES } from "@openbot/contracts/team-protocol/providers-v2";
 import { PUSH_NOTIFICATION_THREADS_ROUTES } from "@openbot/contracts/team-protocol/push-notification-threads-v1";
 import { ANDROID_PUSH_NOTIFICATIONS_ROUTES } from "@openbot/contracts/team-protocol/push-notifications-android-v1";
 import { PUSH_NOTIFICATIONS_ROUTES } from "@openbot/contracts/team-protocol/push-notifications-v1";
+import { ROUTINE_PAUSE_REASONS_ROUTES } from "@openbot/contracts/team-protocol/routine-pause-reasons-v1";
 import { ROUTINE_RECOVERY_ROUTES } from "@openbot/contracts/team-protocol/routine-recovery-v1";
 import { ROUTINE_RESULTS_ROUTES } from "@openbot/contracts/team-protocol/routine-results-v1";
 import { ROUTINE_RUN_PLACE_ROUTES } from "@openbot/contracts/team-protocol/routine-run-place-v1";
@@ -80,6 +82,7 @@ import { WHATSAPP_CONNECTOR_ROUTES } from "@openbot/contracts/team-protocol/what
 import { WHATSAPP_STATUS_REACTIONS_ROUTES } from "@openbot/contracts/team-protocol/whatsapp-status-reactions-v1";
 import { WHATSAPP_WORKING_MESSAGE_ROUTES } from "@openbot/contracts/team-protocol/whatsapp-working-message-v1";
 import { WORKFLOWS_HIGGSFIELD_ROUTES } from "@openbot/contracts/team-protocol/workflows-higgsfield-v1";
+import { WORKFLOWS_MEDIA_CATALOG_ROUTES } from "@openbot/contracts/team-protocol/workflows-media-catalog-v1";
 import { WORKFLOWS_SUNRA_ROUTES } from "@openbot/contracts/team-protocol/workflows-sunra-v1";
 
 /**
@@ -98,6 +101,7 @@ const PASSIVE_ROUTES: ReadonlySet<string> = new Set([
   ROUTINE_RESULTS_ROUTES.options,
   ROUTINE_RESULTS_ROUTES.destination,
   ROUTINE_RUN_PLACE_ROUTES.list,
+  ROUTINE_PAUSE_REASONS_ROUTES.list,
   ROUTINES_ONCE_ROUTES.list,
   HOST_UPDATE_ROUTES.status,
   HOST_RELEASE_ROUTES.status,
@@ -115,6 +119,7 @@ const PASSIVE_ROUTES: ReadonlySet<string> = new Set([
   MODEL_VISIBILITY_ROUTES.settings,
   MODEL_VISIBILITY_ROUTES.listing,
   MODEL_STEERING_ROUTES.list,
+  PROVIDER_MODEL_SOURCE_ROUTES.list,
   PROVIDER_ACCOUNT_MODELS_ROUTES.list,
   PROVIDER_ACCOUNT_POOL_ROUTES.list,
   PROVIDER_DEFAULT_ROUTES.settings,
@@ -163,6 +168,8 @@ const PASSIVE_ROUTES: ReadonlySet<string> = new Set([
   WORKFLOWS_SUNRA_ROUTES.credits,
   WORKFLOWS_HIGGSFIELD_ROUTES.providers,
   WORKFLOWS_HIGGSFIELD_ROUTES.credits,
+  WORKFLOWS_MEDIA_CATALOG_ROUTES.catalog,
+  WORKFLOWS_MEDIA_CATALOG_ROUTES.price,
   AGENT_FOLDERS_ROUTES.read,
   AGENT_FOLDERS_ROUTES.browse,
   BROWSER_PROFILES_ROUTES.list,

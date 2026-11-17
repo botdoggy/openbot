@@ -158,6 +158,23 @@ function isCodexUnstoredItem(provider: AgentProvider, message: string): boolean 
 }
 
 /**
+ * The ChatGPT backend that Codex uses can refuse a request with only the 24-byte body
+ * `{"detail":"Bad Request"}`. Codex compresses the request with zstd, and the backend refuses some
+ * compressed requests, often in a long chat with many images (openai/codex#60594). Codex sends the
+ * same history on each turn, so each later turn failed the same way, in about 2 seconds, until a new
+ * chat (#9915). A new session, given the OpenBot transcript, sends different bytes. Only the bare
+ * body matches: a `detail` that names a cause, such as "Instructions are not valid", does not.
+ * Codex sends a 400 of a turn as the body only. Its other form is `unexpected status 400 Bad
+ * Request: <body>, url: …`, with the cf-ray and request id after the url.
+ */
+function isCodexBareBadRequest(provider: AgentProvider, message: string): boolean {
+  return (
+    provider === "codex" &&
+    /^(?:[^{]*\b400 Bad Request:\s*)?\{\s*"detail"\s*:\s*"Bad Request"\s*\}(?:,\s*url:.*)?$/.test(message.trim())
+  );
+}
+
+/**
  * OpenCode's model gateway answers a request that it does not accept with one generic 400 that
  * names no field. A session that grew too long for its model, often after the agent moved to
  * another model on the same session, fails each turn this way, and OpenCode does not compact it
@@ -186,6 +203,17 @@ function isRejectedAntigravityRequest(provider: AgentProvider, message: string):
 }
 
 /**
+ * Antigravity summarizes a session's history before each prompt. When the saved history has no
+ * steps that it can read, the summary fails, and so does each later prompt of that session, before
+ * the model runs (#10237). A new session, given the OpenBot transcript, recovers.
+ */
+function isClearedAntigravityHistory(provider: AgentProvider, message: string): boolean {
+  return (
+    provider === "antigravity" && /\bno renderable messages\b|\ball steps in trajectory are cleared\b/i.test(message)
+  );
+}
+
+/**
  * OpenCode 2.2.5 to 2.3.0 compacts a chat near its model's window with a summary from the model. A
  * weak local model can answer with a tool call or with no summary headings, and OpenCode then fails
  * the turn. The session stays too long, so each later turn compacts and fails again (#6006). Only a
@@ -197,6 +225,19 @@ function isFailedOpenCodeCompaction(provider: AgentProvider, message: string): b
     /\bCompaction summary did not match the required template\b|\bCompaction produced no summary\b|\bCompaction summary reached the output token limit\b/i.test(
       message,
     )
+  );
+}
+
+/**
+ * OpenCode 2.2.5 to 2.3.0 can keep a media part of the chat as a local file or as text that is not
+ * image data, and then refuses to build each later request of the session, its compaction too. Each
+ * later turn failed in milliseconds, and a channel showed thousands of failures (#9994). Only a new
+ * session, given the OpenBot transcript, recovers.
+ */
+function isUnsendableOpenCodeMedia(provider: AgentProvider, message: string): boolean {
+  return (
+    provider === "opencode" &&
+    /\bMedia strings must be base64\b|\bLocal file references must be read with Media\.file\b/i.test(message)
   );
 }
 
@@ -249,13 +290,15 @@ export function refusedSessionFailure(provider: AgentProvider, message: string):
   if (isForeignReasoningError(message))
     return sourceText("error.provider.foreignReasoning", { provider: providerLabel(provider) });
   if (isCodexUnstoredItem(provider, message)) return sourceText("error.provider.codexHistoryItemMissing");
+  if (isCodexBareBadRequest(provider, message))
+    return sourceText("error.provider.codexRequestRefused", { provider: providerLabel(provider) });
   if (isImageTooSmallDiagnostic(message))
     return sourceText("error.provider.imageTooSmall", { provider: providerLabel(provider) });
   if (isImageTooLargeDiagnostic(message))
     return sourceText("error.provider.imageTooLarge", { provider: providerLabel(provider) });
   if (isImageCountDiagnostic(message))
     return sourceText("error.provider.imageCountLimit", { provider: providerLabel(provider) });
-  if (isImageUnreadableDiagnostic(message))
+  if (isImageUnreadableDiagnostic(message) || isUnsendableOpenCodeMedia(provider, message))
     return sourceText("error.provider.imageUnreadable", { provider: providerLabel(provider) });
   if (isRequestBodyLimitDiagnostic(message))
     return sourceText("error.provider.requestTooLarge", { provider: providerLabel(provider) });
@@ -263,6 +306,7 @@ export function refusedSessionFailure(provider: AgentProvider, message: string):
     return sourceText("error.provider.opencodeUnreadableContent");
   if (isRejectedOpenCodeRequest(provider, message)) return sourceText("error.provider.opencodeSessionRejected");
   if (isRejectedAntigravityRequest(provider, message)) return sourceText("error.provider.antigravitySessionRejected");
+  if (isClearedAntigravityHistory(provider, message)) return sourceText("error.provider.antigravityHistoryUnreadable");
   if (isFailedOpenCodeCompaction(provider, message)) return sourceText("error.provider.opencodeCompactionFailed");
   if (isMuseMcpStartupFault(provider, message)) return sourceText("error.provider.museMcpStartupFault");
   if (isAcpContextOverflow(provider, message)) return sourceText("error.provider.acpContextOverflow");
@@ -568,12 +612,13 @@ function resultText(value: unknown, depth = 0): string | null {
  */
 const FAILURE_WINDOW = CONVERSATION_TRACE_TEXT_LIMIT * 16;
 
-/** Whether a tool step runs a shell command: a Codex command, a command tool, or Pi's `bash` tool. */
+/**
+ * Whether a tool step runs a shell command: a Codex command, a command tool, or Pi's `bash` tool, or
+ * its `powershell` tool on a Windows computer with no bash that runs (#11209).
+ */
 function isShellCommand(item: ThreadItem): boolean {
-  return (
-    toolUsage(item)?.kind === "command" ||
-    (item.type === "dynamicToolCall" && !getString(item, "namespace") && getString(item, "tool") === "bash")
-  );
+  const tool = item.type === "dynamicToolCall" && !getString(item, "namespace") ? getString(item, "tool") : undefined;
+  return toolUsage(item)?.kind === "command" || tool === "bash" || tool === "powershell";
 }
 
 /**

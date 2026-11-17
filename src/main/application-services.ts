@@ -30,7 +30,7 @@ import { WorkflowTriggers, workflowScheduleDueAt } from "../backend/workflows/wo
 import { createWorkflows, type WorkflowNotice, type WorkflowsHandle } from "../backend/workflows/workflows";
 import { type AcpRegistry, createAcpRegistry } from "./acp-registry";
 import { type AgentAdminSettingsService, createAgentAdminSettings } from "./agent-admin-settings";
-import { spawnAgentDatabaseHost } from "./agent-database-host-process";
+import { checkDatabaseIntegrityInHost, spawnAgentDatabaseHost } from "./agent-database-host-process";
 import { type AgentDefaultsSettingsService, createAgentDefaultsSettings } from "./agent-defaults-settings";
 import { agentDisplayEnvironment, hasSeparateAgentDisplay } from "./agent-display";
 import { type AgentFolders, createAgentFolders } from "./agent-folders";
@@ -60,6 +60,7 @@ import { MAC_PERMISSION_URLS } from "./mac-permission-urls";
 import { PushNotificationStore } from "./push-notification-store";
 import { DESKTOP_USE_MS } from "./push-notifications";
 import { RemoteWorkflowError, toRemoteWorkflowError } from "./remote-service-effects";
+import { sizeWorkflowPicture } from "./workflow-picture-size";
 /**
  * The composition root. Every long-lived service the desktop app owns is built here, in one
  * function, in dependency order, and handed back as a single record.
@@ -81,8 +82,9 @@ import { RemoteWorkflowError, toRemoteWorkflowError } from "./remote-service-eff
  * when - see `teardown-registry.ts` for why shutdown here is not the reverse of construction.
  */
 
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readdir, rm } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -312,7 +314,7 @@ import {
   startLocalServerChild,
 } from "./local-server-child";
 import { LOCAL_SERVERS_FILE } from "./local-servers/local-server-registry";
-import { LocalServers } from "./local-servers/local-servers";
+import { LocalServers, sandboxArguments } from "./local-servers/local-servers";
 import { createLoginItem } from "./login-item";
 import { LogoColorService } from "./logo-color-service";
 import type { MacHapticFeedback } from "./mac-haptic-feedback";
@@ -381,7 +383,6 @@ import { createRemoteControlPolicyStore } from "./remote-control-policy-store";
 import { createRemoteControlQuestion } from "./remote-control-question";
 import { RemoteDesktopManager } from "./remote-desktop-manager";
 import { resolveRemoteDesktopRuntime } from "./remote-desktop-runtime-artifact";
-import { loadOrCreateRemoteDesktopCredentials } from "./remote-desktop-secret-store";
 import { appendRemoteDiagnosticLog } from "./remote-diagnostics";
 import { decodeVoid } from "./remote-host-decoding";
 import {
@@ -474,6 +475,7 @@ import { VoiceSpeechService } from "./voice-speech-service";
 import { spawnVoiceTranscriptionHost } from "./voice-transcription-host-process";
 import { VoiceTranscriptionService } from "./voice-transcription-service";
 import { WebhookRelay } from "./webhook-relay";
+import { WindowsTopmostKeeper } from "./windows-topmost-keeper";
 
 const logger = createOpenBotLogger("application-services");
 const SETUP_FILE = "openbot-setup-v2.json";
@@ -523,7 +525,6 @@ const REMOTE_SERVERS_FILE = "openbot-remote-servers-v1.json";
 const CENTRAL_AUTH_FILE = "openbot-central-auth-v1.bin";
 const REMOTE_SESSIONS_FILE = "openbot-remote-sessions-v1.bin";
 const LEGACY_REMOTE_DESKTOP_CREDENTIAL_FILE = "openbot-remote-desktop-credential-v1.json";
-const REMOTE_DESKTOP_RUNTIME_SECRET_FILE = "openbot-remote-desktop-runtime-v1.json";
 const CUSTOM_PROVIDERS_FILE = "openbot-custom-providers-v1.json";
 const PROVIDER_CREDENTIAL_FILE = "openbot-provider-credentials-v1.json";
 const MESSAGING_CREDENTIAL_FILE = "openbot-messaging-credentials-v1.json";
@@ -851,11 +852,36 @@ function secretStorage(): SecretStorage {
   return userDataSecretStorage;
 }
 
-/** The cipher that every encrypted file in userData uses: `safeStorage`, or the Linux key file. */
+/** The cipher that every encrypted file in userData uses: `safeStorage`, or the Linux and macOS key file. */
 function safeStorageCipher(
   unavailableKey: "error.app.secretStorageUnavailable" | "error.app.macSecureStorageUnavailable",
 ): SecretStorageCipher {
   return secretStorage().cipher(() => sourceText(unavailableKey));
+}
+
+/**
+ * The account service requests go through Chromium's network stack, which uses the computer's proxy
+ * settings as the built-in browser does. Node `fetch` ignores them, so the server list and a
+ * connection timed out on a network that needs the system proxy (#10314). The requests carry a
+ * bearer token: they send no browser cookie and use no HTTP cache, as with Node `fetch`.
+ *
+ * A Chromium network failure (`net::ERR_CONNECTION_REFUSED`) is thrown as Node `fetch` throws one,
+ * a `TypeError` with the code in `cause.code`, because the account and connection errors read that.
+ * An abort rejects with the signal's reason, as in Node.
+ */
+async function accountServiceFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  try {
+    return await net.fetch(input instanceof URL ? input.href : input, {
+      ...init,
+      credentials: "omit",
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    const code = /^net::(ERR_[A-Z0-9_]+)$/u.exec(error.message)?.[1];
+    if (code === undefined) throw error;
+    throw new TypeError("fetch failed", { cause: Object.assign(error, { code }) });
+  }
 }
 
 /** How the driver's own state reads as the capability the Team API projects. */
@@ -1159,6 +1185,8 @@ export async function createApplicationServices({
   // mouse move of the computer.
   const pointerForwarding =
     windowKind === "tool" ? new PointerForwardingGate(() => screen.getCursorScreenPoint()) : null;
+  // Windows: another process can clear the topmost flag of the dock and the island (#7452).
+  const topmost = windowKind === "tool" ? new WindowsTopmostKeeper() : null;
   const dynamicIsland = new DynamicIslandWindowController({
     windowKind,
     preferencePath: join(app.getPath("userData"), DYNAMIC_ISLAND_PREFERENCE_FILE),
@@ -1193,6 +1221,7 @@ export async function createApplicationServices({
         },
       ]).popup({ window }),
     pointerForwarding,
+    topmost,
     performCriticalAction: (action) =>
       Effect.suspend(() => {
         if (!criticalActionTargets) {
@@ -1218,6 +1247,7 @@ export async function createApplicationServices({
     ensureMainWindow: windows.ensureMainWindow,
     presentMainWindow: showMainWindow,
     pointerForwarding,
+    topmost,
     // The same send as a reply from the Dynamic Island: main sends it to the local or the remote agent.
     // A channel message is the same send command as in the channel view of the main window.
     sendMessage: (action) =>
@@ -1269,6 +1299,7 @@ export async function createApplicationServices({
     apiUrl: centralAuthApiUrl,
     mobileConnectApiUrl: readMobileConnectApiUrl(process.env.OPENBOT_MOBILE_AUTH_API_URL, centralAuthApiUrl),
     storagePath: join(app.getPath("userData"), CENTRAL_AUTH_FILE),
+    fetch: accountServiceFetch,
     ...safeStorageCipher("error.app.macSecureStorageUnavailable"),
     keyringChanged: () => secretStorage().madeKeyFile(),
     // The system browser, where the user is signed in to the company. The language loads below.
@@ -1331,7 +1362,7 @@ export async function createApplicationServices({
   const store = new AgentStore(
     app.getPath("userData"),
     homedir(),
-    new OpenBotDatabase(app.getPath("userData")),
+    new OpenBotDatabase(app.getPath("userData"), checkDatabaseIntegrityInHost),
     () => agentDefaults.get(),
     localServerChild?.agentRoot,
   );
@@ -2043,6 +2074,11 @@ export async function createApplicationServices({
     supervisor: new AgentDatabaseSupervisor({
       spawnHost: spawnAgentDatabaseHost,
       onStatementSettled: (durationMs) => statementTimings.record(durationMs),
+      onHostStartFailed: ({ reason, output, consecutiveFailures, retryAfterMs }) =>
+        logger.warn(
+          `The shared data process ${reason} (failed starts in a row: ${consecutiveFailures}, next start after ${retryAfterMs} ms).`,
+          output.length > 0 ? `Its last output: ${output}` : "It wrote no output.",
+        ),
     }),
   });
   // Looked up again on demand, because a user may install the driver while OpenBot runs, and the
@@ -2415,6 +2451,10 @@ export async function createApplicationServices({
       // never the token; only a test the user pressed may open a browser.
       mcpOAuth,
       mcpOAuthProxySettings,
+      // Chromium's network stack uses the computer's proxy settings, as the built-in browser does.
+      // Node `fetch` ignores them, so the Gemini quota read timed out behind a system proxy (#11278).
+      // The requests carry a bearer token: no browser cookie and no HTTP cache.
+      systemProxyFetch: (url, init) => net.fetch(url, { ...init, credentials: "omit", cache: "no-store" }),
       appVersion: app.getVersion(),
       providerStateDirectory: join(app.getPath("userData"), "provider-state"),
       ...(process.platform === "win32" ? { providerTempDirectory } : {}),
@@ -2608,6 +2648,8 @@ export async function createApplicationServices({
       turnAnswer,
       // A workflow step is a routine handoff whose routine is the workflow.
       sendHandoff: (input) => service.enqueueRoutineHandoff(input),
+      filePath: (attachmentId) =>
+        mailbox.resolveAttachment(attachmentId).pipe(Effect.map((file) => file?.path ?? null)),
       stopDelivery: stopHandoff,
       generateText: (request) =>
         service.generateWorkflowText(request).pipe(
@@ -2621,10 +2663,38 @@ export async function createApplicationServices({
             message: failure.cause instanceof Error ? failure.cause.message : sourceText("error.workflow.mediaFailed"),
           })),
         ),
+      // The new PNG replaces the picture that the model made, so Storage keeps one file for the step.
+      sizePicture: (attachmentId, size) =>
+        Effect.gen(function* () {
+          const file = yield* mailbox.resolveAttachment(attachmentId);
+          if (!file) return yield* Effect.fail(new Error("The generated picture is gone."));
+          const source = yield* Effect.tryPromise(() => readFile(file.path));
+          // A throw from the image decoder fails the crop, so the step keeps the model's picture.
+          const bytes = yield* Effect.try(() => sizeWorkflowPicture(source, size));
+          if (!bytes) return yield* Effect.fail(new Error("The generated picture could not be decoded."));
+          const stored = yield* mailbox.storeGeneratedAttachment({
+            bytes,
+            name: "generated-image.png",
+            mimeType: "image/png",
+          });
+          yield* mailbox.deleteStoredFile(attachmentId).pipe(Effect.ignore);
+          return stored.id;
+        }).pipe(
+          Effect.mapError((failure) => ({
+            message: failure instanceof Error ? failure.message : String(failure),
+          })),
+        ),
       mediaProviders: () => service.workflowMediaProviders(),
       mediaCredits: (only) => service.workflowMediaCredits(only),
+      mediaCatalog: (only) => service.workflowMediaCatalog(only),
+      mediaPrice: (request) => service.workflowMediaPrice(request),
+      // A kept picture is new in the Library, so the next scan must not answer from before it. A failure
+      // after the file is stored also clears the scan.
       keepPicture: (draftId, types) =>
-        mailbox.keepDraft(draftId, types).pipe(Effect.map((kept) => (typeof kept === "string" ? kept : kept.id))),
+        mailbox.keepDraft(draftId, types).pipe(
+          Effect.map((kept) => (typeof kept === "string" ? kept : kept.id)),
+          Effect.ensuring(Effect.sync(() => storageUsage.invalidate())),
+        ),
       notify: forwardWorkflowNotice,
       connectionOn: (connectionId) => service.messaging.store.connection(connectionId)?.enabled === true,
       post: (connectionId, placeId, markdown) => service.messaging.deliver(connectionId, placeId, markdown),
@@ -3453,6 +3523,10 @@ export async function createApplicationServices({
       }),
     remove: (mcpServerId) => mcpAccessStore.remove(mcpServerId),
   };
+  // The login of the remote desktop runtime. Only this process uses it, on loopback, and each runtime
+  // start gives it to Sunshine again. So it stays in memory: the remote desktop also starts when the
+  // system keyring or the macOS Keychain is not available.
+  const remoteDesktopRuntimeCredentials = { username: "openbot", password: randomBytes(32).toString("base64url") };
   const host = new HostService({
     appVersion: app.getVersion(),
     store: teamStore,
@@ -3546,7 +3620,8 @@ export async function createApplicationServices({
     crm,
     // Present, so the host advertises `agent-hidden-v1`. Any member can hide or restore an agent that they can see.
     hiddenAgents: service,
-    // Present, so the host advertises `routine-run-place-v1`. Any member reads the places; a change needs manage access.
+    // Present, so the host advertises `routine-run-place-v1` and `routine-pause-reasons-v1`. Any member reads
+    // the places and the pause reasons; a change of place needs manage access.
     routineRunPlaces: service.routineRecords,
     // Present, so the host advertises `agent-notification-levels-v1`. Each member sets their own levels.
     agentNotificationLevels,
@@ -3785,17 +3860,7 @@ export async function createApplicationServices({
         catch: (cause) => new RemoteWorkflowError({ cause }),
       }),
     remoteDesktopStateDirectory: join(app.getPath("userData"), "remote-desktop-runtime"),
-    getRemoteDesktopRuntimeCredentials: () =>
-      Effect.suspend(() => {
-        if (!secretCipher.canPersist())
-          return Effect.fail(
-            new RemoteWorkflowError({ cause: new Error(sourceText("error.app.secretStorageUnavailable")) }),
-          );
-        return loadOrCreateRemoteDesktopCredentials(
-          join(app.getPath("userData"), REMOTE_DESKTOP_RUNTIME_SECRET_FILE),
-          secretCipher,
-        ).pipe(toRemoteWorkflowError);
-      }),
+    getRemoteDesktopRuntimeCredentials: () => Effect.succeed(remoteDesktopRuntimeCredentials),
     getRemoteDesktopDisplays: () => {
       const primaryId = screen.getPrimaryDisplay().id;
       return screen.getAllDisplays().map((display, index) => ({
@@ -4111,7 +4176,11 @@ export async function createApplicationServices({
           remoteServers,
           command: {
             executable: process.execPath,
-            args: [...(app.isPackaged ? [] : [app.getAppPath()]), ...ozonePlatformArguments()],
+            args: [
+              ...(app.isPackaged ? [] : [app.getAppPath()]),
+              ...ozonePlatformArguments(),
+              ...sandboxArguments(process.argv.slice(1)),
+            ],
           },
           trash: (path) => shell.trashItem(path),
           account: {
@@ -4240,6 +4309,7 @@ export async function createApplicationServices({
       const contents = webContents.fromId(owner);
       sendToRenderer(contents && BrowserWindow.fromWebContents(contents), IPC_ENDPOINTS.browser.liveViewEvent, event);
     },
+    writeClipboard: (text) => clipboard.writeText(text),
   });
   teardown.push(TEARDOWN_ORDER.browserView, "the live browser view", () => runCauseEffect(browserView.stop()));
   const remoteDesktop = new RemoteDesktopManager({

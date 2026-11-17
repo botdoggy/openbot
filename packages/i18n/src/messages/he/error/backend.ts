@@ -83,6 +83,7 @@ export const messages = {
   "error.backend.channelCompactNotSupported":
     "אף חבר בערוץ הזה לא יכול לדחוס לפי בקשה. חברים שתומכים בזה דוחסים את ההקשר שלהם אוטומטית כשהוא כמעט מלא.",
   "error.backend.channelArchived": "יש לשחזר את הערוץ הזה לפני שליחת הודעות או שינוי משימות.",
+  "error.backend.channelArchiveRunning": "יש לעצור את העבודה הפעילה בערוץ הזה ואז למחוק אותו.",
   "error.backend.channelReferenceUnavailable": "הודעת הערוץ שאליה מפנים אינה זמינה.",
   "error.backend.channelTaskNotFound": "משימת הערוץ לא נמצאה.",
   "error.backend.channelTaskComplete": "המשימה הזו כבר הושלמה.",
@@ -234,6 +235,8 @@ export const messages = {
   "error.backend.mcpSignInAppRefused":
     "שרת ההתחברות לא קיבל את אפליקציית ההתחברות של השרת הזה. יש לבדוק את ה-Client ID ואת ה-Client secret של אפליקציית ההתחברות, ואז להתחבר שוב.",
   "error.backend.mcpCommandNotFound": "הפקודה לא נמצאה: {command}",
+  "error.backend.mcpProviderLimit":
+    "הסוכן הזה יכול להשתמש רק במספר מוגבל של שרתי MCP. כדי להשתמש בשרת הזה, כבו שרת MCP שהסוכן לא צריך.",
   "error.backend.mcpRegistrationRefused":
     "שרת ההתחברות עדיין אינו מקבל את OpenBot כאפליקציה. החשבון שלך אינו הסיבה. יש להשתמש בדרך חיבור אחרת, כמו שרת MCP מקומי.",
   "error.backend.mcpSignInAbandonedGeneric": "ההתחברות ננטשה.",
@@ -253,6 +256,7 @@ export const messages = {
   "error.backend.mcpSignInAnswerUnreadable":
     "שרת ההתחברות שלח תשובה ש-OpenBot לא יכול לקרוא. אם השירות נותן לך מפתח API או טוקן, יש להוסיף אותו להגדרות של השרת הזה ולבדוק שוב את החיבור.",
   "error.backend.mcpServerExited": "השרת נעצר לפני שענה. יש להריץ את הפקודה במסוף כדי לראות את השגיאה שלו.",
+  "error.backend.mcpServerExitedWithOutput": "השרת נעצר לפני שענה. הוא כתב: {detail}",
   "error.backend.mcpServerFailedToStart": "השרת לא התחיל: {reason}",
   "error.backend.mcpServerStartAbandoned":
     "{provider} הפסיק לחכות לפני שהשרת התחיל, ולכן הסוכנים שלו לא מקבלים את הכלים של השרת הזה.",
@@ -269,6 +273,8 @@ export const messages = {
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot לא הצליח להפעיל את חיבור ההתחברות המקומי שלו עבור השרת הזה. יש להפעיל מחדש את OpenBot ולנסות שוב.",
   "error.backend.mcpOAuthSignInNeeded": "ההתחברות לשרת ה-MCP הזה הסתיימה. המשתמש צריך להתחבר אליו שוב ב-OpenBot.",
+  "error.backend.mcpOAuthRenewalFailed":
+    "OpenBot לא הצליח לחדש עכשיו את ההתחברות לשרת ה-MCP הזה. ההתחברות נשמרת, והבקשה הבאה תנסה שוב. אם השגיאה נמשכת, המשתמש יכול להתנתק מהשרת ב-OpenBot ולהתחבר שוב.",
   "error.backend.mcpServerUnreachable": "OpenBot לא הצליח להגיע אל השרת. יש לבדוק את ה-URL ואת הרשת.",
   "error.backend.mcpLocalServerOff":
     "אין שרת שעונה בכתובת {address} במחשב הזה. יש להפעיל את השרת, או להדליק אותו באפליקציה שמריצה אותו, ולנסות שוב.",

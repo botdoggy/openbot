@@ -91,6 +91,7 @@ export const messages = {
   "error.backend.channelCompactNotSupported":
     "Ни один участник этого канала не может сжимать по запросу. Участники, которые это поддерживают, сжимают контекст автоматически, когда он почти заполнен.",
   "error.backend.channelArchived": "Восстановите этот канал, прежде чем отправлять сообщения или менять задачи.",
+  "error.backend.channelArchiveRunning": "Остановите текущую работу в этом канале, затем удалите его.",
   "error.backend.channelReferenceUnavailable": "Сообщение канала, на которое сделана ссылка, недоступно.",
   "error.backend.channelTaskNotFound": "Задача канала не найдена.",
   "error.backend.channelTaskComplete": "Эта задача уже выполнена.",
@@ -252,6 +253,8 @@ export const messages = {
   "error.backend.mcpSignInAppRefused":
     "Сервер входа не принял приложение входа этого сервера. Проверьте ID клиента и секрет клиента приложения входа, затем войдите снова.",
   "error.backend.mcpCommandNotFound": "Команда не найдена: {command}",
+  "error.backend.mcpProviderLimit":
+    "Этот агент может использовать только ограниченное число серверов MCP. Чтобы использовать этот сервер, выключите сервер MCP, который агенту не нужен.",
   "error.backend.mcpRegistrationRefused":
     "Сервер входа пока не принимает OpenBot как приложение. Дело не в вашем аккаунте. Подключитесь другим способом, например через локальный сервер MCP.",
   "error.backend.mcpSignInAbandonedGeneric": "Вход прерван.",
@@ -272,6 +275,7 @@ export const messages = {
     "Сервер входа прислал ответ, который OpenBot не может прочитать. Если сервис выдаёт API-ключ или токен, добавьте его в настройки этого сервера и снова проверьте подключение.",
   "error.backend.mcpServerExited":
     "Сервер остановился, не ответив. Запустите команду в терминале, чтобы увидеть ошибку.",
+  "error.backend.mcpServerExitedWithOutput": "Сервер остановился, не ответив. Он написал: {detail}",
   "error.backend.mcpServerFailedToStart": "Сервер не запустился: {reason}",
   "error.backend.mcpServerStartAbandoned":
     "{provider} перестал ждать до запуска сервера, поэтому его агенты не получают инструменты этого сервера.",
@@ -289,6 +293,8 @@ export const messages = {
     "OpenBot не смог запустить локальное подключение для входа на этот сервер. Перезапустите OpenBot и повторите попытку.",
   "error.backend.mcpOAuthSignInNeeded":
     "Вход на этот MCP-сервер завершён. Пользователю нужно снова войти на него в OpenBot.",
+  "error.backend.mcpOAuthRenewalFailed":
+    "OpenBot не смог сейчас обновить вход на этот MCP-сервер. Вход сохранён, следующий запрос попробует снова. Если ошибка повторяется, пользователь может выйти из сервера в OpenBot и войти снова.",
   "error.backend.mcpServerUnreachable": "OpenBot не смог связаться с сервером. Проверьте URL и сеть.",
   "error.backend.mcpLocalServerOff":
     "На этом компьютере по адресу {address} не отвечает ни один сервер. Запустите сервер или включите его в приложении, которое его запускает, и повторите попытку.",

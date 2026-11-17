@@ -158,7 +158,11 @@ import {
   sameAgentBrowserProfile,
   sameAgentModelChoice,
   WORKFLOWS_USAGE_ID,
+  type WorkflowCatalogProvider,
+  type WorkflowMediaCatalog,
   type WorkflowMediaCredits,
+  type WorkflowMediaPrice,
+  type WorkflowMediaPriceRequest,
   type WorkflowMediaProvider,
   type WorkflowMediaProviders,
   type WorkflowMediaSpecs,
@@ -218,7 +222,7 @@ import type { AgentLibraryFolders } from "./agent/library-folder-tools";
 import { LiveVoice, type LiveVoiceOwner, type LiveVoiceReply } from "./agent/live-voice";
 import { MailboxSync } from "./agent/mailbox-sync";
 import { type GitHubConnectorSource, McpGateway, type TestMcpServerOptions } from "./agent/mcp-gateway";
-import { type MarketplaceAppServer, mcpServersFromGateway } from "./agent/mcp-tools";
+import { type MarketplaceAppServer, mcpFallbackRunsServer, mcpServersFromGateway } from "./agent/mcp-tools";
 import { MemoryHold } from "./agent/memory-hold";
 import { MEMORY_REVIEW_MESSAGES, MemoryReview } from "./agent/memory-review";
 import { MemoryReviewCursors } from "./agent/memory-review-cursors";
@@ -312,7 +316,7 @@ import { encodedModelId } from "./encoded-model-id";
 import type { HostMemory } from "./host-memory";
 import type { SignInRegion } from "./kimi-region";
 import type { LinkWallet } from "./link-wallet";
-import type { MailboxStore } from "./mailbox-store";
+import { type MailboxStore, MESSAGING_LANE } from "./mailbox-store";
 import { toMcpOperationError } from "./mcp-effects";
 import type { McpSignInOpener } from "./mcp-oauth-provider";
 import { McpServerStore } from "./mcp-server-store";
@@ -335,6 +339,7 @@ import { shortenDiagnostic } from "./stderr-diagnostics";
 import type { UserBrowsingLog } from "./user-browsing-log";
 import type { VaultItems } from "./vault-items";
 import { generateHiggsfieldMedia, HIGGSFIELD_MCP_HOST, readHiggsfieldCredits } from "./workflows/higgsfield-media";
+import { WorkflowMediaCatalogCache } from "./workflows/media-catalog";
 import { generateSunraMedia, readSunraCredits, SUNRA_MCP_HOST } from "./workflows/sunra-media";
 import type { WorkflowTools } from "./workflows/workflow-tools";
 import { type MediaImageRole, mediaInputText } from "./workflows/workflow-walk";
@@ -644,6 +649,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   /** Agent and channel routines of every trigger kind, with their webhook routes. */
   readonly routineRecords: RoutineRecords;
   readonly #mcp: McpGateway;
+  readonly #mediaCatalog: WorkflowMediaCatalogCache;
   readonly #mcpAgentAccess: AgentServiceOptions["mcpAgentAccess"];
   readonly #clearPictureBackground: AgentServiceOptions["clearPictureBackground"];
   readonly #providers: ProviderRuntime;
@@ -743,6 +749,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         // Read late: the threads are built further down this constructor.
         refreshAllAgentRuntimes: () => this.#threads.refreshAllAgentRuntimes(),
       },
+    });
+    this.#mediaCatalog = new WorkflowMediaCatalogCache({
+      signIn: (provider) => this.#mediaSignIn(provider),
+      warn: (message, details) => logger.warn(message, details),
     });
     this.#sidebarLayout = sidebarLayout;
     this.#libraryFolders = libraryFolders;
@@ -1094,6 +1104,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         sharedRoot: () => this.#store.sharedRoot,
         isStopping: () => this.#stopping,
         isProviderBusy: (provider) => this.#isProviderBusy(provider),
+        isProviderBusyApartFrom: (provider, agentId) => this.#isProviderBusyApartFrom(provider, agentId),
         isAgentBusy: (agentId) => this.#runsTurn(agentId),
         isProviderAssigned: (provider) => this.#store.list().some((agent) => providerForAgent(agent) === provider),
         captureConfigRevision: () => this.#endpoints.committedRevision(),
@@ -1136,6 +1147,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             ? Effect.void
             : this.#endpoints.moveAccountAgentsOffUnlistedModels(provider, accountId),
         onProviderResumed: (provider) => {
+          this.#drain.providerResumed(provider);
           for (const agent of this.#store.list()) {
             if (providerForAgent(agent) === provider) this.#drain.scheduleDrain(agent.id);
           }
@@ -1356,6 +1368,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         // Read late: `channels` is built after this. A channel turn runs beside the agent's own chat,
         // so it holds the chat's queue only on a provider that runs one turn at a time.
         queueHold: (agentId) => (this.#tasks.oneTurnAtATime(agentId) ? this.channels.queueHold(agentId) : null),
+        threadRequestsChanged: (agentId) => this.#tasks.changed(agentId),
       },
     });
     this.#reader = new ConversationReader({
@@ -1572,6 +1585,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       skipAtLimit: (task) => this.#channelRoutines.skipAtLimit(task.channelId, task.requestMessageId),
       quietRoutineRequest: (requestMessageId) => this.#channelRoutines.quietRun(requestMessageId),
       usageLimitBackup: (agentId) => this.#usageLimitBackup(agentId) !== undefined || this.#poolBackup(agentId),
+      steersWhenBusy: (agentId) => {
+        const agent = this.#store.list().find((item) => item.id === agentId);
+        return (
+          agent !== undefined &&
+          (agent.busyMessageMode ?? this.#busyMessageMode()) === "steer" &&
+          agentSteersTurns({ provider: providerForAgent(agent), model: agent.model }, this.#endpoints.available())
+        );
+      },
       steer: (agentId, threadId, turnId, messageId, text) =>
         Effect.gen({ self: this }, function* () {
           // A person's correction joins the turn and waits for its answer.
@@ -1663,8 +1684,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.messaging = new MessagingThreads(store.database, mailbox, {
       schedule: (agentId) => this.#drain.scheduleDrain(agentId),
       queueChanged: (agentId) => this.#mailboxSync.emitQueue(agentId),
-      busy: (agentId) =>
-        Boolean(this.#conversation.workingSnapshot(agentId)?.activeTurnId || this.#mailbox.nextQueued(agentId)),
+      // A conversation in the messaging lane waits for that lane only. The others wait in the own chat's lane.
+      // A turn that the provider started itself has no delivery, but the lane still waits for it.
+      busy: (agentId, linkId) =>
+        this.#mailbox.inMessagingLane(agentId, linkId)
+          ? this.#mailbox.laneActive(agentId, MESSAGING_LANE) ||
+            this.#mailbox.laneQueuedIds(agentId, MESSAGING_LANE).length > 0 ||
+            this.#drain.messagingTurnActive(agentId)
+          : Boolean(this.#conversation.workingSnapshot(agentId)?.activeTurnId || this.#mailbox.nextQueued(agentId)),
       interrupt: (agentId, turnId, threadId) => this.interrupt(agentId, turnId, threadId).pipe(toMessagingThreadFailed),
       forgetThread: (threadId) => this.#forgetExecutionThread(threadId).pipe(toMessagingThreadFailed),
       ownChat: (threadId) => this.#store.ownsThread(threadId),
@@ -1900,6 +1927,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         emitToolUsage: (usage) => this.emit("toolUsage", usage),
         turnModel: (agentId, turnId) => this.#drain.modelForTurn(agentId, turnId),
         mayFailOver: (agentId) => this.#usageLimitBackup(agentId) !== undefined || this.#poolBackup(agentId),
+        poolHasOtherAccount: (agentId) => this.#poolHasOtherAccount(agentId),
         mayContinueOnBackup: (agentId) => this.#mayContinueStoppedWork(agentId),
         requeueChannelDelivery: (deliveryId, continueWork) => this.#requeueChannelDelivery(deliveryId, continueWork),
         quietRoutineDelivery: (deliveryId) => this.#routines.quietRunForDelivery(deliveryId),
@@ -1935,6 +1963,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
               ),
             ),
         taskForThread: (threadId) => this.#tasks.taskForThread(threadId),
+        inMessagingLane: (agentId, threadId) => this.messaging.inMessagingLane(agentId, threadId),
         isRoutineThread: (threadId) => this.#tasks.isRoutineThreadId(threadId),
         taskOpen: (taskId) => this.#tasks.threadId(taskId) !== null,
         taskFailed: (taskId, message) => this.#tasks.failed(taskId, this.#mcp.redact(message)),
@@ -2018,15 +2047,23 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       ...(options.screenCapture === undefined ? {} : { screenCapture: options.screenCapture }),
       ...(options.videoReader === undefined ? {} : { videoReader: options.videoReader }),
       ...(options.fitImage === undefined ? {} : { fitImage: options.fitImage }),
-      // The saved http rows that the agent gets. The built-in servers are left out: OpenBot gives their
-      // tools another way, and their bearer is the main process's. A stdio server is left out too: a
-      // Workspace only provider starts it in its sandbox, and OpenBot would start it outside.
-      mcpServers: mcpServersFromGateway(this.#mcp, options.prepareMcpTest, (agentId) => {
-        const saved = new Set(this.#mcp.list().map((config) => config.id));
-        return this.enabledMcpServers(agentId).filter(
-          (config) => saved.has(config.id) && config.transport === "http" && !isReservedMcpServerName(config.name),
-        );
-      }),
+      // The saved rows that the agent gets. The built-in servers are left out: OpenBot gives their
+      // tools another way, and their bearer is the main process's. `mcpFallbackRunsServer` leaves out a
+      // stdio server of a Workspace only agent.
+      mcpServers: mcpServersFromGateway(
+        this.#mcp,
+        options.prepareMcpTest,
+        (agentId) => {
+          // An agent that is not found gets only the http rows, as a Workspace only agent does.
+          const agent = this.#store.list().find((candidate) => candidate.id === agentId) ?? { access: "workspace" };
+          const saved = new Set(this.#mcp.list().map((config) => config.id));
+          return this.enabledMcpServers(agentId).filter(
+            (config) =>
+              saved.has(config.id) && mcpFallbackRunsServer(config, agent) && !isReservedMcpServerName(config.name),
+          );
+        },
+        (mcpServerId, agentId) => this.#mcpAgentAccess?.(mcpServerId, agentId) ?? true,
+      ),
       ...(options.marketplaceAppServer === undefined ? {} : { marketplaceAppServer: options.marketplaceAppServer }),
       githubConnected: () => Boolean(githubConnector?.mcpServer()),
       feedbackFacts: options.feedbackFacts ?? null,
@@ -2070,6 +2107,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
                     ),
                   )
               : undefined,
+            undefined,
+            undefined,
+            false,
+            // agentSetup: another agent wrote the first message, so its turn can end with no answer.
+            true,
           ).pipe(toToolOperationFailed),
         updateAgent: (input, initiatingAgentId) =>
           this.updateAgent(input, initiatingAgentId).pipe(toToolOperationFailed),
@@ -2499,6 +2541,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     run: Pick<RoutineRun, "id" | "routineId" | "routineName" | "scheduledFor">;
     agentId: string;
     text: string;
+    /** Stored files that the message carries, such as the pictures of a workflow's image steps. */
+    sourcePaths?: readonly string[];
     idempotencyKey: string;
   }): Effect.Effect<string, AgentLifecycleFailed> {
     return this.#routines
@@ -3045,6 +3089,31 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     ),
   ).bind(this);
 
+  #mediaSignIn(provider: WorkflowCatalogProvider) {
+    return this.#mcp.serviceSignIn(provider === "sunra" ? SUNRA_MCP_HOST : HIGGSFIELD_MCP_HOST);
+  }
+
+  /**
+   * The live models of the signed-in media services; with `only`, of that one. It never fails; a
+   * service that fails gives its fixed models.
+   */
+  readonly workflowMediaCatalog = Effect.fn("AgentService.workflowMediaCatalog")(function* (
+    this: AgentService,
+    only?: WorkflowCatalogProvider,
+  ) {
+    if (this.#stopping) return { models: [] } satisfies WorkflowMediaCatalog;
+    return yield* this.#mediaCatalog.catalog(only);
+  }).bind(this);
+
+  /** What one file of a media service model costs with the choices of a step, or null with no quote. */
+  readonly workflowMediaPrice = Effect.fn("AgentService.workflowMediaPrice")(function* (
+    this: AgentService,
+    request: WorkflowMediaPriceRequest,
+  ) {
+    if (this.#stopping) return { credits: null } satisfies WorkflowMediaPrice;
+    return yield* this.#mediaCatalog.price(request);
+  }).bind(this);
+
   /** The media services beyond the agent providers that a workflow step can use now. */
   workflowMediaProviders(): WorkflowMediaProviders {
     return {
@@ -3095,6 +3164,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         provider: WorkflowMediaProvider;
         /** The id of the model at its provider. Sunra and Higgsfield read it; Codex and Grok use their default. */
         model: string;
+        /** The canvas id of the model ("sunra-…", "higgsfield-…"), which finds its plan in the live list. */
+        catalogId: string;
         /** The account of the provider that pays. Null is its own sign-in; Sunra and Higgsfield ignore it. */
         account: string | null;
         specs: WorkflowMediaSpecs;
@@ -3106,13 +3177,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       const failed = (message: string) => new ProfileGenerationFailed({ cause: new Error(message) });
       if (input.provider === "sunra") {
         if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
+        const plan = yield* this.#mediaCatalog.sunraPlan(input.catalogId, input.kind);
         return yield* generateSunraMedia(
           {
             signIn: () => this.#mcp.serviceSignIn(SUNRA_MCP_HOST),
             resolveAttachment: (attachmentId) => this.#mailbox.resolveAttachment(attachmentId),
             store: (file) => this.#mailbox.storeGeneratedAttachment(file),
           },
-          { kind: input.kind, model: input.model, prompt: input.prompt, specs: input.specs, images: input.images },
+          {
+            kind: input.kind,
+            model: input.model,
+            prompt: input.prompt,
+            specs: input.specs,
+            images: input.images,
+            plan,
+          },
         ).pipe(
           Effect.tapError((failure) =>
             Effect.sync(() => logger.warn("Could not make workflow media with Sunra.", { error: failure.message })),
@@ -3122,13 +3201,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       }
       if (input.provider === "higgsfield") {
         if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
+        const plan = yield* this.#mediaCatalog.higgsfieldPlan(input.catalogId, input.model, input.kind);
         return yield* generateHiggsfieldMedia(
           {
             signIn: () => this.#mcp.serviceSignIn(HIGGSFIELD_MCP_HOST),
             resolveAttachment: (attachmentId) => this.#mailbox.resolveAttachment(attachmentId),
             store: (file) => this.#mailbox.storeGeneratedAttachment(file),
           },
-          { kind: input.kind, model: input.model, prompt: input.prompt, specs: input.specs, images: input.images },
+          {
+            kind: input.kind,
+            model: input.model,
+            prompt: input.prompt,
+            specs: input.specs,
+            images: input.images,
+            plan,
+          },
         ).pipe(
           Effect.tapError((failure) =>
             Effect.sync(() =>
@@ -3325,6 +3412,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     profileOperationId?: string,
     sender?: ConversationMessageSender,
     welcome = false,
+    // Another agent made this agent with `create_agent`, so the first turn can end with no answer.
+    agentSetup = false,
   ) {
     const initialMessage = yield* lifecycleStep("validate initial message", () => {
       const text = input.initialMessage.trim();
@@ -3357,6 +3446,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           undefined,
           undefined,
           welcome,
+          agentSetup,
         );
         return this.#store.list().find((candidate) => candidate.id === agent.id) ?? agent;
       }).pipe(
@@ -3637,9 +3727,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   /**
    * The pin of an update, or undefined to keep it (#9116). An agent that names an account of a pooled
-   * provider pins it, and an agent that names the provider's own sign-in gives the account back to
-   * the pool. A person's change of the provider, model or account in the app, which shows the pool as
-   * one choice, ends the pin; a change of effort keeps it. Automatic moves keep it too; the store ends
+   * provider pins it, also the provider's own sign-in as "default", and an agent that names null
+   * gives the account back to the pool. A person's change of the provider, model or account in the
+   * app, which shows the pool as one choice, ends the pin; a change of effort keeps it. Automatic moves keep it too; the store ends
    * it when the agent moves to another account.
    */
   #accountPin(
@@ -3654,7 +3744,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         ? null
         : undefined;
     if (input.providerAccountId === undefined) return undefined;
-    return next?.providerAccountId && this.#pooled(next) ? next.providerAccountId : null;
+    if (!next || !this.#pooled(next)) return null;
+    // The provider's own sign-in is an account too: an agent that names "default" keeps it (#10661).
+    // Only null gives the agent to the pool.
+    if (next.providerAccountId) return next.providerAccountId;
+    return input.providerAccountId === DEFAULT_PROVIDER_ACCOUNT_ID ? DEFAULT_PROVIDER_ACCOUNT_ID : null;
   }
 
   /** An update of the account alone also takes the new account's model when `#modelForAccount` gives one. */
@@ -4154,11 +4248,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return next ? { input: { ...move(next), leaveUsageLimit: true }, move: failed ? "provider-error" : null } : null;
   }
 
-  /** Whether work waits for the agent: in its chat, a task, a channel lane, or a channel. */
+  /** Whether work waits for the agent: in its chat, a task, a channel lane, its conversations, or a channel. */
   #hasWaitingWork(agentId: string): boolean {
     return (
       Boolean(this.#mailbox.nextQueued(agentId)) ||
-      [...this.#mailbox.queuedTaskIds(agentId), ...this.#mailbox.channelLanes(agentId, true)].some((laneId) =>
+      [...this.#mailbox.queuedTaskIds(agentId), ...this.#mailbox.sideLanes(agentId, true)].some((laneId) =>
         this.#mailbox.nextQueued(agentId, laneId),
       ) ||
       this.channels.ownsWaitingWork(agentId)
@@ -4222,7 +4316,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    * pool that no agent uses yet, each account in the pool counts.
    */
   #poolPick(provider: AgentProvider, model: string | null, current: string | null): string | null {
-    const members = this.#providers.poolMembers(provider, model ?? "").filter(
+    return pickPoolAccount(this.#readyPoolMembers(provider, model), current, Date.now() / 1000);
+  }
+
+  /** The pool's accounts that are ready for the model and not at a limit or after a provider error. */
+  #readyPoolMembers(provider: AgentProvider, model: string | null) {
+    return this.#providers.poolMembers(provider, model ?? "").filter(
       (member) =>
         model === null ||
         this.#usageLimitReady({
@@ -4231,7 +4330,20 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           ...(member.accountId === DEFAULT_PROVIDER_ACCOUNT_ID ? {} : { providerAccountId: member.accountId }),
         }),
     );
-    return pickPoolAccount(members, current, Date.now() / 1000);
+  }
+
+  /**
+   * Whether the agent's pool has another account that is ready for its model. Unlike `#poolBackup`, it
+   * does not keep the account that an agent chose for it: a spent quota ends that choice, as a limit
+   * does in `#keepsPinnedAccount`.
+   */
+  #poolHasOtherAccount(agentId: string): boolean {
+    const agent = this.#store.list().find((candidate) => candidate.id === agentId);
+    if (!agent) return false;
+    const choice = agentModelChoice(agent);
+    if (!this.#pooled(choice)) return false;
+    const current = choice.providerAccountId ?? DEFAULT_PROVIDER_ACCOUNT_ID;
+    return this.#readyPoolMembers(choice.provider, choice.model).some((member) => member.accountId !== current);
   }
 
   /** Shows the pool's pick for the model of the provider's first agent in the provider's row. */
@@ -4325,7 +4437,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    * a limit stopped.
    */
   #queuedContinuation(agentId: string): boolean {
-    return [null, ...this.#mailbox.queuedTaskIds(agentId), ...this.#mailbox.channelLanes(agentId, true)].some(
+    return [null, ...this.#mailbox.queuedTaskIds(agentId), ...this.#mailbox.sideLanes(agentId, true)].some(
       (taskId) => this.#mailbox.nextQueued(agentId, taskId)?.resumeAfterUsageLimit !== undefined,
     );
   }
@@ -4941,6 +5053,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    * waits for the next drain, unless a turn in the agent's own chat starts first. Queued routine runs in
    * their own session do not end it: it starts before them, and their answers stay above its marker.
    * The user can turn the setting off while the request waits.
+   *
+   * The new chat closes the Claude session, and the background subagents and commands of that session
+   * end with it (#10743). So the request also waits for them: when the work ends, Claude answers its
+   * result in a turn of its own, and the drain after that turn starts the new chat. "New chat" from
+   * the user does not wait: a background command such as a dev server can run without end.
    */
   #startRequestedNewChat(agentId: string, queuedRuns: readonly string[] = []): Effect.Effect<void> {
     if (!this.#requestedNewChats.has(agentId)) return Effect.void;
@@ -4949,7 +5066,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#requestedNewChats.delete(agentId);
       return Effect.void;
     }
-    return this.clearAgentContext(agentId, queuedRuns).pipe(
+    const startNewChat = this.clearAgentContext(agentId, queuedRuns).pipe(
       Effect.tap(() =>
         Effect.sync(() => {
           this.#requestedNewChats.delete(agentId);
@@ -4964,6 +5081,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         }),
       ),
     );
+    return this.#threads
+      .mainRunsBackgroundWork(agent)
+      .pipe(Effect.flatMap((background) => (background ? Effect.void : startNewChat)));
   }
 
   resolveChannelImage(channelId: string): ChannelImageFile | null {
@@ -4977,7 +5097,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   resolveSharedFile(
     inputPath: string,
-    options?: { allowDirectory?: boolean },
+    options?: { allowDirectory?: boolean; followLinks?: boolean },
   ): Effect.Effect<ResolvedSharedFile, AgentLifecycleFailed> {
     return resolveSharedFile(this.#store.sharedRoot, inputPath, options).pipe(
       Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "resolveSharedFile", cause: failure.cause })),
@@ -5109,6 +5229,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         ),
       );
     yield* lifecycleStep("restore channel links", () => {
+      // Before any drain. A conversation whose thread is also the agent's own chat (#2120) runs its turns
+      // there, and a provider that runs one turn at a time keeps one queue: both keep the own chat's lane.
+      const ownChatLinks = new Set(
+        this.#store.list().flatMap((agent) => {
+          const link = agent.threadId ? this.messaging.store.linkForThread(agent.threadId) : null;
+          return link ? [link.linkId] : [];
+        }),
+      );
+      this.#mailbox.useMessagingLane((agentId, linkId) => {
+        const provider = this.#store.providerOf(agentId);
+        return !ownChatLinks.has(linkId) && provider !== undefined && agentProviderDescriptor(provider).concurrentTurns;
+      });
       this.#mcp.migrateCatalogRows();
       this.channels.restoreDeliveryLinks();
       this.channels.removeDeletedMembers(new Set(this.#store.list().map((agent) => agent.id)));
@@ -5734,6 +5866,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#profileClients.usesProvider(provider) ||
       this.#drain.hasStartingDeliveries(provider) ||
       this.#store.list().some((agent) => providerForAgent(agent) === provider && this.#runsTurn(agent.id))
+    );
+  }
+
+  /** `#isProviderBusy` without this agent: another agent's turn runs, or its delivery starts. */
+  #isProviderBusyApartFrom(provider: AgentProvider, agentId: string): boolean {
+    return (
+      this.#profileClients.usesProvider(provider) ||
+      this.#store
+        .list()
+        .some(
+          (agent) =>
+            agent.id !== agentId &&
+            providerForAgent(agent) === provider &&
+            (this.#runsTurn(agent.id) || this.#mailbox.startingDeliveriesForAgent(agent.id).length > 0),
+        )
     );
   }
 
@@ -6695,6 +6842,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     timezone: string | undefined,
     idempotencyKey?: string,
     welcome = false,
+    agentSetup = false,
   ) {
     const validateRecipient = yield* lifecycleStep("prepare message delivery", () =>
       this.#mailbox.prepareDelivery([input.agentId]),
@@ -6737,6 +6885,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         replyToMessageId: input.replyToMessageId ?? null,
         ...(idempotencyKey ? { idempotencyKey } : {}),
         ...(welcome ? { welcome } : {}),
+        ...(agentSetup ? { agentSetup } : {}),
       })
       .pipe(
         Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "enqueue message", cause: failure.cause })),
@@ -6780,12 +6929,29 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             Effect.sync(() => this.#emitError("message_preview_failed", failure.cause, agent.id)),
           ),
         );
-    yield* this.#steerWhenBusy(agent, task, snapshot, delivery.delivery.id, true, false);
     // A turn that waits on a question in this chat reads no message until that question is answered,
     // so the person who wrote instead would wait for it. A stopped turn clears its own questions.
     const waitingTurnId = snapshot.activeTurnId;
-    if (targetThreadId && waitingTurnId && waitingTurnId !== this.#stoppedTurn(agent.id, task?.taskId ?? null))
-      this.#attention.releaseForUserMessage(agent.id, targetThreadId, waitingTurnId);
+    const releaseQuestions = Effect.sync(() => {
+      if (targetThreadId && waitingTurnId && waitingTurnId !== this.#stoppedTurn(agent.id, task?.taskId ?? null))
+        this.#attention.releaseForUserMessage(agent.id, targetThreadId, waitingTurnId);
+    });
+    // Claude's steer puts the message in the CLI's input at once, so the question closes after it.
+    // When the question closed first, the agent read "end your turn when the message is not in your
+    // input" before the message came, and the message ran as a turn of its own below. An ACP steer
+    // by prompt refuses while a question waits, and an ACP steer extension can wait for the tool call
+    // to end, so for the other providers the question closes first, as before.
+    const steerFirst = providerForAgent(agent) === "claude";
+    if (!steerFirst) yield* releaseQuestions;
+    yield* this.#steerWhenBusy(
+      agent,
+      task,
+      snapshot,
+      delivery.delivery.id,
+      true,
+      false,
+      steerFirst ? releaseQuestions : Effect.void,
+    );
     if (!task) {
       this.#emit({ type: "agents-changed", agents: this.listAgents() });
       this.#conversation.emitConversation(snapshot);
@@ -6836,7 +7002,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    * busy-message mode is "steer". The message is from the user or from another agent. A provider
    * that cannot steer, or a routine run, keeps the message queued; `explain` says why on its row.
    * With `wait`, the result says what became of the message; otherwise the steer runs in the
-   * background and the result is null.
+   * background and the result is null. `afterSteer` runs when the provider has the message or will
+   * not get it in this turn.
    */
   readonly #steerWhenBusy = Effect.fn("AgentService.steerWhenBusy")(function* (
     this: AgentService,
@@ -6846,9 +7013,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     deliveryId: string,
     explain: boolean,
     wait: boolean,
+    afterSteer: Effect.Effect<void> = Effect.void,
   ): Effect.fn.Return<AgentMessageSteer> {
+    const notSteered = <Reason extends AgentMessageSteer>(reason: Reason) => afterSteer.pipe(Effect.as(reason));
     const steerTurnId = this.#turnToSteer(agent.id, task?.taskId ?? null, snapshot);
-    if (!steerTurnId) return null;
+    if (!steerTurnId) return yield* notSteered(null);
     // These reasons come first, so the sender is not told to select Steer when Steer would not help.
     // Only a message sent to steer gets a reason on its row.
     const steers = (agent.busyMessageMode ?? this.#busyMessageMode()) === "steer";
@@ -6856,15 +7025,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     const model = this.#drain.modelForTurn(agent.id, steerTurnId) ?? agent.model;
     if (!agentSteersTurns({ provider: providerForAgent(agent), model }, this.#endpoints.available())) {
       if (explain && steers) yield* this.#markSteerFallback(agent.id, deliveryId, "provider-unsupported");
-      return "provider-unsupported";
+      return yield* notSteered("provider-unsupported");
     }
     // A routine run's own session ends with the run, so a chat message waits for the next turn.
     if (this.#routineRunsIn(agent, task?.threadId ?? null)) {
       if (explain && steers) yield* this.#markSteerFallback(agent.id, deliveryId, "steer-failed");
-      return "routine-run";
+      return yield* notSteered("routine-run");
     }
-    if (!steers) return "recipient-queues";
-    const steer = this.#steerSentMessage(agent, snapshot.threadId ?? agent.threadId, deliveryId, steerTurnId, explain);
+    if (!steers) return yield* notSteered("recipient-queues");
+    const steer = this.#steerSentMessage(
+      agent,
+      snapshot.threadId ?? agent.threadId,
+      deliveryId,
+      steerTurnId,
+      explain,
+    ).pipe(Effect.ensuring(afterSteer));
     if (wait) return yield* steer;
     // The message is already queued, and the sender is answered without the wait for the provider.
     yield* steer.pipe(Effect.forkIn(this.#scope));
@@ -6880,21 +7055,40 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   /**
-   * An answer, a requested result or a notice from another agent follows the recipient's
-   * busy-message mode, as a message from the user does. A request does not: it waits for a turn of
-   * its own in each mode (`MailboxStore.chatTurnSteer`). Only a message for the recipient's own chat
-   * can go into its running turn. The person did not send it, so a message that cannot steer waits
-   * with no reason on its row. With `wait`, the sender learns if the message joined the running
-   * turn, or why it waits (#6475).
+   * A message from another agent, a request included, follows the recipient's busy-message mode, as
+   * a message from the user does (`MailboxStore.joinsChatTurn`). Only a message for the recipient's
+   * own chat can go into its running turn. The person did not send it, so a message that cannot
+   * steer waits with no reason on its row. With `wait`, the sender learns if the message joined the
+   * running turn, or why it waits (#6475). A turn that only a person's messages started stays theirs:
+   * a message from an agent in it would make the tools that only a person can start refuse the
+   * person's own request (#11165), so the message waits for a turn of its own.
    */
   #steerAgentMessage(recipientAgentId: string, deliveryId: string, wait: boolean): Effect.Effect<AgentMessageSteer> {
     const agent = this.#store.list().find((item) => item.id === recipientAgentId);
     // A recipient with no loaded chat runs no turn, so its page is not read for this.
     const snapshot = this.#conversation.snapshotToUpdate(recipientAgentId);
-    const steer = this.#mailbox.chatTurnSteer(deliveryId);
-    if (!agent || !snapshot || !steer) return Effect.succeed(null);
-    if (steer === "own-turn") return Effect.succeed(this.#turnToSteer(agent.id, null, snapshot) ? "own-turn" : null);
+    if (!agent || !snapshot || !this.#mailbox.joinsChatTurn(deliveryId)) return Effect.succeed(null);
+    if (snapshot.activeTurnId && this.#personTurn(recipientAgentId, snapshot.activeTurnId)) return Effect.succeed(null);
     return this.#steerWhenBusy(agent, null, snapshot, deliveryId, false, wait);
+  }
+
+  /**
+   * Whether only people on this computer sent the messages of this running turn. The drain links the
+   * messages to a turn a moment after it publishes the turn, so until then the messages that start it
+   * count. A team member on another computer cannot use the person-only tools, so their turn does not
+   * hold messages from agents back.
+   */
+  #personTurn(agentId: string, turnId: string): boolean {
+    const linked = this.#mailbox.findDeliveriesByTurn(agentId, turnId);
+    const deliveries = linked.length > 0 ? linked : this.#mailbox.startingDeliveriesForAgent(agentId, null);
+    return (
+      deliveries.length > 0 &&
+      deliveries.every(({ delivery }) => {
+        if (delivery.sender.kind !== "user") return false;
+        const member = this.#mailbox.senderMember(delivery.messageId);
+        return member === undefined || !(this.channels.hooks.remotePerson?.(member.id) ?? false);
+      })
+    );
   }
 
   /**

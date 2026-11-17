@@ -68,6 +68,7 @@ import type { HostAnalytics } from "./analytics";
 import {
   closeRetainedNotification,
   desktopAgentEventLevel,
+  type NotificationChat,
   RETAINED_NOTIFICATION_LIMIT,
   showRetainedNotification,
 } from "./desktop-notifications";
@@ -176,6 +177,47 @@ export function createRendererForwarders({
   const channelReads = new Map<string, boolean>();
   /** The shown reply notification of each channel. A newer reply replaces it. */
   const channelNotifications = new Map<string, Notification>();
+  /**
+   * The shown notifications of each chat, by server. The user reads a chat only while they look at
+   * it, so a read closes them; otherwise they stay in the system's notification list.
+   */
+  const chatNotifications = new Map<string, Set<Notification>>();
+
+  function chatKey(serverId: string, chat: NotificationChat): string {
+    return "channelId" in chat ? `${serverId}\nchannel:${chat.channelId}` : `${serverId}\nagent:${chat.agentId}`;
+  }
+
+  function trackChatNotification(serverId: string, chat: NotificationChat, notification: Notification): void {
+    const key = chatKey(serverId, chat);
+    const shown = chatNotifications.get(key) ?? new Set<Notification>();
+    chatNotifications.set(key, shown);
+    shown.add(notification);
+    // A chat that the user does not open keeps only its newest notifications.
+    for (const oldest of shown) {
+      if (shown.size <= RETAINED_NOTIFICATION_LIMIT) break;
+      shown.delete(oldest);
+    }
+    const release = () => {
+      shown.delete(notification);
+      if (shown.size === 0 && chatNotifications.get(key) === shown) chatNotifications.delete(key);
+    };
+    notification.on("click", release);
+    notification.on("close", release);
+    notification.on("failed", release);
+  }
+
+  /** Closes the shown notifications of a chat that the user read. */
+  function closeChatNotifications(serverId: string, chat: NotificationChat): void {
+    // The agent dock reads while it is on screen, also when no app window has focus. Its notifications
+    // are then still news.
+    const window = getMainWindow();
+    if (!window || window.isDestroyed() || !appFocused(window)) return;
+    const key = chatKey(serverId, chat);
+    const shown = chatNotifications.get(key);
+    if (!shown) return;
+    chatNotifications.delete(key);
+    for (const notification of shown) closeRetainedNotification(notification);
+  }
 
   /** The notification level of a server's channel replies, or null when none can show. */
   function replyLevel(serverId: string) {
@@ -271,6 +313,7 @@ export function createRendererForwarders({
           channelId: reply.channelId,
         });
       });
+      trackChatNotification(serverId, { channelId: reply.channelId }, notification);
       showRetainedNotification(notification);
     }
   }
@@ -486,6 +529,12 @@ export function createRendererForwarders({
         ...(content.channelId ? { channelId: content.channelId } : {}),
       });
     });
+    // A notification of a routine or side thread stays: reading the agent's own chat does not show that
+    // thread. An agent list from before the first turn has no thread yet.
+    const ownThreadId = agents.find((agent) => agent.id === content.agentId)?.threadId ?? null;
+    if (content.channelId) trackChatNotification(serverId, { channelId: content.channelId }, notification);
+    else if (!routineTaskId && (ownThreadId === null || ownThreadId === content.threadId))
+      trackChatNotification(serverId, { agentId: content.agentId }, notification);
     showRetainedNotification(notification);
   }
 
@@ -719,7 +768,15 @@ export function createRendererForwarders({
     for (const target of appWindows()) sendToRenderer(target, IPC_ENDPOINTS.attachmentImports.importProgress, progress);
   }
 
+  // Settings can open in any window; each one keeps the progress of its own server.
+  function forwardInstanceTransferUploadProgress(
+    progress: import("@openbot/contracts/ipc").InstanceTransferUploadProgress,
+  ): void {
+    for (const target of appWindows()) sendToRenderer(target, IPC_ENDPOINTS.instanceTransfer.uploadProgress, progress);
+  }
+
   return {
+    closeChatNotifications,
     forwardAgentEvent,
     forwardWorkflowNotice,
     forwardMachineAlert,
@@ -746,5 +803,6 @@ export function createRendererForwarders({
     forwardDirectTyping,
     forwardAttachmentDownload,
     forwardAttachmentImportProgress,
+    forwardInstanceTransferUploadProgress,
   };
 }

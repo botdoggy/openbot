@@ -9,6 +9,7 @@ import type {
 import {
   AGENT_INSTRUCTIONS_CHANGE_ITEM_TYPE,
   AGENT_WELCOME_ITEM_TYPE,
+  CHANNEL_RESUME_ITEM_TYPE,
   CONVERSATION_MEMORY_CHANGES_ITEM_TYPE,
   CONVERSATION_PLAN_ITEM_TYPE,
   CONVERSATION_SUBAGENTS_ITEM_TYPE,
@@ -21,6 +22,7 @@ import {
   mcpSignInEvent,
   modelSwitchReason,
   parseConversationPlanText,
+  replacedConversationPlans,
   routineConversationEvent,
   routineRunConversationEvent,
   settingLinkEvent,
@@ -174,6 +176,7 @@ export function toAgentMessage(message: ConversationMessage, ownerAgentId?: stri
     ...(exchangeSenderId === undefined ? {} : { senderAgentId: exchangeSenderId }),
     ...(senderMember === undefined ? {} : { senderMember }),
     ...(message.replyToMessageId === undefined ? {} : { replyToMessageId: message.replyToMessageId }),
+    ...(message.steered ? { steered: true as const } : {}),
     ...(message.attachments === undefined ? {} : { attachments: message.attachments }),
     ...(message.voiceRecording === undefined ? {} : { voiceRecording: message.voiceRecording }),
     ...(message.imageGeneration === undefined ? {} : { imageGeneration: message.imageGeneration }),
@@ -219,10 +222,33 @@ export function planItems(plan: AgentMessagePlan, streaming: boolean): TaskListI
 
 const PLAN_TITLE_LIMIT = 80;
 
-/** The header of a plan block: a short explanation, else "Tasks", or "Stopped" for a stopped plan. */
-export function planTitle(plan: AgentMessagePlan): string {
+/**
+ * The plan rows that a later turn of the same agent replaced (`replacedConversationPlans`). Only the
+ * agent's own output counts: not an exchange with a teammate, a routine or event marker, or the
+ * memory changes, which are system rows.
+ */
+export function replacedPlanIds(messages: readonly AgentMessage[]): ReadonlySet<string> {
+  return replacedConversationPlans(
+    messages.map((message) => ({
+      id: message.id,
+      turnId: message.turnId,
+      agent:
+        message.author === "agent" && !message.exchange && !message.actionMarker && message.kind !== "memory-changes"
+          ? (message.senderAgentId ?? "")
+          : null,
+      plan: message.kind === "plan",
+    })),
+  );
+}
+
+/**
+ * The header of a plan block: a short explanation, else "Tasks", or "Stopped" for a stopped plan
+ * that no later turn replaced.
+ */
+export function planTitle(plan: AgentMessagePlan, replaced: boolean): string {
   const { t } = currentText();
-  if (plan.stopped && plan.steps.some((step) => step.status !== "completed")) return t("chat.taskList.stopped");
+  if (plan.stopped && !replaced && plan.steps.some((step) => step.status !== "completed"))
+    return t("chat.taskList.stopped");
   if (plan.explanation && plan.explanation.length <= PLAN_TITLE_LIMIT) return plan.explanation;
   return t("chat.taskList.title");
 }
@@ -244,7 +270,8 @@ export function toAgentMessages(
       continue;
     }
     // A new agent's setup message is for the agent only: the chat starts with the agent's welcome.
-    if (message.itemType === AGENT_WELCOME_ITEM_TYPE) continue;
+    // The continuation of a channel request is for the agent only too (#8812).
+    if (message.itemType === AGENT_WELCOME_ITEM_TYPE || message.itemType === CHANNEL_RESUME_ITEM_TYPE) continue;
     if (message.author !== "assistant" || message.itemType !== "commentary") {
       result.push(convert(message, index));
       continue;
@@ -359,6 +386,7 @@ export function agentMessagesEqual(left: AgentMessage, right: AgentMessage): boo
     left.senderMember?.id === right.senderMember?.id &&
     left.senderMember?.name === right.senderMember?.name &&
     left.replyToMessageId === right.replyToMessageId &&
+    left.steered === right.steered &&
     left.reaction === right.reaction &&
     JSON.stringify(left.reactions) === JSON.stringify(right.reactions) &&
     JSON.stringify(left.reactionSummary) === JSON.stringify(right.reactionSummary) &&

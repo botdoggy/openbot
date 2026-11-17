@@ -94,6 +94,7 @@ export const messages = {
   "error.backend.channelCompactNotSupported":
     "Ningún miembro de este canal puede compactar a petición. Los miembros que lo admiten compactan su contexto automáticamente cuando está casi lleno.",
   "error.backend.channelArchived": "Restaura este canal antes de enviar mensajes o cambiar tareas.",
+  "error.backend.channelArchiveRunning": "Detén el trabajo en curso en este canal y luego elimínalo.",
   "error.backend.channelReferenceUnavailable": "El mensaje del canal al que se hace referencia no está disponible.",
   "error.backend.channelTaskNotFound": "No se encontró la tarea del canal.",
   "error.backend.channelTaskComplete": "Esta tarea ya está completada.",
@@ -260,6 +261,8 @@ export const messages = {
   "error.backend.mcpSignInAppRefused":
     "El servidor de inicio de sesión no aceptó la app de inicio de sesión de este servidor. Revisa el ID de cliente y el secreto de cliente de la app de inicio de sesión y vuelve a iniciar sesión.",
   "error.backend.mcpCommandNotFound": "No se encontró el comando: {command}",
+  "error.backend.mcpProviderLimit":
+    "Este agente solo puede usar un número limitado de servidores MCP. Para usar este servidor, desactiva un servidor MCP que el agente no necesite.",
   "error.backend.mcpRegistrationRefused":
     "El servidor de inicio de sesión aún no acepta OpenBot como aplicación. Tu cuenta no es la causa. Usa otra forma de conexión, como un servidor MCP local.",
   "error.backend.mcpSignInAbandonedGeneric": "Se abandonó el inicio de sesión.",
@@ -282,6 +285,7 @@ export const messages = {
     "El servidor de inicio de sesión envió una respuesta que OpenBot no puede leer. Si el servicio te da una clave de API o un token, añádelo en la configuración de este servidor y vuelve a probar la conexión.",
   "error.backend.mcpServerExited":
     "El servidor se detuvo antes de responder. Ejecuta el comando en una terminal para ver su error.",
+  "error.backend.mcpServerExitedWithOutput": "El servidor se detuvo antes de responder. Escribió: {detail}",
   "error.backend.mcpServerFailedToStart": "El servidor no se inició: {reason}",
   "error.backend.mcpServerStartAbandoned":
     "{provider} dejó de esperar antes de que el servidor se iniciara, así que sus agentes no reciben las herramientas de este servidor.",
@@ -299,6 +303,8 @@ export const messages = {
     "OpenBot no pudo iniciar su conexión local de inicio de sesión para este servidor. Reinicia OpenBot y vuelve a intentarlo.",
   "error.backend.mcpOAuthSignInNeeded":
     "El inicio de sesión en este servidor MCP ha terminado. El usuario debe volver a iniciar sesión en OpenBot.",
+  "error.backend.mcpOAuthRenewalFailed":
+    "OpenBot no pudo renovar ahora el inicio de sesión en este servidor MCP. El inicio de sesión se conserva y la próxima solicitud lo intentará de nuevo. Si el error continúa, el usuario puede cerrar sesión en el servidor en OpenBot e iniciarla de nuevo.",
   "error.backend.mcpServerUnreachable": "OpenBot no pudo conectar con el servidor. Revisa la URL y tu red.",
   "error.backend.mcpLocalServerOff":
     "Ningún servidor responde en {address} en este equipo. Inicia el servidor o actívalo en la app que lo ejecuta y vuelve a intentarlo.",
