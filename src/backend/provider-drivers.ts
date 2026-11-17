@@ -1,11 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import {
-  type ClientSideConnection,
-  type InitializeResponse,
-  RequestError,
-} from "@agentclientprotocol/sdk";
+import { type ClientSideConnection, type InitializeResponse, RequestError } from "@agentclientprotocol/sdk";
 import {
   type AgentAuthState,
   type AgentModelOption,

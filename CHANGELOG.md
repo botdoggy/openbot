@@ -6,6 +6,12 @@ All notable changes to OpenBot will be documented here. The project follows
 
 ## [Unreleased]
 
+## [0.71.0-bd.4] - 2026-11-17
+
+### Fixed
+
+- Fork: corrects the provider SDK import formatting that blocked the 0.71.0-bd.3 release. Application behavior is unchanged.
+
 ## [0.71.0-bd.3] - 2026-11-16
 
 ### Added
