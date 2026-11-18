@@ -82,6 +82,8 @@ jobs:
             exit 1
           fi
           bun scripts/check-release-notes.ts
+          # The start recovery reads which schema each release before this check can open.
+          bun scripts/released-schema-versions.ts
           echo "version=$package_version" >> "$GITHUB_OUTPUT"
           echo "tag=v$package_version" >> "$GITHUB_OUTPUT"
 

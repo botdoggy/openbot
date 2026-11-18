@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import type { HostReleaseStatus, UpdateStatus } from "@openbot/contracts/ipc";
+import { isNewerRelease, isValidSemver } from "@openbot/contracts/release-version";
 import { Deferred, Effect, Exit, Schema } from "effect";
 import { parse } from "yaml";
-import { isValidSemver } from "./update-service";
 
 class ReleaseCheckFailed extends Schema.TaggedError<ReleaseCheckFailed>()("ReleaseCheckFailed", {}) {}
 
@@ -108,7 +108,7 @@ export class HostReleaseService {
         catch: () => new ReleaseCheckFailed(),
       });
       this.#latestVersion = version;
-      this.#phase = newerRelease(version, this.#options.currentVersion) ? "available" : "up-to-date";
+      this.#phase = isNewerRelease(version, this.#options.currentVersion) ? "available" : "up-to-date";
     }).pipe(
       Effect.catch(() =>
         Effect.sync(() => {
@@ -163,47 +163,4 @@ export function fetchLatestLinuxRelease(arch: string, request: typeof fetch, sig
   const target = releaseTarget("linux", arch);
   if (!target) return Promise.reject(new Error("No release for this machine"));
   return fetchLatestRelease(target, request, signal);
-}
-
-export function newerRelease(candidate: string, current: string): boolean {
-  // Parse both sides alike: the fork publishes equal numbers with a prerelease suffix (0.58.0-bd.N).
-  const parse = (version: string) => version.split(/[.+-]/u).slice(0, 3).map(Number);
-  const left = parse(candidate);
-  const right = parse(current);
-  for (let index = 0; index < 3; index += 1) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference > 0;
-  }
-  // Equal numbers: a plain release supersedes its prereleases, and between two prereleases the
-  // later suffix wins (semver identifier order: numeric before alphanumeric, then numerically or
-  // lexically per identifier). Fork builds update 0.58.0-bd.2 to 0.58.0-bd.3, neither to itself.
-  const suffix = (version: string) => version.split("+", 1)[0]?.split("-", 2)[1];
-  const candidateSuffix = suffix(candidate);
-  const currentSuffix = suffix(current);
-  if (candidateSuffix === currentSuffix) return false;
-  if (candidateSuffix === undefined) return true;
-  if (currentSuffix === undefined) return false;
-  return comparePrereleaseSuffixes(candidateSuffix, currentSuffix) > 0;
-}
-
-/** Semver prerelease identifier order, for two suffixes of releases with equal version numbers. */
-function comparePrereleaseSuffixes(left: string, right: string): number {
-  const leftParts = left.split(".");
-  const rightParts = right.split(".");
-  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
-    const leftPart = leftParts[index];
-    const rightPart = rightParts[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-    const leftNumber = /^\d+$/u.test(leftPart) ? Number(leftPart) : null;
-    const rightNumber = /^\d+$/u.test(rightPart) ? Number(rightPart) : null;
-    if (leftNumber !== null && rightNumber !== null) {
-      if (leftNumber !== rightNumber) return leftNumber < rightNumber ? -1 : 1;
-      continue;
-    }
-    if (leftNumber !== null) return -1;
-    if (rightNumber !== null) return 1;
-    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
-  }
-  return 0;
 }
