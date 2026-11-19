@@ -19,8 +19,9 @@ changes, and respect the `STOP` conditions.
 | 009 | An HTTPS sign-out or session revoke also closes the browser views of that session | P2 | S | — | DONE |
 | 010 | Branch a conversation from a message | P1 | L | — | IN PROGRESS |
 | 011 | Upgrades, migrations and team protocol stay safe for the long term | P1 | L | — | IN PROGRESS |
-| 012 | Custom ACP agents steer a running turn | P2 | M | — | DONE |
-| 013 | Custom ACP steer speaks the agreed `_session/steering` wire protocol | P2 | S | 012 | DONE |
+| 012 | A pool server whose plan ended goes to an archive in B2 | P2 | L | — | IN PROGRESS |
+| 013 | Custom ACP agents steer a running turn | P2 | M | — | DONE |
+| 014 | Custom ACP steer speaks the agreed `_session/steering` wire protocol | P2 | S | 013 | DONE |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

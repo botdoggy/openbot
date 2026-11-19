@@ -1,10 +1,3 @@
-// A custom agent is a command that the user names: OpenBot starts it on this computer and talks to
-// it over the Agent Client Protocol on stdio. All custom agents are the one provider `acp`, and a
-// model id names the agent (`<customAgentId>/<agentModel>`).
-//
-// The environment values are the secret half. They travel renderer-to-main on `save` and `check`,
-// and never come back: the summary has the names only, and its guard refuses a row that has more.
-
 import type { AgentProviderId, AgentProviderRef } from "./agent-providers";
 import {
   agentProviderDescriptor,
@@ -31,30 +24,19 @@ export const CUSTOM_AGENT_LIMITS = {
   usageAnswer: 4_000,
 } as const;
 
-/** A POSIX environment variable name. */
 export const CUSTOM_AGENT_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** `value: null` keeps the value that main holds for this name. A new agent has none to keep. */
 export interface CustomAgentEnvInput {
   name: string;
   value: string | null;
 }
 
-/**
- * Renderer to main. Adds an agent, or replaces the saved agent with this id. Nothing on this path
- * may log an environment value.
- */
 export interface SaveCustomAgentInput {
   id: string;
   name: string;
-  /** An absolute path, a path in the home folder, or a command name that PATH resolves. */
   command: string;
   args: string[];
   env: CustomAgentEnvInput[];
-  /**
-   * The prompt that OpenBot sends, in a session that no thread owns, to read the plan usage, such as
-   * `/usage`. Null for none. One line.
-   */
   usagePrompt: string | null;
   /**
    * Whether the command runs turns of two sessions of one working folder at the same time, as the
@@ -76,35 +58,18 @@ export interface DeleteCustomAgentInput {
   id: string;
 }
 
-/** Main to renderer. The environment values never come back. */
 export interface CustomAgentSummary {
   id: string;
   name: string;
   command: string;
   args: string[];
   envNames: string[];
-  /**
-   * Absent in the result of a registry install from a server: the released `acp-registry-v1` codec
-   * keeps only the fields it knew, and the next list carries the value.
-   */
   usagePrompt?: string | null | undefined;
-  /**
-   * The user's saved choice: the command runs turns of two sessions at the same time, so the agent
-   * is not held to one turn at a time. Absent in the result of a registry install from a server,
-   * like `usagePrompt`; the resolution reads it as false.
-   */
   concurrentTurns?: boolean | undefined;
-  /**
-   * The user's saved choice: the command takes a message into its running turn. Absent in the
-   * result of a registry install from a server, like `concurrentTurns`; the resolution reads it as
-   * false.
-   */
   steer?: boolean | undefined;
-  /** The file that the command starts, or null when it cannot be found now. */
   resolvedCommand: string | null;
 }
 
-/** Main to renderer. The answer of one agent to its usage prompt, as plain text with secrets redacted. */
 export interface CustomAgentUsage {
   id: string;
   text: string;
@@ -115,11 +80,6 @@ export interface CustomAgentResult {
   restart: CustomProviderRestart;
 }
 
-/**
- * One trial start: main runs the command, sends `initialize`, opens one session to read the
- * models, and stops it. `savedAgentId` names the
- * saved agent whose kept environment values a `null` value takes.
- */
 export interface CheckCustomAgentInput {
   command: string;
   args: string[];
@@ -127,14 +87,11 @@ export interface CheckCustomAgentInput {
   savedAgentId?: string;
 }
 
-/** What the agent said about itself. A failed check rejects with the reason. */
 export interface CustomAgentCheckResult {
   agentName: string;
   version: string | null;
   protocolVersion: number;
-  /** Capability names as the agent reports them, such as `loadSession` or `image`. */
   capabilities: string[];
-  /** The names of the models that a new session lists. Empty when the agent lists none before sign-in. */
   models: string[];
   /** `true` when the agent's `initialize` answer had `"_meta": { "concurrentTurns": true }`. */
   concurrentTurns: boolean;
@@ -142,12 +99,9 @@ export interface CustomAgentCheckResult {
   steer: boolean;
 }
 
-/** A known agent command that the scan found on this computer. It was not started. */
 export interface DetectedAcpAgent {
-  /** A free custom agent id to suggest. */
   id: string;
   name: string;
-  /** The full path, so the saved agent does not depend on PATH. */
   command: string;
   args: string[];
 }
@@ -160,7 +114,6 @@ function isArgs(value: unknown): value is string[] {
   );
 }
 
-/** One line: the prompt goes to the agent as it is, so a line break would send a second instruction. */
 export function isCustomAgentUsagePrompt(value: unknown): value is string {
   return isBoundedString(value, CUSTOM_AGENT_LIMITS.usagePrompt) && value.trim().length > 0 && !/[\0\r\n]/.test(value);
 }
@@ -169,7 +122,6 @@ export function isCustomAgentEnvName(value: unknown): value is string {
   return isBoundedString(value, INPUT_LIMITS.identifier) && CUSTOM_AGENT_ENV_NAME_PATTERN.test(value);
 }
 
-/** Fails closed: a row with an `env`, `secret` or `value` key is refused, and so is the whole list. */
 export function isCustomAgentSummary(value: unknown): value is CustomAgentSummary {
   return (
     isDynamicRecord(value) &&

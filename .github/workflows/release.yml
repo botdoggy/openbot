@@ -55,6 +55,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fetch upstream release tags
+        shell: bash
+        run: git fetch --no-tags https://github.com/nightly-labs/openbot.git 'refs/tags/v*:refs/tags/v*'
+
       - name: Require release commit on main
         if: github.event_name == 'push' || inputs.mode == 'release'
         shell: bash
