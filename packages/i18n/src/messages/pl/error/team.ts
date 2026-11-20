@@ -124,6 +124,7 @@ export const messages = {
   "error.team.hostUpdateUnsupported": "To połączenie nie obsługuje aktualizacji hosta.",
   "error.team.hostTimezoneUnsupported": "To połączenie nie obsługuje strefy czasowej serwera.",
   "error.team.hostRestartUnsupported": "To połączenie nie obsługuje ponownego uruchamiania serwera.",
+  "error.team.ownerTransferUnsupported": "Ten serwer nie obsługuje przekazania własności.",
   "error.team.hostKeyRotationUnsupported": "To połączenie nie obsługuje zmiany klucza serwera.",
   "error.team.localServersUnsupported": "To połączenie nie obsługuje serwerów na tym komputerze.",
   "error.team.routineResultsUnsupported": "To połączenie nie obsługuje miejsc docelowych rutyn.",
@@ -189,6 +190,7 @@ export const messages = {
   "error.team.hostPersonalityUnsupported": "To połączenie nie obsługuje osobowości serwera.",
   "error.team.agentWaitsUnsupported": "To połączenie nie obsługuje otwartych oczekiwań.",
   "error.team.pendingApprovalUnsupported": "To połączenie nie pozwala odczytać całej prośby o zgodę.",
+  "error.team.pendingPromptsUnsupported": "To połączenie nie obsługuje odczytu otwartych pytań.",
   "error.team.phoneFeedbackUnsupported": "To połączenie nie pozwala wysłać zgłoszenia z aplikacji na telefon.",
   "error.team.messagePinsUnsupported": "To połączenie nie obsługuje przypiętych wiadomości.",
   "error.team.queuedMessageThreadUnsupported":

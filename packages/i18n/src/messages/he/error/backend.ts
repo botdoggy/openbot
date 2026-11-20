@@ -280,6 +280,8 @@ export const messages = {
     "{provider} לא הצליח להפעיל את שרת ה-MCP {name}, כי השרת לא זמין כרגע. יש להמתין כמה דקות ואז להתחיל צ׳אט חדש כדי לנסות שוב.",
   "error.backend.mcpServerUnreachableInProvider":
     "{provider} לא הצליח להגיע לשרת ה-MCP {name}. יש לפתוח את {name} בחנות, אפליקציות, ולוודא שהכתובת שלו נכונה ושהשרת פועל. לאחר מכן יש להתחיל צ׳אט חדש כדי לנסות שוב.",
+  "error.backend.githubToolsNotStarted":
+    "{provider} לא הצליח לקבל את כלי GitHub, כי GitHub לא ענה. יש לפתוח את GitHub בחנות, אפליקציות, ולחבר אותו שוב אם הוא מבקש. לאחר מכן יש להתחיל צ׳אט חדש כדי לנסות שוב.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot לא הצליח להפעיל את חיבור ההתחברות המקומי שלו עבור השרת הזה. יש להפעיל מחדש את OpenBot ולנסות שוב.",
   "error.backend.mcpOAuthSignInNeeded": "ההתחברות לשרת ה-MCP הזה הסתיימה. המשתמש צריך להתחבר אליו שוב ב-OpenBot.",
@@ -428,11 +430,13 @@ export const messages = {
   "error.backend.threadMoveRefused": "רק הודעה ששלחת לסוכן הזה לבדו יכולה לרוץ בשרשור חדש.",
   "error.backend.taskTitleRequired": "יש לתת למשימה כותרת קצרה.",
   "error.backend.taskToolInvalid": "יש לתת למשימה כותרת של עד 120 תווים ותקציר שאומר מה לעשות.",
+  "error.backend.taskControlInvalid": "יש לציין taskId של משימה שהתחלת. הודעה צריכה גם טקסט.",
   "error.backend.taskOwnChatOnly":
     "יש להתחיל משימה רק מהצ'אט שלך. ערוץ, שיחת הודעות או משימה אחרת אינם יכולים להתחיל משימה.",
   "error.backend.taskUnfinishedLimit":
     "לסוכן הזה כבר יש {count} משימות שלא הסתיימו. יש להתחיל משימה נוספת כשאחת מהן תסתיים.",
   "error.backend.taskOpenLimitReached": "לסוכן הזה יש {count} משימות פתוחות. יש לסגור משימה ואז להתחיל או לפתוח אחרת.",
   "error.backend.taskRemoteUnsupported": "משימות זמינות רק לסוכנים שנמצאים במחשב הזה.",
+  "error.backend.taskMessageFailed": "OpenBot לא הצליח לשלוח את ההודעה למשימה. יש לנסות שוב מאוחר יותר.",
   "error.backend.taskStartFailed": "OpenBot לא הצליח להתחיל את המשימה. יש לבצע את העבודה בתור הזה במקום.",
 } as const satisfies PartialTranslation<typeof source>;

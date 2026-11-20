@@ -283,7 +283,7 @@ export class ProviderAccounts {
             timeoutMs: command.timeoutMs,
             ...(added ? {} : { logout: true }),
             privateTemp: this.#host.signInTemp(provider),
-            ...(googleSignInByOpenBot(onHost) ? { openGoogleSignIn: openExternal } : {}),
+            ...(googleSignInByOpenBot(onHost) ? { openSignInPage: { site: "google", open: openExternal } } : {}),
           });
           return yield* login.done;
         }
@@ -518,6 +518,32 @@ export class ProviderAccounts {
     const known = new Set([DEFAULT_PROVIDER_ACCOUNT_ID, ...this.#store.list(provider).map((account) => account.id)]);
     yield* this.#store
       .setPool(provider, enabled ? { leftOut: leftOut.filter((accountId) => known.has(accountId)) } : null)
+      .pipe(Effect.mapError((error) => new ProviderAccountFailed({ cause: error.cause })));
+    this.#host.changed();
+  }).bind(this);
+
+  liveVoiceAccount(): string | null {
+    if (!this.#support("codex")) return null;
+    const accountId = this.#store.liveVoiceAccount();
+    if (accountId === DEFAULT_PROVIDER_ACCOUNT_ID) return accountId;
+    return accountId && this.#store.get("codex", accountId) ? accountId : null;
+  }
+
+  readonly setLiveVoiceAccount = Effect.fn("ProviderAccounts.setLiveVoiceAccount")(function* (
+    this: ProviderAccounts,
+    accountId: string | null,
+  ) {
+    const name = providerLabel("codex");
+    if (!this.#support("codex"))
+      return yield* accountFailure(sourceText("error.provider.accountsUnsupported", { provider: name }));
+    const stored =
+      accountId === null || accountId === DEFAULT_PROVIDER_ACCOUNT_ID ? null : this.#store.get("codex", accountId);
+    if (accountId !== null && accountId !== DEFAULT_PROVIDER_ACCOUNT_ID && !stored)
+      return yield* accountFailure(sourceText("error.provider.accountNotFound", { provider: name }));
+    if (stored && isKeyAccount(stored))
+      return yield* accountFailure(sourceText("error.provider.accountUsesKey", { provider: name }));
+    yield* this.#store
+      .setLiveVoiceAccount(accountId)
       .pipe(Effect.mapError((error) => new ProviderAccountFailed({ cause: error.cause })));
     this.#host.changed();
   }).bind(this);

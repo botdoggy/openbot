@@ -292,6 +292,8 @@ export const messages = defineMessages("error.backend", {
     "{provider} could not start the MCP server {name}, because the server is not available now. Wait a few minutes, then start a new chat to try again.",
   "error.backend.mcpServerUnreachableInProvider":
     "{provider} could not reach the MCP server {name}. Open {name} in Marketplace, Apps, and make sure that its address is correct and that the server is running. Then start a new chat to try again.",
+  "error.backend.githubToolsNotStarted":
+    "{provider} could not get the GitHub tools, because GitHub did not answer. Open GitHub in Marketplace, Apps, and connect it again if it asks you to. Then start a new chat to try again.",
   "error.backend.mcpAppReconnect":
     "{name} on ChatGPT asks you to sign in again. Reconnect {name} on ChatGPT, then ask the agent again.",
   "error.backend.mcpServerSignInPage":
@@ -462,6 +464,7 @@ export const messages = defineMessages("error.backend", {
   "error.backend.threadMoveRefused": "Only a message that you sent to this agent alone can run in a new thread.",
   "error.backend.taskTitleRequired": "Give the task a short title.",
   "error.backend.taskToolInvalid": "Give the task a title of at most 120 characters and a brief that says what to do.",
+  "error.backend.taskControlInvalid": "Give the taskId of a task that you started. A message also needs text.",
   "error.backend.taskOwnChatOnly":
     "Start a task only from your own chat. A channel, a messaging conversation or another task cannot start one.",
   "error.backend.taskUnfinishedLimit":
@@ -469,5 +472,6 @@ export const messages = defineMessages("error.backend", {
   "error.backend.taskOpenLimitReached":
     "This agent has {count} open tasks. Close a task, then start or open another one.",
   "error.backend.taskRemoteUnsupported": "Tasks are only available for agents on this computer.",
+  "error.backend.taskMessageFailed": "OpenBot could not send the message to the task. Try again later.",
   "error.backend.taskStartFailed": "OpenBot could not start the task. Do the work in this turn instead.",
 });

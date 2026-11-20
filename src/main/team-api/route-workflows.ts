@@ -4,6 +4,7 @@ import {
   graphAgentIds,
   WORKFLOW_GROUP_FIELDS,
   WORKFLOW_MEDIA_CATALOG_V1_ASPECTS,
+  WORKFLOW_STEP_NAME_FIELD,
   type WorkflowDetail,
   type WorkflowGraph,
   type WorkflowMediaCatalog,
@@ -35,6 +36,10 @@ import {
   WORKFLOWS_MEDIA_CAPABILITY,
   WORKFLOWS_MEDIA_ROUTES,
 } from "@openbot/contracts/team-protocol/workflows-media-v1";
+import {
+  WORKFLOWS_STEP_SETTINGS_CAPABILITY,
+  WORKFLOWS_STEP_SETTINGS_ROUTES,
+} from "@openbot/contracts/team-protocol/workflows-step-settings-v1";
 import {
   WORKFLOWS_SUNRA_CAPABILITY,
   WORKFLOWS_SUNRA_ROUTES,
@@ -80,6 +85,7 @@ const WORKFLOW_HIGGSFIELD_PATHS = new Set<string>(Object.values(WORKFLOWS_HIGGSF
 const WORKFLOW_MEDIA_CATALOG_PATHS = new Set<string>(Object.values(WORKFLOWS_MEDIA_CATALOG_ROUTES));
 const WORKFLOW_MEDIA_CATALOG_V2_PATHS = new Set<string>(Object.values(WORKFLOWS_MEDIA_CATALOG_V2_ROUTES));
 const WORKFLOW_MEDIA_ACCOUNT_PATHS = new Set<string>(Object.values(WORKFLOWS_MEDIA_SERVICE_ACCOUNT_ROUTES));
+const WORKFLOW_STEP_SETTINGS_PATHS = new Set<string>(Object.values(WORKFLOWS_STEP_SETTINGS_ROUTES));
 
 function catalogV1(catalog: WorkflowMediaCatalog): WorkflowMediaCatalog {
   return {
@@ -121,7 +127,10 @@ function placeOutputs(graph: WorkflowGraph): Map<string, string> {
   return places;
 }
 
-const GROUP_FIELD_KEYS: ReadonlySet<string> = new Set(Object.values(WORKFLOW_GROUP_FIELDS));
+const DISPLAY_FIELD_KEYS: ReadonlySet<string> = new Set([
+  ...Object.values(WORKFLOW_GROUP_FIELDS),
+  WORKFLOW_STEP_NAME_FIELD,
+]);
 
 function adminNodes(graph: WorkflowGraph): Map<string, string> {
   const nodes = new Map<string, string>();
@@ -130,7 +139,7 @@ function adminNodes(graph: WorkflowGraph): Map<string, string> {
     if (kind !== "github" && kind !== "discord" && kind !== "telegram" && kind !== "slack" && kind !== "chat-channel")
       continue;
     const fields = Object.keys(node.fields)
-      .filter((key) => !GROUP_FIELD_KEYS.has(key))
+      .filter((key) => !DISPLAY_FIELD_KEYS.has(key))
       .sort()
       .map((key) => [key, node.fields[key] ?? null]);
     nodes.set(node.id, JSON.stringify([node.kind, fields]));
@@ -178,6 +187,7 @@ export async function routeWorkflows(
   const catalogPath = WORKFLOW_MEDIA_CATALOG_PATHS.has(path);
   const catalogV2Path = WORKFLOW_MEDIA_CATALOG_V2_PATHS.has(path);
   const accountPath = WORKFLOW_MEDIA_ACCOUNT_PATHS.has(path);
+  const settingsPath = WORKFLOW_STEP_SETTINGS_PATHS.has(path);
   if (
     method !== "POST" ||
     !(
@@ -188,6 +198,7 @@ export async function routeWorkflows(
       catalogPath ||
       catalogV2Path ||
       accountPath ||
+      settingsPath ||
       WORKFLOW_PATHS.has(path)
     )
   )
@@ -208,6 +219,8 @@ export async function routeWorkflows(
   if (catalogV2Path && !capabilities.has(WORKFLOWS_MEDIA_CATALOG_V2_CAPABILITY))
     throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
   if (accountPath && !capabilities.has(WORKFLOWS_MEDIA_SERVICE_ACCOUNT_CAPABILITY))
+    throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
+  if (settingsPath && !capabilities.has(WORKFLOWS_STEP_SETTINGS_CAPABILITY))
     throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
   const body = await readJson(request);
   const admin = canAdministerServer(member.role);
@@ -404,6 +417,14 @@ export async function routeWorkflows(
     return json(200, { accounts: workflows.mediaProviders().accounts ?? [] });
   if (path === WORKFLOWS_MEDIA_SERVICE_ACCOUNT_ROUTES.credits)
     return json(200, { accounts: (await run(workflows.mediaCredits())).accounts ?? [] });
+  if (path === WORKFLOWS_STEP_SETTINGS_ROUTES.read) {
+    const stepId = stringField(body, "stepId");
+    const scope = await run(workflows.workflowOf({ stepId }));
+    if (scope === null) throw new HttpError(404, sourceText("error.workflow.stepMissing"));
+    await visibleDetail(scope.workflowId);
+    if (!visibleAgents(scope.agentIds, listed())) throw new HttpError(404, sourceText("error.workflow.stepMissing"));
+    return json(200, fitted(await run(workflows.stepSettings(stepId))));
+  }
   if (path === WORKFLOWS_MEDIA_CATALOG_ROUTES.catalog) return json(200, catalogV1(await run(workflows.mediaCatalog())));
   if (path === WORKFLOWS_MEDIA_CATALOG_V2_ROUTES.catalog) return json(200, await run(workflows.mediaCatalog()));
   if (path === WORKFLOWS_MEDIA_CATALOG_ROUTES.price || path === WORKFLOWS_MEDIA_CATALOG_V2_ROUTES.price)

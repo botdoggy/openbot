@@ -187,6 +187,7 @@ type TeamApiAgentMethods = Pick<
   | "compactTaskContext"
   | "agentIdForRequest"
   | "pendingApproval"
+  | "pendingPrompts"
   | "respondToPrompt"
   | "respondToApproval"
   | "respondToBrowserSecret"
@@ -265,6 +266,8 @@ export type TeamApiProviderAccounts = Pick<
   | "models"
   | "pools"
   | "setPool"
+  | "liveVoiceAccount"
+  | "setLiveVoiceAccount"
   | "usage"
   | "startSignIn"
   | "signInStatus"
@@ -382,6 +385,7 @@ export type TeamApiWorkflows = Pick<
   | "decide"
   | "runs"
   | "run"
+  | "stepSettings"
   | "workflowOf"
   | "githubHistory"
   | "githubLastEvent"
@@ -443,6 +447,7 @@ export interface TeamApiAdmin {
   identity?: TeamApiHostIdentity;
   update?: Pick<RequestedUpdate, "snapshot" | "check" | "start" | "requestWhenIdle" | "cancel" | "changeSettings">;
   restart?: { request(memberId: string): void };
+  ownerTransfer?: true;
   timezone?: Pick<ServerTimezonePreferenceStore, "get" | "set">;
   turnLimits?: Pick<HostTurnLimitsPreferenceStore, "get" | "set">;
   personality?: Pick<ServerPersonalityPreferenceStore, "get" | "set">;

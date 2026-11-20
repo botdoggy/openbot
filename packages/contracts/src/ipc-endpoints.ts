@@ -88,7 +88,7 @@ import type {
   SaveAgentProfileInput,
   SaveAgentProfileResult,
 } from "./ipc-agent-profile";
-import type { AgentRuntimeSnapshot } from "./ipc-agent-runtime";
+import type { AgentRuntimePrompt, AgentRuntimeSnapshot } from "./ipc-agent-runtime";
 import type {
   AgentSessionSettings,
   ResetAgentSessionSettingInput,
@@ -114,6 +114,7 @@ import type {
   RemoveProviderAccountInput,
   RenameProviderAccountInput,
   ResetProviderUsageInput,
+  SetLiveVoiceAccountInput,
   SetProviderAccountPoolInput,
   SetProviderApiKeyInput,
   SubmitProviderAccountCodeLoginInput,
@@ -502,16 +503,6 @@ import type {
   RemoteSessionReusePreference,
 } from "./ipc-remote-sessions";
 import type {
-  ConnectRoutineFlowInput,
-  DisconnectRoutineFlowInput,
-  RemoveRoutineFlowPositionInput,
-  RoutineFlowCanvas,
-  RoutineFlowLink,
-  SaveRoutineFlowPositionInput,
-  StopRoutineFlowRunInput,
-  UpdateRoutineFlowLinkInput,
-} from "./ipc-routine-flows";
-import type {
   ResendRoutineResultInput,
   RoutineResultConnectionOption,
   RoutineResultDelivery,
@@ -654,6 +645,7 @@ import type {
   WorkflowRunsInput,
   WorkflowSaveResult,
   WorkflowStep,
+  WorkflowStepSettings,
   WorkflowSummary,
   WorkflowTriggerInput,
   WorkflowVersion,
@@ -669,6 +661,7 @@ import type {
 } from "./license";
 import type { MarketplaceListingLink } from "./marketplace-links";
 import type { AccountSession, MobileConnectedDevice, MobileConnectLink, MobileConnectTicket } from "./mobile-connect";
+import type { AcceptedOwnerTransfer, OwnerTransfer } from "./owner-transfer";
 import type { ReferralPageRequest, ReferralState } from "./referral";
 import type { AgentActiveQueues } from "./team-protocol/agent-active-queues-v1";
 
@@ -838,6 +831,7 @@ export const IPC_ENDPOINTS = {
     renameProviderAccount: request<RenameProviderAccountInput, AgentStatus>()("app:rename-provider-account"),
     removeProviderAccount: request<RemoveProviderAccountInput, AgentStatus>()("app:remove-provider-account"),
     setProviderAccountPool: request<SetProviderAccountPoolInput, AgentStatus>()("app:set-provider-account-pool"),
+    setLiveVoiceAccount: request<SetLiveVoiceAccountInput, AgentStatus>()("app:set-live-voice-account"),
     signOutProvider: request<AgentProviderId, AgentStatus>()("app:sign-out-provider"),
     providerUsageResets: request<AgentProviderId, ProviderUsageResets[]>()("app:provider-usage-resets"),
     resetProviderUsage: request<ResetProviderUsageInput, ProviderUsageResetOutcome>()("app:reset-provider-usage"),
@@ -1039,6 +1033,9 @@ export const IPC_ENDPOINTS = {
     renameAccount: scopedRequest<RenameProviderAccountInput, void, "required">()("provider-admin:rename-account"),
     removeAccount: scopedRequest<RemoveProviderAccountInput, void, "required">()("provider-admin:remove-account"),
     setAccountPool: scopedRequest<SetProviderAccountPoolInput, void, "required">()("provider-admin:set-account-pool"),
+    setLiveVoiceAccount: scopedRequest<SetLiveVoiceAccountInput, void, "required">()(
+      "provider-admin:set-live-voice-account",
+    ),
     usageResets: scopedRequest<AgentProviderId, ProviderUsageResets[], "required">()("provider-admin:usage-resets"),
     resetUsage: scopedRequest<ResetProviderUsageInput, ProviderUsageResetOutcome, "required">()(
       "provider-admin:reset-usage",
@@ -1427,7 +1424,11 @@ export const IPC_ENDPOINTS = {
     removeCompanySignIn: request<string, CompanySignInSettings>()("auth:company-sign-in:remove"),
     createCompanySignInScimToken: request<string, CompanySignInScimToken>()("auth:company-sign-in:create-scim-token"),
     revokeCompanySignInScimToken: request<string, CompanySignInSettings>()("auth:company-sign-in:revoke-scim-token"),
+    listOwnerTransfers: request<undefined, OwnerTransfer[]>()("auth:list-owner-transfers"),
+    acceptOwnerTransfer: request<string, AcceptedOwnerTransfer>()("auth:accept-owner-transfer"),
+    declineOwnerTransfer: request<string, void>()("auth:decline-owner-transfer"),
     event: event<CentralAuthState>()("auth:event"),
+    ownerTransfersChanged: event<undefined>()("auth:owner-transfers-changed"),
   },
   update: {
     getStatus: request<undefined, UpdateStatus>()("update:get-status"),
@@ -1555,6 +1556,7 @@ export const IPC_ENDPOINTS = {
     respondToPrompt: scopedRequest<RespondToPromptInput, void>()("agent:respond-to-prompt"),
     respondToApproval: scopedRequest<RespondToApprovalInput, void>()("agent:respond-to-approval"),
     readPendingApproval: scopedRequest<ReadPendingApprovalInput, AgentApproval | null>()("agent:read-pending-approval"),
+    listPendingPrompts: scopedQuery<AgentRuntimePrompt[]>()("agent:list-pending-prompts"),
     respondToBrowserSecret: scopedRequest<LocalBrowserSecretResponse, void>()("agent:respond-to-browser-secret"),
     respondToBrowserTakeover: scopedRequest<RespondToBrowserTakeoverInput, void>()("agent:respond-to-browser-takeover"),
     scopedEvent: event<ScopedAgentEvent>()("agent:event"),
@@ -1601,15 +1603,6 @@ export const IPC_ENDPOINTS = {
       "agent:channel-routines:runs",
     ),
   },
-  routineFlows: {
-    canvas: scopedRequest<string, RoutineFlowCanvas>()("routine-flows:canvas"),
-    savePosition: scopedRequest<SaveRoutineFlowPositionInput, void>()("routine-flows:save-position"),
-    removePosition: scopedRequest<RemoveRoutineFlowPositionInput, void>()("routine-flows:remove-position"),
-    connect: scopedRequest<ConnectRoutineFlowInput, RoutineFlowLink>()("routine-flows:connect"),
-    disconnect: scopedRequest<DisconnectRoutineFlowInput, void>()("routine-flows:disconnect"),
-    updateLink: scopedRequest<UpdateRoutineFlowLinkInput, RoutineFlowLink>()("routine-flows:update-link"),
-    stopRun: scopedRequest<StopRoutineFlowRunInput, void>()("routine-flows:stop-run"),
-  },
   workflows: {
     list: scopedQuery<WorkflowSummary[]>()("workflows:list"),
     get: scopedRequest<string, WorkflowDetail>()("workflows:get"),
@@ -1628,6 +1621,7 @@ export const IPC_ENDPOINTS = {
     decide: scopedRequest<DecideWorkflowStepInput, void>()("workflows:decide"),
     runs: scopedRequest<WorkflowRunsInput, WorkflowRunPage>()("workflows:runs"),
     run: scopedRequest<string, WorkflowRunDetail>()("workflows:run"),
+    stepSettings: scopedRequest<string, WorkflowStepSettings>()("workflows:step-settings"),
     rotateWebhookSecret: scopedRequest<WorkflowTriggerInput, WorkflowWebhookSecret>()(
       "workflows:rotate-webhook-secret",
     ),
@@ -1761,6 +1755,9 @@ export const IPC_ENDPOINTS = {
     listInvites: request<string, TeamInviteSummary[]>()("servers:list-invites"),
     revokeInvite: scopedRequest<string, void, "required">()("servers:revoke-invite"),
     createInvite: scopedRequest<CreateTeamInviteInput, InviteSummary, "required">()("servers:create-invite"),
+    getOwnerTransfer: scopedQuery<OwnerTransfer | null, "required">()("servers:get-owner-transfer"),
+    startOwnerTransfer: scopedRequest<string, OwnerTransfer, "required">()("servers:start-owner-transfer"),
+    cancelOwnerTransfer: scopedQuery<void, "required">()("servers:cancel-owner-transfer"),
     setTyping: request<SetTeamTypingInput, void>()("servers:set-typing"),
     scopedPresence: event<ScopedTeamPresenceSnapshot>()("servers:presence"),
     listDirectThreads: request<undefined, DirectThreadSummary[]>()("servers:list-direct-threads"),
@@ -2000,7 +1997,6 @@ export const IPC_GROUP_PATHS = {
   vault: "vault",
   hostedSites: "hostedSites",
   routineFeed: "routineFeed",
-  routineFlows: "routineFlows",
   workflows: "workflows",
   crm: "crm",
   routineResults: "routineResults",

@@ -3,6 +3,7 @@ import {
   type StoredFileRow,
   WORKFLOW_GROUP_FIELDS,
   WORKFLOW_PICTURE_TYPES,
+  WORKFLOW_STEP_NAME_FIELD,
   type WorkflowDetail,
   type WorkflowGraph,
   type WorkflowNodeKind,
@@ -105,6 +106,7 @@ import { WorkflowZoomMenu } from "./WorkflowZoomMenu";
 import {
   BoardProvider,
   createBoard,
+  customStepName,
   inCanvas,
   isEditable,
   MOD_KEY,
@@ -120,6 +122,7 @@ import {
   type WfnRunStatus,
   type WfnSize,
   type WfnStretch,
+  type WorkflowAgentProgress,
 } from "./workflow-board";
 import { type WorkflowBuild, workflowBuildPlan } from "./workflow-build";
 import { type Camera, type CameraMotion, glideCamera } from "./workflow-camera";
@@ -206,6 +209,7 @@ export interface WorkflowCanvasProps {
   presence?: WorkflowPresence | undefined;
   build?: WorkflowBuild | undefined;
   frame?: "window" | undefined;
+  agentProgress?: ((agentId: string) => WorkflowAgentProgress | undefined) | undefined;
   onGraphChange: (graph: WorkflowGraph) => void;
   onRun: (input: { fromNodeId?: string }) => void;
   onRunStep: (nodeId: string) => void;
@@ -420,9 +424,9 @@ function textFont(node: HTMLElement) {
   return input ? Number.parseFloat(getComputedStyle(input).fontSize) : TEXT_FONT.min;
 }
 
-const DRAG_FIELD = "textarea, input.wfn-input";
+const DRAG_FIELD = "textarea, input.wfn-input, input.wfn-step-name";
 
-const ITEM_FIELD = ".wfn-note-input, .wfn-shape-input, .wfn-text-input";
+const ITEM_FIELD = ".wfn-note-input, .wfn-shape-input, .wfn-text-input, .wfn-step-name";
 
 function caretAt(field: HTMLTextAreaElement | HTMLInputElement, x: number, y: number) {
   const position = document.caretPositionFromPoint?.(x, y);
@@ -573,6 +577,10 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
       return kind ? stretchOf(kind) : "x";
     },
     status: statusOf,
+    progress: (id) => {
+      const agentId = statusOf(id) === "running" ? runIndex().get(id)?.step.agentId : null;
+      return agentId ? props.agentProgress?.(agentId) : undefined;
+    },
     error: (id) => runIndex().get(id)?.error,
     resultsOf: (id) => runIndex().get(id)?.results ?? [],
     duplicate: (id) => duplicateNodes([id]),
@@ -1263,6 +1271,8 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     return undefined;
   };
   const stepName = (id: string) => {
+    const custom = customStepName(board.field(id, WORKFLOW_STEP_NAME_FIELD));
+    if (custom) return custom;
     const [label = t("workflow.canvas.step"), ...fields] = searchTexts(id);
     const words = fields
       .find((field) => field.trim())
@@ -1865,20 +1875,38 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     later(endBuild, end + BUILD_LINGER + BUILD_FADE);
   };
   createEffect(resetToken, () => untrack(playBuild));
+  const hudBoxes = (): Box[] => {
+    const frame = viewport?.getBoundingClientRect();
+    const stage = viewport?.closest(".wfn-stage");
+    if (!frame || !stage) return [];
+    return [...stage.querySelectorAll<HTMLElement>(".wfn-hud-top, .wfn-hud")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      const start = toWorld({ x: rect.left - frame.left, y: rect.top - frame.top });
+      return { x: start.x, y: start.y, width: rect.width / camera.scale, height: rect.height / camera.scale };
+    });
+  };
   const toolbarBelow = (id: string, bar: { width: number; height: number }) => {
     const box = boxOf(id);
     if (!box) return false;
     const width = bar.width / camera.scale;
     const height = bar.height / camera.scale;
     const zone = (y: number): Box => ({ x: box.x + (box.width - width) / 2, y, width, height });
-    const covers = (area: Box) =>
+    const onNode = (area: Box) =>
       live().some((node) => {
         const other = node.id === id || node.kind === "text" || node.kind === "shape" ? undefined : boxOf(node.id);
         return other !== undefined && overlaps(area, other);
       });
-    if (!covers(zone(box.y - (TOOLBAR_GAP / camera.scale + height)))) return false;
+    const hud = hudBoxes();
+    const top = toWorld({ x: 0, y: 0 }).y;
+    const bottom = top + (viewport?.clientHeight ?? 0) / camera.scale;
+    const blocked = (area: Box) =>
+      area.y < top || area.y + area.height > bottom || hud.some((other) => overlaps(area, other));
+    const above = zone(box.y - (TOOLBAR_GAP / camera.scale + height));
     const room = board.results(id).length > 1 ? STRIP_ROOM : TOOLBAR_GAP;
-    return !covers(zone(box.y + box.height + room / camera.scale));
+    const below = zone(box.y + box.height + room / camera.scale);
+    if (blocked(above)) return !blocked(below);
+    if (!onNode(above)) return false;
+    return !onNode(below) && !blocked(below);
   };
 
   const groupBox = createMemo(() => {
@@ -2131,9 +2159,11 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     return live()
       .flatMap((node) => {
         const [label = "", ...fields] = searchTexts(node.id);
-        const hit = fields.find((field) => field.toLowerCase().includes(words));
+        const name = customStepName(board.field(node.id, WORKFLOW_STEP_NAME_FIELD));
+        const texts = name ? [name, ...fields] : fields;
+        const hit = texts.find((text) => text.toLowerCase().includes(words));
         if (!hit && !label.toLowerCase().includes(words)) return [];
-        return [{ node, text: hit ?? fields.find((field) => field.trim()) ?? "" }];
+        return [{ node, text: hit ?? texts.find((text) => text.trim()) ?? "" }];
       })
       .slice(0, 8);
   };
@@ -3271,6 +3301,12 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
                             : t("workflow.canvas.action.runStep")}
                         </span>
                       </ContextMenu.Item>
+                      <Show when={kindOf(id()) !== "trigger"}>
+                        <ContextMenu.Item onSelect={() => props.onRun({ fromNodeId: id() })}>
+                          <Play aria-hidden="true" />
+                          <span class="wfn-menu-text">{t("workflow.canvas.action.runFromStep")}</span>
+                        </ContextMenu.Item>
+                      </Show>
                       <ContextMenu.Separator />
                     </Show>
                     <MenuItem

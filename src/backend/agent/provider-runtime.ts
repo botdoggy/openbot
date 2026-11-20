@@ -32,6 +32,7 @@ import {
   GITHUB_CONNECTOR_MCP_SERVER_ID,
   isAgentProvider,
   isCustomProviderHarness,
+  isKeyOnlyProvider,
   usageQuotaForModel,
   workspaceAccessEnforced,
 } from "@openbot/contracts/ipc";
@@ -41,7 +42,7 @@ import { classifyFailure } from "@openbot/telemetry";
 import { classifyUserError } from "@openbot/user-errors";
 import { Deferred, Effect, Exit, Fiber, Result, Schema, Scope, Semaphore } from "effect";
 import { isOpenCodeInternalFailure, OPENCODE_INTERNAL_FAILURE } from "./../acp-flavor-opencode";
-import { googleSignInByOpenBot, startAcpAuthentication } from "./../acp-sign-in";
+import { devinSignInPageRelayed, googleSignInByOpenBot, startAcpAuthentication } from "./../acp-sign-in";
 import {
   type AgentClient,
   AgentProcessExitError,
@@ -116,6 +117,7 @@ import {
   isMcpSessionClosingDiagnostic,
   isMcpSignInDiagnostic,
   isMcpSubsystemDiagnostic,
+  isPiWarningDiagnostic,
   isRustLogBelowErrorDiagnostic,
   isTelemetryExportDiagnostic,
   isToolCallDiagnostic,
@@ -155,6 +157,7 @@ const PROVIDER_UNASSIGNED_RELEASE_MS = 60_000;
 const PROVIDER_IDLE_CHECK_MS = 60_000;
 const LAUNCH_START_CONCURRENCY = 2;
 const SIGN_IN_FILE_POLL_MS = 2_000;
+const SIGN_IN_RECHECK_DELAYS_MS: readonly number[] = [5_000, 10_000, 20_000];
 
 function signInFileVersion(paths: readonly string[]): string {
   return paths
@@ -281,6 +284,7 @@ export interface ProviderHooks {
   sharedRoot(): string;
   onProviderResumed(provider: AgentProvider): void;
   onProviderHeld?(provider: AgentProvider): void;
+  releasePersonWaits?(provider: AgentProvider): void;
   onProviderActivated(provider: AgentProvider, configRevision: number): Effect.Effect<void, ProviderOperationFailed>;
   onAccountModelsListed?(provider: AgentProvider, accountId: string): Effect.Effect<void>;
   onAccountsChanged?(): void;
@@ -375,6 +379,7 @@ export class ProviderRuntime implements ProviderPort {
   #preferredProvider: AgentProvider;
   #preferredModel: AgentModelId | null;
   readonly #restartAttempts = new Map<AgentProvider, number>();
+  readonly #signInRechecks = new Map<AgentProvider, { attempts: number; timer: NodeJS.Timeout | null }>();
   readonly #startFailures = new Map<AgentProvider, number>();
   readonly #startWaitsForUser = new Set<AgentProvider>();
   readonly #slowStarts = new Map<AgentProvider, number>();
@@ -613,8 +618,14 @@ export class ProviderRuntime implements ProviderPort {
                 ?.map((account) => this.#extraModels(row.id, account))
             : undefined;
         const pool = accounts ? this.accountPool(row.id) : null;
+        const liveVoiceAccount = accounts && row.id === "codex" ? this.liveVoiceAccount() : null;
         const withAccounts = accounts
-          ? { ...withSource, accounts, ...(pool ? { accountPool: pool } : {}) }
+          ? {
+              ...withSource,
+              accounts,
+              ...(pool ? { accountPool: pool } : {}),
+              ...(liveVoiceAccount ? { liveVoiceAccount } : {}),
+            }
           : withSource;
         const endpointsPending =
           isCustomProviderHarness(row.id) && this.#hooks.endpointsPending
@@ -752,6 +763,10 @@ export class ProviderRuntime implements ProviderPort {
     );
   }
 
+  hasPendingOperation(): boolean {
+    return this.#providerStarts.size + this.#providerConnectionCommands.size + this.#replacingCli.size > 0;
+  }
+
   activeProcessCount(): number {
     return (
       this.#cliLogin.size +
@@ -855,6 +870,24 @@ export class ProviderRuntime implements ProviderPort {
     logger.info("Stopped a provider CLI that holds a deleted agent's folder.", { provider });
     yield* this.#releaseClient(provider, client);
     return false;
+  }, Effect.uninterruptible).bind(this);
+
+  readonly releaseFolderProcesses = Effect.fn("ProviderRuntime.releaseFolderProcesses")(function* (
+    this: ProviderRuntime,
+    provider: AgentProvider,
+    folder: string,
+  ) {
+    const client = this.#clients.get(provider);
+    if (!client?.releaseFolderProcesses || this.#hooks.isStopping() || this.#status.phase !== "ready") return null;
+    const kept = yield* client.releaseFolderProcesses(folder);
+    if (kept === null) return null;
+    logger.info(
+      kept
+        ? "Kept a provider process that holds a deleted agent's folder, because work uses it."
+        : "Stopped the provider processes that hold a deleted agent's folder.",
+      { provider },
+    );
+    return kept;
   }, Effect.uninterruptible).bind(this);
 
   keepsSharedProcess(provider: AgentProvider): boolean {
@@ -1569,7 +1602,10 @@ export class ProviderRuntime implements ProviderPort {
                 : {}),
               privateTemp: temp && { ...temp, provider: providerLabel(provider) },
               ...(provider === "antigravity" && googleSignInByOpenBot(onHost)
-                ? { openGoogleSignIn: openExternal }
+                ? { openSignInPage: { site: "google", open: openExternal } }
+                : {}),
+              ...(provider === "devin" && onHost && devinSignInPageRelayed()
+                ? { openSignInPage: { site: "devin", open: openExternal } }
                 : {}),
             }).pipe(
               Effect.map((login) => ({
@@ -1712,6 +1748,30 @@ export class ProviderRuntime implements ProviderPort {
     if (!enabled) this.#poolInUse.delete(provider);
     return this.status();
   }).bind(this);
+
+  readonly setLiveVoiceAccount = Effect.fn("ProviderRuntime.setLiveVoiceAccount")(function* (
+    this: ProviderRuntime,
+    accountId: string | null,
+  ) {
+    const accounts = yield* this.#requireAccounts("codex");
+    yield* accounts.setLiveVoiceAccount(accountId).pipe(toProviderOperationFailed);
+    return this.status();
+  }).bind(this);
+
+  liveVoiceAccount(): string | null {
+    return this.#providerAccounts?.liveVoiceAccount() ?? null;
+  }
+
+  otherCodexAccounts(inUse: string): boolean {
+    const ownSignIn =
+      this.status().providers?.find((row) => row.id === "codex")?.state === "available" &&
+      !this.ownSignInUsesKey("codex");
+    const accounts = [
+      ...(ownSignIn ? [DEFAULT_PROVIDER_ACCOUNT_ID] : []),
+      ...(this.#providerAccounts?.planAccounts("codex") ?? []),
+    ];
+    return accounts.some((accountId) => accountId !== inUse);
+  }
 
   accountPool(provider: AgentProvider): ProviderAccountPool | null {
     const pool = this.#providerAccounts?.pool(provider);
@@ -2214,6 +2274,7 @@ export class ProviderRuntime implements ProviderPort {
         recordRestartActivity();
         onWait();
       }
+      this.#hooks.releasePersonWaits?.(provider);
       yield* Effect.sleep(PROVIDER_RESTART_POLL_MS);
     }
   });
@@ -2613,6 +2674,7 @@ export class ProviderRuntime implements ProviderPort {
       this.#cliLogin.has(provider) ||
       (provider === "codex" && this.#codexLogin.pending);
     if (waiting) {
+      if (this.#hooks.isProviderBusy(provider)) this.#hooks.releasePersonWaits?.(provider);
       const timer = setTimeout(
         () => Effect.runFork(this.#checkRestartWhenIdle(provider).pipe(Effect.forkIn(this.#scope))),
         PROVIDER_RESTART_POLL_MS,
@@ -2724,6 +2786,7 @@ export class ProviderRuntime implements ProviderPort {
     this.#disposals += 1;
     for (const timer of this.#restartTimers.values()) clearTimeout(timer);
     this.#restartTimers.clear();
+    for (const provider of [...this.#signInRechecks.keys()]) this.#endSignInRecheck(provider);
     for (const timer of this.#restartsWhenIdle.values()) if (timer) clearTimeout(timer);
     this.#restartsWhenIdle.clear();
     if (this.#idleCheck) clearInterval(this.#idleCheck);
@@ -3178,14 +3241,12 @@ export class ProviderRuntime implements ProviderPort {
     const hasActiveClient = this.#clients.has(provider) || (keepsReleased && this.#released.has(provider));
     const fallbackMessage = `OpenBot could not connect ${providerLabel(provider)}. Try again.`;
     const rawMessage = error instanceof Error ? error.message : String(error);
-    const timeout = isProviderTimeout(error);
-    if (timeout) this.#recordProviderError(provider, error);
-    const message =
-      (timeout && matchingSourceKeys(rawMessage).length > 0) ||
+    const readable =
+      matchingSourceKeys(rawMessage).length > 0 ||
       error instanceof ProviderSignInError ||
-      /^(ChatGPT connection|OpenBot)/u.test(rawMessage)
-        ? rawMessage
-        : fallbackMessage;
+      /^(ChatGPT connection|OpenBot)/u.test(rawMessage);
+    if (isProviderTimeout(error) || !readable) this.#recordProviderError(provider, error);
+    const message = readable ? redactText(rawMessage) : fallbackMessage;
     const status = hasActiveClient
       ? {
           state: "available" as const,
@@ -3462,6 +3523,7 @@ export class ProviderRuntime implements ProviderPort {
                 email: null,
               }),
             });
+            if (!disposed()) this.#recheckSignIn(provider, this.#released.has(provider));
             return message;
           }
           const authenticated = account.account;
@@ -3602,6 +3664,7 @@ export class ProviderRuntime implements ProviderPort {
     const primaryAccount = this.#accounts.get(primaryProvider);
     for (const provider of activated) {
       this.#restartAttempts.delete(provider);
+      this.#endSignInRecheck(provider);
       if (options.notifyReady !== false) this.#exitRecovery.delete(provider);
     }
     this.#setStatus({
@@ -3733,7 +3796,11 @@ export class ProviderRuntime implements ProviderPort {
         stderrLogger.warn("Mistral Vibe logged a diagnostic.", { provider: client.provider, message });
         return;
       }
-      if (isGlogBelowErrorDiagnostic(message) || isRustLogBelowErrorDiagnostic(message)) {
+      if (
+        isGlogBelowErrorDiagnostic(message) ||
+        isRustLogBelowErrorDiagnostic(message) ||
+        ((client.provider === "pi" || isKeyOnlyProvider(client.provider)) && isPiWarningDiagnostic(message))
+      ) {
         stderrLogger.info("A provider logged an info or warning record.", { provider: client.provider, message });
         return;
       }
@@ -3777,10 +3844,19 @@ export class ProviderRuntime implements ProviderPort {
     const rows = this.#credentials.mcpServers();
     const config =
       rows.find((row) => key === `openbot_${providerMcpServerName(row.name)}`) ??
-      rows.find((row) => key === providerMcpServerName(row.name));
+      rows.find((row) => key === providerMcpServerName(row.name)) ??
+      rows.find((row) => key === row.name);
     const builtIn = config?.id === COMPUTER_USE_MCP_SERVER_ID || config?.id === GITHUB_CONNECTOR_MCP_SERVER_ID;
     const server = config && !builtIn ? config.name : null;
-    stderrLogger.warn("A provider reported an MCP server failure.", { provider: client.provider, server, message });
+    stderrLogger.warn("A provider reported an MCP server failure.", {
+      provider: client.provider,
+      server: server ?? config?.id ?? null,
+      message,
+    });
+    const githubKey =
+      client.provider === "codex" ? `openbot_${providerMcpServerName(config?.name ?? "")}` : config?.name;
+    if (config?.id === GITHUB_CONNECTOR_MCP_SERVER_ID && key === githubKey)
+      this.#reportGitHubToolsFailure(client.provider);
     if (!server) return;
     const signIn = getString(params, "failureReason") === "reauthenticationRequired" || isMcpSignInDiagnostic(message);
     this.#reportMcpServerFailure(client.provider, server, message, signIn);
@@ -3941,6 +4017,7 @@ export class ProviderRuntime implements ProviderPort {
 
   #resetRestarts(provider: AgentProvider): void {
     this.#restartAttempts.delete(provider);
+    this.#endSignInRecheck(provider);
     clearTimeout(this.#restartTimers.get(provider));
     this.#restartTimers.delete(provider);
   }
@@ -3969,6 +4046,55 @@ export class ProviderRuntime implements ProviderPort {
       this.#scheduleStartRetry(provider, schedule) ? "error.provider.cliTimedOut" : "error.provider.cliTimedOutRefresh",
       { provider: providerLabel(provider) },
     );
+  }
+
+  signInRecheckPending(provider: AgentProvider): boolean {
+    return this.#signInRechecks.has(provider);
+  }
+
+  #recheckSignIn(provider: AgentProvider, woke: boolean): void {
+    const current = this.#signInRechecks.get(provider);
+    if ((!current && !woke) || current?.timer) return;
+    const attempts = current?.attempts ?? 0;
+    const delayMs = SIGN_IN_RECHECK_DELAYS_MS[attempts];
+    if (delayMs === undefined) {
+      this.#signInRechecks.delete(provider);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const recheck = this.#signInRechecks.get(provider);
+      if (recheck?.timer !== timer) return;
+      recheck.timer = null;
+      if (
+        this.#hooks.isStopping() ||
+        this.#clients.has(provider) ||
+        this.#cliLogin.has(provider) ||
+        this.#providerConnectionCommands.has(provider) ||
+        (provider === "codex" && this.#codexLogin.pending)
+      ) {
+        this.#signInRechecks.delete(provider);
+        return;
+      }
+      Effect.runFork(
+        this.#startProvider(provider, { preserveCheckErrors: true }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (this.#signInRechecks.get(provider)?.timer === null) this.#signInRechecks.delete(provider);
+            }),
+          ),
+          Effect.ignore,
+          Effect.forkIn(this.#scope),
+        ),
+      );
+    }, delayMs);
+    timer.unref?.();
+    this.#signInRechecks.set(provider, { attempts: attempts + 1, timer });
+  }
+
+  #endSignInRecheck(provider: AgentProvider): void {
+    const recheck = this.#signInRechecks.get(provider);
+    if (recheck?.timer) clearTimeout(recheck.timer);
+    this.#signInRechecks.delete(provider);
   }
 
   #scheduleStartRetry(provider: AgentProvider, schedule: boolean): boolean {
@@ -4126,6 +4252,16 @@ export class ProviderRuntime implements ProviderPort {
     this.#emitError(
       "mcp_server_not_started",
       sourceText(MCP_PROVIDER_FAILURE_TEXT[kind], { provider: providerLabel(provider), name: server }),
+    );
+  }
+
+  #reportGitHubToolsFailure(provider: AgentProvider): void {
+    const key = [provider, GITHUB_CONNECTOR_MCP_SERVER_ID].join("\u0000");
+    if (this.#reportedMcpFailures.has(key)) return;
+    this.#reportedMcpFailures.add(key);
+    this.#emitError(
+      "mcp_server_not_started",
+      sourceText("error.backend.githubToolsNotStarted", { provider: providerLabel(provider) }),
     );
   }
 

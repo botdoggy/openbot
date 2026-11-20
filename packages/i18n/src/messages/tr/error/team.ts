@@ -125,6 +125,7 @@ export const messages = {
   "error.team.hostUpdateUnsupported": "Ana makine güncellemeleri bu bağlantı tarafından desteklenmiyor.",
   "error.team.hostTimezoneUnsupported": "Bu bağlantı sunucunun saat dilimini desteklemiyor.",
   "error.team.hostRestartUnsupported": "Bu bağlantı sunucuyu yeniden başlatmayı desteklemiyor.",
+  "error.team.ownerTransferUnsupported": "Bu sunucu sahiplik devrini desteklemiyor.",
   "error.team.hostKeyRotationUnsupported": "Bu bağlantı sunucu anahtarı değişikliğini desteklemiyor.",
   "error.team.localServersUnsupported": "Bu bağlantı bu bilgisayardaki sunucuları desteklemiyor.",
   "error.team.routineResultsUnsupported": "Bu bağlantı rutin hedeflerini desteklemiyor.",
@@ -189,6 +190,7 @@ export const messages = {
   "error.team.hostPersonalityUnsupported": "Bu bağlantı sunucu kişiliğini desteklemiyor.",
   "error.team.agentWaitsUnsupported": "Bu bağlantı açık beklemeleri desteklemiyor.",
   "error.team.pendingApprovalUnsupported": "Bu bağlantı onay isteğinin tamamını okumayı desteklemiyor.",
+  "error.team.pendingPromptsUnsupported": "Bu bağlantı açık soruları okumayı desteklemiyor.",
   "error.team.phoneFeedbackUnsupported": "Bu bağlantı telefon uygulamasından rapor göndermeyi desteklemiyor.",
   "error.team.messagePinsUnsupported": "Bu bağlantı sabitlenen mesajları desteklemiyor.",
   "error.team.queuedMessageThreadUnsupported":

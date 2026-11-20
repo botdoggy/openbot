@@ -267,6 +267,8 @@ export const messages = {
     "{provider} 无法启动 MCP 服务器 {name}，因为服务器现在不可用。请等几分钟，然后开始新的聊天再试一次。",
   "error.backend.mcpServerUnreachableInProvider":
     "{provider} 无法连接到 MCP 服务器 {name}。请在 市场、应用 中打开 {name}，确认地址正确并且服务器正在运行。然后开始新的聊天再试一次。",
+  "error.backend.githubToolsNotStarted":
+    "{provider} 无法获取 GitHub 工具，因为 GitHub 没有响应。请在 市场、应用 中打开 GitHub，如果它提示，请重新连接。然后开始新的聊天再试一次。",
   "error.backend.mcpOAuthProxyUnavailable": "OpenBot 无法为这台服务器建立本地登录连接。请重启 OpenBot 后再试一次。",
   "error.backend.mcpOAuthSignInNeeded": "该 MCP 服务器的登录已结束。用户需要在 OpenBot 中重新登录。",
   "error.backend.mcpOAuthRenewalFailed":
@@ -404,9 +406,11 @@ export const messages = {
   "error.backend.threadMoveRefused": "只有你单独发给该助手的消息才能在新话题中运行。",
   "error.backend.taskTitleRequired": "请给任务起一个简短的标题。",
   "error.backend.taskToolInvalid": "标题不超过 120 个字符，并写明要做什么。",
+  "error.backend.taskControlInvalid": "请提供你启动的任务的 taskId。消息还需要文本。",
   "error.backend.taskOwnChatOnly": "只能在自己的对话中启动任务。频道、消息对话或其他任务都无法启动任务。",
   "error.backend.taskUnfinishedLimit": "该助手已有 {count} 个未完成的任务。请等其中一个结束后再启动新任务。",
   "error.backend.taskOpenLimitReached": "该助手有 {count} 个未关闭的任务。请关闭一个任务，再启动或打开其他任务。",
   "error.backend.taskRemoteUnsupported": "任务仅适用于本电脑上的助手。",
+  "error.backend.taskMessageFailed": "OpenBot 无法将消息发送给该任务，请稍后重试。",
   "error.backend.taskStartFailed": "OpenBot 无法启动该任务，请改为在本轮对话中完成。",
 } as const satisfies PartialTranslation<typeof source>;

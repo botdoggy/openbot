@@ -126,6 +126,7 @@ export const messages = {
   "error.team.hostUpdateUnsupported": "Это подключение не поддерживает обновление хоста.",
   "error.team.hostTimezoneUnsupported": "Это подключение не поддерживает часовой пояс сервера.",
   "error.team.hostRestartUnsupported": "Это подключение не поддерживает перезапуск сервера.",
+  "error.team.ownerTransferUnsupported": "Этот сервер не поддерживает передачу владения.",
   "error.team.hostKeyRotationUnsupported": "Это подключение не поддерживает смену ключа сервера.",
   "error.team.localServersUnsupported": "Это подключение не поддерживает серверы на этом компьютере.",
   "error.team.routineResultsUnsupported": "Это подключение не поддерживает места отправки рутин.",
@@ -190,6 +191,7 @@ export const messages = {
   "error.team.hostPersonalityUnsupported": "Это подключение не поддерживает характер сервера.",
   "error.team.agentWaitsUnsupported": "Это подключение не поддерживает открытые ожидания.",
   "error.team.pendingApprovalUnsupported": "Это подключение не позволяет прочитать запрос на подтверждение целиком.",
+  "error.team.pendingPromptsUnsupported": "Это подключение не поддерживает чтение открытых вопросов.",
   "error.team.phoneFeedbackUnsupported": "Это подключение не позволяет отправить отчёт из приложения на телефоне.",
   "error.team.messagePinsUnsupported": "Это подключение не поддерживает закреплённые сообщения.",
   "error.team.queuedMessageThreadUnsupported":

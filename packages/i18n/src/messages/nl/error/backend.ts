@@ -307,6 +307,8 @@ export const messages = {
     "{provider} kon de MCP-server {name} niet starten, omdat de server nu niet beschikbaar is. Wacht een paar minuten en begin dan een nieuwe chat om het opnieuw te proberen.",
   "error.backend.mcpServerUnreachableInProvider":
     "{provider} kon de MCP-server {name} niet bereiken. Open {name} in Marktplaats, Apps, en controleer of het adres klopt en of de server draait. Begin daarna een nieuwe chat om het opnieuw te proberen.",
+  "error.backend.githubToolsNotStarted":
+    "{provider} kon de GitHub-tools niet ophalen, omdat GitHub niet antwoordde. Open GitHub in Marktplaats, Apps, en verbind het opnieuw als daarom wordt gevraagd. Begin daarna een nieuwe chat om het opnieuw te proberen.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot kon de lokale inlogverbinding voor deze server niet starten. Start OpenBot opnieuw en probeer het nog eens.",
   "error.backend.mcpOAuthSignInNeeded":
@@ -468,6 +470,8 @@ export const messages = {
   "error.backend.taskTitleRequired": "Geef de taak een korte titel.",
   "error.backend.taskToolInvalid":
     "Geef de taak een titel van maximaal 120 tekens en een korte opdracht die zegt wat er moet gebeuren.",
+  "error.backend.taskControlInvalid":
+    "Geef de taskId van een taak die je hebt gestart. Een bericht heeft ook tekst nodig.",
   "error.backend.taskOwnChatOnly":
     "Start een taak alleen vanuit je eigen chat. Een kanaal, een berichtengesprek of een andere taak kan er geen starten.",
   "error.backend.taskUnfinishedLimit":
@@ -475,5 +479,6 @@ export const messages = {
   "error.backend.taskOpenLimitReached":
     "Deze agent heeft {count} open taken. Sluit een taak en start of open dan een andere.",
   "error.backend.taskRemoteUnsupported": "Taken zijn alleen beschikbaar voor agents op deze computer.",
+  "error.backend.taskMessageFailed": "OpenBot kon het bericht niet naar de taak sturen. Probeer het later opnieuw.",
   "error.backend.taskStartFailed": "OpenBot kon de taak niet starten. Doe het werk in plaats daarvan in deze beurt.",
 } as const satisfies PartialTranslation<typeof source>;

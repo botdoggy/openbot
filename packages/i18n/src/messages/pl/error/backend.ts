@@ -300,6 +300,8 @@ export const messages = {
     "{provider} nie może uruchomić serwera MCP {name}, ponieważ serwer jest teraz niedostępny. Poczekaj kilka minut, a potem rozpocznij nowy czat, aby spróbować ponownie.",
   "error.backend.mcpServerUnreachableInProvider":
     "{provider} nie może połączyć się z serwerem MCP {name}. Otwórz {name} w Marketplace, Aplikacje, i sprawdź, czy adres jest poprawny i czy serwer działa. Potem rozpocznij nowy czat, aby spróbować ponownie.",
+  "error.backend.githubToolsNotStarted":
+    "{provider} nie może pobrać narzędzi GitHub, ponieważ GitHub nie odpowiedział. Otwórz GitHub w Marketplace, Aplikacje, i połącz go ponownie, jeśli o to poprosi. Potem rozpocznij nowy czat, aby spróbować ponownie.",
   "error.backend.mcpOAuthProxyUnavailable":
     "OpenBot nie mógł uruchomić lokalnego połączenia logowania dla tego serwera. Uruchom ponownie OpenBot i spróbuj jeszcze raz.",
   "error.backend.mcpOAuthSignInNeeded":
@@ -452,6 +454,8 @@ export const messages = {
   "error.backend.taskTitleRequired": "Nadaj zadaniu krótki tytuł.",
   "error.backend.taskToolInvalid":
     "Nadaj zadaniu tytuł o długości maksymalnie 120 znaków i opis, który mówi, co zrobić.",
+  "error.backend.taskControlInvalid":
+    "Podaj taskId zadania, które zostało przez Ciebie uruchomione. Wiadomość wymaga też tekstu.",
   "error.backend.taskOwnChatOnly":
     "Zadanie możesz rozpocząć tylko z własnego czatu. Kanał, rozmowa w komunikatorze ani inne zadanie nie mogą go rozpocząć.",
   "error.backend.taskUnfinishedLimit":
@@ -459,5 +463,6 @@ export const messages = {
   "error.backend.taskOpenLimitReached":
     "Liczba otwartych zadań tego agenta: {count}. Zamknij zadanie, a potem rozpocznij lub otwórz inne.",
   "error.backend.taskRemoteUnsupported": "Zadania są dostępne tylko dla agentów na tym komputerze.",
+  "error.backend.taskMessageFailed": "OpenBot nie może wysłać wiadomości do zadania. Spróbuj ponownie później.",
   "error.backend.taskStartFailed": "OpenBot nie może rozpocząć zadania. Zamiast tego wykonaj pracę w tej turze.",
 } as const satisfies PartialTranslation<typeof source>;

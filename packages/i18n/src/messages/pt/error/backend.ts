@@ -309,6 +309,8 @@ export const messages = {
     "{provider} não conseguiu iniciar o servidor MCP {name}, porque o servidor não está disponível agora. Aguarde alguns minutos e depois inicie um novo chat para tentar de novo.",
   "error.backend.mcpServerUnreachableInProvider":
     "{provider} não conseguiu acessar o servidor MCP {name}. Abra {name} na Loja, Apps, e confira se o endereço está correto e se o servidor está em execução. Depois inicie um novo chat para tentar de novo.",
+  "error.backend.githubToolsNotStarted":
+    "{provider} não conseguiu obter as ferramentas do GitHub, porque o GitHub não respondeu. Abra o GitHub na Loja, Apps, e conecte-o de novo se ele pedir. Depois inicie um novo chat para tentar de novo.",
   "error.backend.mcpAppReconnect":
     "{name} no ChatGPT pede que você entre de novo. Reconecte {name} no ChatGPT e peça de novo ao agente.",
   "error.backend.mcpServerSignInPage":
@@ -472,6 +474,8 @@ export const messages = {
   "error.backend.taskTitleRequired": "Dê um título curto à tarefa.",
   "error.backend.taskToolInvalid":
     "Dê à tarefa um título de no máximo 120 caracteres e uma instrução que diga o que fazer.",
+  "error.backend.taskControlInvalid":
+    "Informe o taskId de uma tarefa que você iniciou. Uma mensagem também precisa de texto.",
   "error.backend.taskOwnChatOnly":
     "Inicie uma tarefa só a partir do seu próprio chat. Um canal, uma conversa de mensagens ou outra tarefa não pode iniciar uma.",
   "error.backend.taskUnfinishedLimit":
@@ -479,5 +483,7 @@ export const messages = {
   "error.backend.taskOpenLimitReached":
     "Este agente tem {count} tarefas abertas. Feche uma tarefa e depois inicie ou abra outra.",
   "error.backend.taskRemoteUnsupported": "As tarefas só estão disponíveis para agentes neste computador.",
+  "error.backend.taskMessageFailed":
+    "O OpenBot não conseguiu enviar a mensagem para a tarefa. Tente novamente mais tarde.",
   "error.backend.taskStartFailed": "O OpenBot não conseguiu iniciar a tarefa. Faça o trabalho neste turno.",
 } as const satisfies PartialTranslation<typeof source>;
