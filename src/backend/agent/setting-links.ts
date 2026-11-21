@@ -123,7 +123,7 @@ const SETTING_LINKS: Record<SettingLinkId, SettingLinkEntry> = {
     title: "Dictation",
     place: `${APP} > Voice`,
     about: "Speak a message instead of typing it.",
-    words: "speech to text voice input microphone talk transcribe whisper",
+    words: "speech to text voice input microphone talk transcribe transcription whisper cloud elevenlabs groq api key",
   },
   "voice.dictation-language": {
     title: "Dictation language",
@@ -135,7 +135,7 @@ const SETTING_LINKS: Record<SettingLinkId, SettingLinkEntry> = {
     title: "Read replies aloud",
     place: `${APP} > Voice`,
     about: "When the user dictates a message, OpenBot reads the agent's reply aloud.",
-    words: "text to speech tts speak voice output read aloud audio say",
+    words: "text to speech tts speak voice output read aloud audio say cloud elevenlabs xai api key",
   },
   "voice.speech-voice": {
     title: "Voice",
@@ -148,6 +148,20 @@ const SETTING_LINKS: Record<SettingLinkId, SettingLinkEntry> = {
     place: `${APP} > Voice`,
     about: "How fast replies are read aloud.",
     words: "tts rate faster slower",
+  },
+  "voice.codex-live": {
+    title: "Codex live voice",
+    place: `${APP} > Voice`,
+    about:
+      "Voice conversations with any agent use OpenAI live voice with a Codex sign-in (a ChatGPT account). The voice, the requests and the replies go to OpenAI.",
+    words: "realtime live conversation talk openai chatgpt cloud speech to speech",
+  },
+  "voice.server": {
+    title: "Voice server",
+    place: `${APP} > Voice`,
+    about:
+      "Use your own OpenAI-compatible voice server for dictation, spoken replies or both, with its address and an optional API key.",
+    words: "openai compatible self hosted local whisper endpoint url address api key cloud transcription tts stt",
   },
   "phones.devices": {
     title: "Your phones",
@@ -316,6 +330,13 @@ const SETTING_LINKS: Record<SettingLinkId, SettingLinkEntry> = {
     place: `${AGENT} > Advanced`,
     about: "Before a long task, the agent shows its plan.",
     words: "plan card confirm before start",
+  },
+  "agent.builtin-memory": {
+    title: "OpenBot memory",
+    place: `${AGENT} > Advanced`,
+    about:
+      "Turn off OpenBot memory to use only a memory app that you connect, such as Mem0. The agent then does not read or save OpenBot memories. Saved memories stay.",
+    words: "memory mem0 openviking provider external remember disable off",
   },
 };
 

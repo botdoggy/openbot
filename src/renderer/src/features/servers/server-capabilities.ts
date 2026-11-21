@@ -66,6 +66,7 @@ export function serverSupportsCapability(
       capability === "agent-backup-models-v1" ||
       capability === "agent-task-limit-v1" ||
       capability === "agent-plan-card-v1" ||
+      capability === "agent-builtin-memory-v1" ||
       capability === "agent-defaults-v1" ||
       capability === "browser-profiles-v1" ||
       capability === "provider-usage-reset-v1" ||
@@ -151,6 +152,7 @@ export function serverSupportsCapability(
       capability === "workflows-channels-v1" ||
       capability === "workflows-media-v1" ||
       capability === "workflows-agent-files-v1" ||
+      capability === "workflow-folders-v1" ||
       capability === "vault-import-v1" ||
       capability === "agent-waits-v1" ||
       capability === "agent-queue-task-v1" ||
@@ -163,7 +165,8 @@ export function serverSupportsCapability(
       capability === "agent-usage-limit-v1" ||
       capability === "hermes-import-v1" ||
       capability === "owner-transfer-v1" ||
-      capability === "provider-detection-v1") &&
+      capability === "provider-detection-v1" ||
+      capability === "workspace-directory-v1") &&
     server?.kind === "remote"
   ) {
     return server.compatibility?.capabilities.includes(capability) === true;

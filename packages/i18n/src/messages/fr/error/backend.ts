@@ -241,7 +241,7 @@ export const messages = {
   "error.backend.agentWaitGone": "Cette attente n’est pas ouverte. L’agent l’a fermée, ou quelqu’un l’a annulée.",
   "error.backend.agentWaitNoRequest": "Une attente a besoin d’un message pour continuer. Ce tour n’a pas de message.",
   "error.backend.agentWaitOwnChatOnly":
-    "Ouvrez une attente uniquement dans votre propre discussion. Une tâche de canal ou de messagerie ne peut pas attendre.",
+    "Ouvrez une attente dans votre propre discussion ou dans un fil secondaire. Une conversation de canal ou de messagerie ne peut pas attendre.",
   "error.backend.agentWaitNoteRequired": "Indiquez une courte note qui précise l’objet de l’attente.",
   "error.backend.agentWaitRoutineGone": "Cet agent n’a pas de routine avec cet identifiant.",
   "error.backend.agentWaitNoRoutine":
@@ -354,6 +354,8 @@ export const messages = {
   "error.backend.libraryFolderGone": "Le dossier n’existe pas ou a déjà été supprimé.",
   "error.backend.libraryFolderOtherAgent": "Un fichier ne peut aller que dans un dossier de son agent.",
   "error.backend.libraryFolderMoveInvalid": "Ce dossier ne peut pas être déplacé ici.",
+  "error.backend.workflowFolderLimit": "Un serveur peut avoir jusqu’à {limit} dossiers de workflows.",
+  "error.backend.workflowFolderPlacementLimit": "Il y a trop de workflows dans les dossiers.",
   "error.backend.sectionNameDuplicate": "Les noms de section doivent être uniques.",
   "error.backend.directMessageRequired": "Écrivez d’abord un message.",
   "error.backend.directMessageTooLong": "Un message direct peut contenir jusqu’à {limit} caractères.",
