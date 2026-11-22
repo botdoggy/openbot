@@ -141,6 +141,7 @@ export const messages = {
   "error.provider.keyInvalidCharacters": "제공자 키에 공백이나 키에 쓸 수 없는 문자가 있어요.",
   "error.provider.noModel": "선택한 제공자에 사용할 수 있는 모델이 없어요.",
   "error.provider.noModelNamed": "{provider}에 사용할 수 있는 모델이 없어요.",
+  "error.provider.acpModelsNotLoaded": "{provider}에서 모델을 불러오지 못했어요. 메시지를 다시 보내 주세요.",
   "error.provider.acpNoModels": "ACP CLI가 ACP 모델을 알리지 않았어요. OpenBot은 대체 모델을 추측하지 않아요.",
   "error.provider.endpointRemoveBusy":
     "이 엔드포인트를 제거하기 전에 진행 중인 턴과 대기열이 끝날 때까지 기다려 주세요.",
@@ -246,6 +247,7 @@ export const messages = {
     "OpenCode Go가 요청을 거부했습니다. 새 API 키로는 해결되지 않습니다. OpenCode Go 플랜이 활성 상태가 아니거나 OpenCode Go가 네트워크를 차단했을 수 있습니다. 일부 서비스는 VPN, 프록시 또는 일부 국가를 차단합니다. OpenCode Console에서 플랜이 활성 상태인지 확인하거나 VPN을 끈 다음 다시 시도하세요. 다른 모델을 선택할 수도 있습니다.",
   "error.provider.opencodeServiceFailure":
     "로컬 서비스 오류로 OpenCode가 이 턴을 완료하지 못했어요. 다시 시도해 주세요. 오류가 계속되면 설정에서 OpenCode를 다시 연결하세요.",
+  "error.provider.opencodeStillStarting": "OpenCode가 제시간에 로드를 마치지 못했습니다. OpenBot이 다시 시도합니다.",
   "error.provider.opencodeRateLimited":
     "모델 제공자가 속도 제한 때문에 요청을 거부했어요. 몇 분 기다리거나 다른 모델을 선택한 후 다시 시도해 주세요.\n{detail}",
   "error.provider.opencodeBilling":
@@ -286,6 +288,8 @@ export const messages = {
     "이 컴퓨터의 프로세서에서는 이 제공자를 실행할 수 없어요. 다른 제공자를 사용해 주세요.",
   "error.provider.opencodeDatabaseNewer":
     "더 새로운 OpenCode 버전이 데이터베이스를 변경해서 OpenCode가 데이터베이스를 열 수 없었어요. OpenCode를 버전 2 이상으로 업데이트한 후 다시 시도해 주세요.",
+  "error.provider.grokDefaultModelNotAllowed":
+    "Grok 설정의 allowed_models에 기본 모델이 없어서 Grok이 시작되지 않았습니다. 기본 모델을 allowed_models에 추가하거나 allowed_models를 삭제한 다음 다시 시도하세요.",
   "error.provider.opencodeNoAnswer": "OpenCode 모델이 답변 없이 턴을 끝냈어요. 다시 시도하거나 다른 모델을 선택하세요.",
   "error.provider.opencodeReasoningWithoutAnswer":
     "OpenCode 모델이 추론만 하고 답변 없이 턴을 끝냈어요. 다시 시도하거나 다른 모델을 선택하세요.",
@@ -422,6 +426,8 @@ export const messages = {
     "OpenCode가 원인을 알리지 않고 요청을 거부했어요. 긴 채팅이나 모델 변경 후에 발생할 수 있어요. OpenBot이 채팅 기록으로 새 OpenCode 세션을 시작했어요. 다시 시도해 주세요. 오류가 계속되면 다른 모델이나 낮은 강도를 선택하세요.",
   "error.provider.acpContextOverflow":
     "에이전트 세션이 컨텍스트 한도를 초과했고 압축으로도 복구되지 않았어요. OpenBot이 채팅 기록으로 새 세션을 시작했어요. 다시 시도해 주세요. 오류가 계속되면 새 채팅을 시작하세요.",
+  "error.provider.opencodeInputRefused":
+    "모델이 원인을 알리지 않고 이 채팅의 내용을 거부했어요. PDF나 이미지 같은 채팅 속 파일 때문일 수 있어요. OpenBot이 채팅 기록으로 새 OpenCode 세션을 시작했어요. 파일 없이 메시지를 다시 보내거나 다른 모델을 선택하세요.",
   "error.provider.opencodeCompactionFailed":
     "모델이 이 긴 채팅을 요약하지 못해 컨텍스트 창에 공간을 만들지 못했어요. OpenBot이 채팅 기록으로 새 OpenCode 세션을 시작했어요. 다시 시도해 주세요. 오류가 계속되면 더 강력한 모델을 선택하세요.",
   "error.provider.museMcpStartupFault":

@@ -53,11 +53,13 @@ import type {
   UpdateAgentInput,
 } from "@openbot/contracts/ipc";
 import {
+  type AgentPermissionLevel,
   agentAccessRank,
   agentComputerUseEnabled,
   agentMemoryEnabled,
   agentNewChatAllowed,
   agentPermissionLevel,
+  agentPermissionLevels,
   agentQuickAcknowledgementEnabled,
   COMPUTER_USE_MCP_SERVER_ID,
   channelAllowsBrowser,
@@ -80,7 +82,7 @@ import { sourceText } from "@openbot/i18n/source";
 import { createOpenBotLogger, maskIdentifiers, redactText, registerSecretValue, toLogValue } from "@openbot/logging";
 import { Effect, Result } from "effect";
 import { z } from "zod";
-import type { AgentApiKeys, SavedApiKey } from "../agent-api-keys";
+import { type AgentApiKeys, apiKeyFailureLog, type SavedApiKey } from "../agent-api-keys";
 import type { AgentClient, AgentProvider } from "../agent-client";
 import type { AgentTables } from "../agent-data/agent-tables";
 import type { AgentStore } from "../agent-store";
@@ -226,8 +228,15 @@ import {
   type ScreenCaptureImage,
   type ScreenCaptureRequest,
 } from "./screen-capture";
-import { searchChatPlaces, searchServerPlaces, searchSettingLinks, settingLinkSummary } from "./setting-links";
-import { type AgentSidebar, handleSidebarTool } from "./sidebar-tools";
+import {
+  agentAccessSummary,
+  type SettingLinkSummary,
+  searchChatPlaces,
+  searchServerPlaces,
+  searchSettingLinks,
+  settingLinkSummary,
+} from "./setting-links";
+import { type AgentSidebar, handleSidebarTool, SIDEBAR_TOOL_NAMES } from "./sidebar-tools";
 import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool } from "./skill-tools";
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
@@ -337,6 +346,11 @@ const ROUTINE_RUN_TURNS = 200;
 interface RoutineRunTurn {
   ended: "failed" | "quiet" | null;
   paused: { agentId: string; routineId: string; updatedAt: string }[];
+}
+
+export interface McpServerOwnerHooks {
+  added(mcpServerId: string, personId: string): Effect.Effect<void, { readonly cause: unknown }>;
+  removed(mcpServerId: string): Effect.Effect<void, { readonly cause: unknown }>;
 }
 
 export interface AgentServerClaims {
@@ -479,6 +493,7 @@ export interface OpenBotToolRouterOptions {
   crm?: (() => CrmHandle | null) | undefined;
   crmAgentVisibleToMembers?: ((agentId: string) => boolean) | undefined;
   personCanAdminister?: ((personId: string) => boolean) | undefined;
+  mcpServerOwners?: McpServerOwnerHooks | undefined;
   apiKeys?: AgentApiKeys | null | undefined;
   vaultItems?: VaultItems | null | undefined;
   codexSubagentParent?: ((childThreadId: string) => CodexSubagentParent | undefined) | undefined;
@@ -532,6 +547,7 @@ export class OpenBotToolRouter {
   readonly #crm: () => CrmHandle | null;
   readonly #crmAgentVisibleToMembers: (agentId: string) => boolean;
   readonly #personCanAdminister: (personId: string) => boolean;
+  readonly #mcpServerOwners: McpServerOwnerHooks | null;
   readonly #apiKeys: AgentApiKeys | null;
   readonly #vaultItems: VaultItems | null;
   readonly #hooks: OpenBotToolRouterHooks;
@@ -595,6 +611,7 @@ export class OpenBotToolRouter {
     this.#crm = options.crm ?? (() => null);
     this.#crmAgentVisibleToMembers = options.crmAgentVisibleToMembers ?? (() => true);
     this.#personCanAdminister = options.personCanAdminister ?? (() => true);
+    this.#mcpServerOwners = options.mcpServerOwners ?? null;
     this.#apiKeys = options.apiKeys ?? null;
     this.#vaultItems = options.vaultItems ?? null;
     this.#hooks = options.hooks;
@@ -954,6 +971,7 @@ export class OpenBotToolRouter {
             const correctableTool =
               PROFILE_TOOL_NAMES.has(tool) ||
               CHANNEL_AGENT_TOOL_NAMES.has(tool) ||
+              SIDEBAR_TOOL_NAMES.has(tool) ||
               tool.startsWith("channel_") ||
               tool === "list_channels" ||
               tool === "attach_files_to_response" ||
@@ -1107,7 +1125,12 @@ export class OpenBotToolRouter {
     if (params.tool === "list_api_keys")
       return yield* apiKeys.list(agentId).pipe(
         Effect.map((keys) => openBotToolResult({ keys })),
-        Effect.catch(failed),
+        Effect.catch((failure) =>
+          Effect.sync(() => {
+            logger.warn("Unable to list the saved API keys of an agent", { error: apiKeyFailureLog(failure) });
+            return openBotToolFailure(sourceText("error.backend.apiKeyListFailed"));
+          }),
+        ),
       );
     if (params.tool === "remove_api_key") {
       const parsed = removeApiKeyToolSchema.safeParse(params.arguments);
@@ -1682,6 +1705,20 @@ export class OpenBotToolRouter {
     return agent === undefined || agentMemoryEnabled(agent);
   }
 
+  #permissionLevel(agent: AgentSummary): AgentPermissionLevel {
+    return agentPermissionLevel({
+      access: workspaceAccessEnforced(agent) ? "workspace" : "full",
+      autoApprove: this.#approvalAutomation.autoApproves(agent.id),
+    });
+  }
+
+  #settingForCaller(summary: SettingLinkSummary, callerId: string): SettingLinkSummary {
+    if (summary.id !== "agent.access") return summary;
+    const caller = this.#hooks.listAgents().find((candidate) => candidate.id === callerId);
+    if (!caller) return summary;
+    return agentAccessSummary(summary, agentPermissionLevels(caller.provider, this.#permissionLevel(caller)));
+  }
+
   #requireAgent(agentId: string): AgentSummary {
     const agents = this.#hooks.listAgents();
     const agent = agents.find((candidate) => candidate.id === agentId);
@@ -1719,10 +1756,7 @@ export class OpenBotToolRouter {
       skillsError = error instanceof Error ? error.message : String(error);
     }
     const access = workspaceAccessEnforced(agent) ? "workspace" : "full";
-    const permissions = agentPermissionLevel({
-      access,
-      autoApprove: this.#approvalAutomation.autoApproves(agent.id),
-    });
+    const permissions = this.#permissionLevel(agent);
     return {
       id: agent.id,
       name: agent.name,
@@ -1738,13 +1772,13 @@ export class OpenBotToolRouter {
       ...agentAccountSetup(agent),
       access,
       permissions,
+      permissionLevels: agentPermissionLevels(agent.provider, permissions),
       computerUse,
       ...(computerUse
         ? { computerUseReady: mcpServers.some((server) => server.id === COMPUTER_USE_MCP_SERVER_ID) }
         : {}),
       notifications: agent.notifications,
       ...this.#agentBrowserProfile(agent),
-      autoApprove: permissions === "full",
       ...(skills ? { skills } : { skillsError }),
       routines: this.#routines.list(agent.id).map((routine) => ({
         id: routine.id,
@@ -2376,9 +2410,10 @@ export class OpenBotToolRouter {
           eventType: "marketplace.suggested",
           detail: { appId },
         });
-      const connected = this.#messaging.store
+      const enabled = this.#messaging.store
         .connections()
         .filter((record) => record.enabled && record.lastErrorCode === null && record.platform === args.app);
+      const connected = enabled.filter((record) => !this.#messaging.keysUnreadable(record.connectionId));
       const connection = connected[0];
       if (connection) {
         const name = PLATFORM_NAMES[connection.platform];
@@ -2395,6 +2430,16 @@ export class OpenBotToolRouter {
           status: "connected",
           app: args.app,
           next: `${name} is already connected for every agent of this server, so no card shows. Do not ask the user to connect it again. Call openbot.messaging_list_places for the connection and place ids, then openbot.messaging_post to send the message; search your tools for messaging when they are not in your tool list. When the place is not in the list, tell the user what its result says.`,
+        });
+      }
+      const unreadable = enabled[0];
+      if (unreadable) {
+        const name = PLATFORM_NAMES[unreadable.platform];
+        suggestCard();
+        return openBotToolResult({
+          status: "keys_unreadable",
+          app: args.app,
+          next: `${name} was connected on this server, but OpenBot cannot read its saved keys now, so the connection does not run and the openbot.messaging tools cannot use it. Do not say that ${name} is connected. The card is in the chat. End your answer: tell the user in plain words that OpenBot cannot read the saved keys of ${name}, and that they must connect it again with the card, or in Marketplace > Apps > ${name}, as the panel there shows.`,
         });
       }
       const installed = this.#marketplaceAppServer(args.app);
@@ -2418,7 +2463,7 @@ export class OpenBotToolRouter {
       if (!isRecord(args) || !isString(args.setting)) throw new Error("setting must be a setting id or words.");
       const setting = args.setting.trim();
       if (!isSettingLinkId(setting)) {
-        const matches = searchSettingLinks(setting);
+        const matches = searchSettingLinks(setting).map((match) => this.#settingForCaller(match, senderAgentId));
         const serverPlaces = searchServerPlaces(setting);
         const chatPlaces = searchChatPlaces(setting);
         const found = matches.length > 0 || serverPlaces.length > 0 || chatPlaces.length > 0;
@@ -2448,7 +2493,7 @@ export class OpenBotToolRouter {
             : `No setting matches. ${apps} For a setting, try other English words once, such as the name of the feature. Otherwise say that you found no setting for it, and offer openbot.send_feedback with an idea.`,
         });
       }
-      const shown = settingLinkSummary(setting);
+      const shown = this.#settingForCaller(settingLinkSummary(setting), senderAgentId);
       this.#postSystemCard(senderAgentId, executionThreadId, params.turnId, {
         itemType: settingLinkItemType(setting),
         text: sourceText("status.agent.settingShown", { setting: shown.title }),
@@ -2840,6 +2885,8 @@ export class OpenBotToolRouter {
           ),
       keysFromPerson: (values) => this.#keysFromPerson(agentId, params.turnId, threadId, values),
       requestSignIn: (config) => toolStep(() => this.#postMcpSignInCard(agentId, threadId, params.turnId, config)),
+      added: (config) => this.#recordMcpServerAdder(agentId, params.turnId, config),
+      removed: (mcpServerId) => this.#keepMcpServerOwners(this.#mcpServerOwners?.removed(mcpServerId)),
     });
   });
 
@@ -2892,6 +2939,26 @@ export class OpenBotToolRouter {
       }),
     );
   });
+
+  #recordMcpServerAdder(agentId: string, turnId: string, config: McpServerConfig) {
+    const [personId, ...others] = this.#turnRequesters(agentId, turnId);
+    if (personId === undefined || others.length > 0 || !(this.#channels.hooks.remotePerson?.(personId) ?? false))
+      return Effect.void;
+    return this.#keepMcpServerOwners(this.#mcpServerOwners?.added(config.id, personId));
+  }
+
+  #keepMcpServerOwners(change: Effect.Effect<void, { readonly cause: unknown }> | undefined): Effect.Effect<void> {
+    if (!change) return Effect.void;
+    return change.pipe(
+      Effect.catch((failure) =>
+        Effect.sync(() =>
+          logger.warn("OpenBot could not update who added an MCP server.", {
+            error: failure.cause instanceof Error ? failure.cause.name : "unknown",
+          }),
+        ),
+      ),
+    );
+  }
 
   #postMcpSignInCard(agentId: string, threadId: string, turnId: string, config: McpServerConfig): void {
     const itemType = mcpSignInItemType({ mcpServerId: config.id });

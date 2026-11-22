@@ -143,6 +143,7 @@ export const messages = {
     "De sleutel van de aanbieder bevat een spatie of een teken dat een sleutel niet kan bevatten.",
   "error.provider.noModel": "De gekozen aanbieder heeft geen beschikbaar model.",
   "error.provider.noModelNamed": "{provider} heeft geen model beschikbaar.",
+  "error.provider.acpModelsNotLoaded": "{provider} kon zijn modellen niet laden. Stuur je bericht opnieuw.",
   "error.provider.acpNoModels": "ACP CLI heeft geen ACP-modellen aangeboden. OpenBot raadt geen reservemodel.",
   "error.provider.endpointRemoveBusy":
     "Wacht tot de actieve beurt en de wachtrij klaar zijn voordat je dit endpoint verwijdert.",
@@ -248,6 +249,7 @@ export const messages = {
     "OpenCode Go heeft het verzoek geweigerd. Een nieuwe API-sleutel lost dit niet op. Je OpenCode Go-abonnement is misschien niet actief, of OpenCode Go blokkeert misschien je netwerk: sommige diensten blokkeren vpn's, proxy's of bepaalde landen. Controleer in OpenCode Console of je abonnement actief is, of zet de vpn uit, en probeer het opnieuw. Je kunt ook een ander model kiezen.",
   "error.provider.opencodeServiceFailure":
     "OpenCode kon deze beurt niet voltooien, omdat de lokale service is mislukt. Probeer het opnieuw. Blijft de fout, verbind OpenCode dan opnieuw in Instellingen.",
+  "error.provider.opencodeStillStarting": "OpenCode is niet op tijd klaar met laden. OpenBot probeert het opnieuw.",
   "error.provider.opencodeRateLimited":
     "De modelaanbieder heeft het verzoek geweigerd vanwege de limiet op het aantal verzoeken. Wacht een paar minuten of kies een ander model, en probeer het opnieuw.\n{detail}",
   "error.provider.opencodeBilling":
@@ -288,6 +290,8 @@ export const messages = {
     "De processor van deze computer kan deze aanbieder niet uitvoeren. Gebruik een andere aanbieder.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode kon de database niet openen, omdat een nieuwere versie van OpenCode deze heeft gewijzigd. Werk OpenCode bij naar versie 2 of nieuwer en probeer het opnieuw.",
+  "error.provider.grokDefaultModelNotAllowed":
+    "Grok is niet gestart, omdat de instelling allowed_models in de configuratie het standaardmodel niet bevat. Voeg het standaardmodel toe aan allowed_models, of verwijder allowed_models, en probeer het daarna opnieuw.",
   "error.provider.opencodeNoAnswer":
     "Het OpenCode-model beëindigde de beurt zonder antwoord. Probeer het opnieuw, of kies een ander model.",
   "error.provider.opencodeReasoningWithoutAnswer":
@@ -426,6 +430,8 @@ export const messages = {
     "OpenCode heeft het verzoek geweigerd zonder de oorzaak te geven. Dit kan gebeuren in een lange chat of na een modelwijziging. OpenBot heeft een nieuwe OpenCode-sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, kies dan een ander model of een lager niveau.",
   "error.provider.acpContextOverflow":
     "De sessie van de agent heeft de contextlimiet overschreden en kon niet worden hersteld door compacteren. OpenBot heeft een nieuwe sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, start dan een nieuwe chat.",
+  "error.provider.opencodeInputRefused":
+    "Het model heeft de inhoud van deze chat geweigerd zonder de oorzaak te geven. Een bestand in de chat, zoals een pdf of een afbeelding, kan de oorzaak zijn. OpenBot heeft een nieuwe OpenCode-sessie gestart met de chatgeschiedenis. Stuur je bericht opnieuw zonder het bestand, of kies een ander model.",
   "error.provider.opencodeCompactionFailed":
     "Het model kon deze lange chat niet samenvatten om ruimte te maken in het contextvenster. OpenBot heeft een nieuwe OpenCode-sessie gestart met de chatgeschiedenis. Probeer het opnieuw. Blijft de fout, kies dan een sterker model.",
   "error.provider.museMcpStartupFault":

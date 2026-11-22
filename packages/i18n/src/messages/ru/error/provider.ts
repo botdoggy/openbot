@@ -141,6 +141,7 @@ export const messages = {
   "error.provider.keyInvalidCharacters": "Ключ провайдера содержит пробел или символ, который не может быть в ключе.",
   "error.provider.noModel": "У выбранного провайдера нет доступной модели.",
   "error.provider.noModelNamed": "У {provider} нет доступной модели.",
+  "error.provider.acpModelsNotLoaded": "{provider} не смог загрузить свои модели. Отправьте сообщение ещё раз.",
   "error.provider.acpNoModels":
     "ACP CLI не сообщил ни одной модели ACP. OpenBot не будет подбирать запасную модель наугад.",
   "error.provider.endpointRemoveBusy":
@@ -241,6 +242,7 @@ export const messages = {
     "OpenCode Go отклонил запрос. Новый API-ключ это не исправит. Возможно, ваш план OpenCode Go не активен или OpenCode Go блокирует вашу сеть: некоторые сервисы блокируют VPN, прокси или некоторые страны. Проверьте в OpenCode Console, что план активен, или отключите VPN, затем повторите попытку. Также можно выбрать другую модель.",
   "error.provider.opencodeServiceFailure":
     "OpenCode не смог завершить этот ход из-за сбоя локальной службы. Повторите попытку. Если ошибка повторяется, подключите OpenCode заново в настройках.",
+  "error.provider.opencodeStillStarting": "OpenCode не успел загрузиться. OpenBot попробует снова.",
   "error.provider.opencodeRateLimited":
     "Провайдер моделей отклонил запрос из-за ограничения частоты. Подождите несколько минут или выберите другую модель и повторите попытку.\n{detail}",
   "error.provider.opencodeBilling":
@@ -281,6 +283,8 @@ export const messages = {
     "Процессор этого компьютера не может запустить этого провайдера. Используйте другого провайдера.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode не смог открыть свою базу данных, потому что её изменила более новая версия OpenCode. Обновите OpenCode до версии 2 или новее и повторите попытку.",
+  "error.provider.grokDefaultModelNotAllowed":
+    "Grok не запустился, потому что параметр allowed_models в его настройках не включает его модель по умолчанию. Добавьте модель по умолчанию в allowed_models или удалите allowed_models, затем повторите попытку.",
   "error.provider.opencodeNoAnswer":
     "Модель OpenCode завершила ход без ответа. Повторите попытку или выберите другую модель.",
   "error.provider.opencodeReasoningWithoutAnswer":
@@ -418,6 +422,8 @@ export const messages = {
     "OpenCode отклонил запрос и не указал причину. Это может произойти в длинном чате или после смены модели. OpenBot начал новый сеанс OpenCode с историей чата. Повторите попытку. Если ошибка не исчезнет, выберите другую модель или меньший уровень усилий.",
   "error.provider.acpContextOverflow":
     "Сессия агента превысила лимит контекста, и сжатие не помогло её восстановить. OpenBot начал новую сессию с историей чата. Повторите попытку. Если ошибка не исчезнет, начните новый чат.",
+  "error.provider.opencodeInputRefused":
+    "Модель отклонила содержимое этого чата и не указала причину. Причиной может быть файл в чате, например PDF или изображение. OpenBot начал новый сеанс OpenCode с историей чата. Отправьте сообщение ещё раз без файла или выберите другую модель.",
   "error.provider.opencodeCompactionFailed":
     "Модель не смогла сжать этот длинный чат, чтобы освободить место в окне контекста. OpenBot начал новый сеанс OpenCode с историей чата. Повторите попытку. Если ошибка не исчезнет, выберите более сильную модель.",
   "error.provider.museMcpStartupFault":

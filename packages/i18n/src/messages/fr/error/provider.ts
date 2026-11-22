@@ -156,6 +156,7 @@ export const messages = {
     "La clé de fournisseur contient une espace ou un caractère qu’une clé ne peut pas contenir.",
   "error.provider.noModel": "Le fournisseur sélectionné n’a aucun modèle disponible.",
   "error.provider.noModelNamed": "{provider} n’a aucun modèle disponible.",
+  "error.provider.acpModelsNotLoaded": "{provider} n’a pas pu charger ses modèles. Renvoyez votre message.",
   "error.provider.acpNoModels":
     "La CLI ACP n’a annoncé aucun modèle ACP. OpenBot ne choisira pas de modèle de secours au hasard.",
   "error.provider.endpointRemoveBusy":
@@ -263,6 +264,7 @@ export const messages = {
     "OpenCode Go a refusé la requête. Une nouvelle clé d'API ne corrige pas ce problème. Votre forfait OpenCode Go n'est peut-être pas actif, ou OpenCode Go bloque peut-être votre réseau : certains services bloquent les VPN, les proxys ou certains pays. Vérifiez que votre forfait est actif dans OpenCode Console ou désactivez le VPN, puis réessayez. Vous pouvez aussi choisir un autre modèle.",
   "error.provider.opencodeServiceFailure":
     "OpenCode n’a pas pu terminer ce tour, car son service local a échoué. Réessayez. Si l’erreur continue, reconnectez OpenCode dans les réglages.",
+  "error.provider.opencodeStillStarting": "OpenCode n’a pas fini de se charger à temps. OpenBot va réessayer.",
   "error.provider.opencodeRateLimited":
     "Le fournisseur du modèle a refusé la requête à cause de sa limite de débit. Attendez quelques minutes ou choisissez un autre modèle, puis réessayez.\n{detail}",
   "error.provider.opencodeBilling":
@@ -303,6 +305,8 @@ export const messages = {
     "Le processeur de cet ordinateur ne peut pas exécuter ce fournisseur. Utilisez un autre fournisseur.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode n’a pas pu ouvrir sa base de données, car une version plus récente d’OpenCode l’a modifiée. Mettez OpenCode à jour vers la version 2 ou ultérieure, puis réessayez.",
+  "error.provider.grokDefaultModelNotAllowed":
+    "Grok n’a pas démarré, car le paramètre allowed_models de sa configuration n’inclut pas son modèle par défaut. Ajoutez le modèle par défaut à allowed_models, ou supprimez allowed_models, puis réessayez.",
   "error.provider.opencodeNoAnswer":
     "Le modèle OpenCode a terminé le tour sans réponse. Réessayez ou choisissez un autre modèle.",
   "error.provider.opencodeReasoningWithoutAnswer":
@@ -445,6 +449,8 @@ export const messages = {
     "OpenCode a refusé la requête sans en donner la cause. Cela peut arriver dans une longue conversation ou après un changement de modèle. OpenBot a démarré une nouvelle session OpenCode avec l’historique de la conversation. Réessayez. Si l’erreur continue, choisissez un autre modèle ou un effort plus faible.",
   "error.provider.acpContextOverflow":
     "La session de l’agent a dépassé sa limite de contexte et l’agent n’a pas pu la récupérer en la compactant. OpenBot a démarré une nouvelle session avec l’historique de la conversation. Réessayez. Si l’erreur continue, commencez une nouvelle conversation.",
+  "error.provider.opencodeInputRefused":
+    "Le modèle a refusé le contenu de cette conversation sans en donner la cause. Un fichier de la conversation, comme un PDF ou une image, peut en être la cause. OpenBot a démarré une nouvelle session OpenCode avec l’historique de la conversation. Renvoyez votre message sans le fichier, ou choisissez un autre modèle.",
   "error.provider.opencodeCompactionFailed":
     "Le modèle n’a pas pu résumer cette longue conversation pour libérer de la place dans sa fenêtre de contexte. OpenBot a démarré une nouvelle session OpenCode avec l’historique. Réessayez. Si l’erreur continue, choisissez un modèle plus puissant.",
   "error.provider.museMcpStartupFault":

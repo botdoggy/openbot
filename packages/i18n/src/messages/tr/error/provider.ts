@@ -144,6 +144,7 @@ export const messages = {
     "Sağlayıcı anahtarı, bir anahtarda bulunamayacak bir boşluk veya karakter içeriyor.",
   "error.provider.noModel": "Seçilen sağlayıcının kullanılabilir modeli yok.",
   "error.provider.noModelNamed": "{provider} sağlayıcısının kullanılabilir modeli yok.",
+  "error.provider.acpModelsNotLoaded": "{provider} modellerini yükleyemedi. Mesajınızı yeniden gönderin.",
   "error.provider.acpNoModels": "ACP CLI hiçbir ACP modeli tanıtmadı. OpenBot bir yedek model tahmin etmeyecektir.",
   "error.provider.endpointRemoveBusy": "Bu uç noktayı kaldırmadan önce etkin turun ve kuyruğun bitmesini bekleyin.",
   "error.provider.codexOutdated": "Codex CLI {version} çok eski. OpenBot 0.156.0 veya daha yenisini gerektirir.",
@@ -248,6 +249,7 @@ export const messages = {
     "OpenCode Go isteği reddetti. Yeni bir API anahtarı bunu düzeltmez. OpenCode Go planınız etkin olmayabilir veya OpenCode Go ağınızı engelliyor olabilir: bazı hizmetler VPN'leri, proxy'leri veya bazı ülkeleri engeller. Planınızın OpenCode Console'da etkin olduğundan emin olun ya da VPN'i kapatın, sonra yeniden deneyin. Başka bir model de seçebilirsiniz.",
   "error.provider.opencodeServiceFailure":
     "Yerel hizmeti başarısız olduğu için OpenCode bu turu tamamlayamadı. Tekrar deneyin. Hata devam ederse Ayarlar'dan OpenCode'a yeniden bağlanın.",
+  "error.provider.opencodeStillStarting": "OpenCode zamanında yüklenmeyi bitiremedi. OpenBot yeniden deneyecek.",
   "error.provider.opencodeRateLimited":
     "Model sağlayıcısı hız sınırı nedeniyle isteği reddetti. Birkaç dakika bekleyin veya başka bir model seçip tekrar deneyin.\n{detail}",
   "error.provider.opencodeBilling":
@@ -288,6 +290,8 @@ export const messages = {
     "Bu bilgisayarın işlemcisi bu sağlayıcıyı çalıştıramıyor. Başka bir sağlayıcı kullanın.",
   "error.provider.opencodeDatabaseNewer":
     "Daha yeni bir OpenCode sürümü veritabanını değiştirdiği için OpenCode veritabanını açamadı. OpenCode'u 2 veya daha yeni bir sürüme güncelleyin, sonra yeniden deneyin.",
+  "error.provider.grokDefaultModelNotAllowed":
+    "Grok başlamadı, çünkü yapılandırmasındaki allowed_models ayarı varsayılan modelini içermiyor. Varsayılan modeli allowed_models listesine ekleyin veya allowed_models ayarını kaldırın, sonra yeniden deneyin.",
   "error.provider.opencodeNoAnswer":
     "OpenCode modeli turu yanıt vermeden bitirdi. Tekrar deneyin veya başka bir model seçin.",
   "error.provider.opencodeReasoningWithoutAnswer":
@@ -429,6 +433,8 @@ export const messages = {
     "OpenCode isteği reddetti ve nedenini belirtmedi. Bu, uzun bir sohbette veya model değişikliğinden sonra olabilir. OpenBot, sohbet geçmişiyle yeni bir OpenCode oturumu başlattı. Yeniden deneyin. Hata sürerse başka bir model veya daha düşük bir efor seçin.",
   "error.provider.acpContextOverflow":
     "Aracının oturumu bağlam sınırını aştı ve sıkıştırmayla kurtarılamadı. OpenBot, sohbet geçmişiyle yeni bir oturum başlattı. Yeniden deneyin. Hata sürerse yeni bir sohbet başlatın.",
+  "error.provider.opencodeInputRefused":
+    "Model bu sohbetin içeriğini reddetti ve nedenini belirtmedi. Buna sohbetteki bir dosya, örneğin bir PDF veya görsel neden olabilir. OpenBot, sohbet geçmişiyle yeni bir OpenCode oturumu başlattı. Mesajınızı dosya olmadan yeniden gönderin veya başka bir model seçin.",
   "error.provider.opencodeCompactionFailed":
     "Model, bağlam penceresinde yer açmak için bu uzun sohbeti özetleyemedi. OpenBot, sohbet geçmişiyle yeni bir OpenCode oturumu başlattı. Yeniden deneyin. Hata sürerse daha güçlü bir model seçin.",
   "error.provider.museMcpStartupFault":
