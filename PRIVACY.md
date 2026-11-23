@@ -139,6 +139,20 @@ When a user selects "Teach a task" and saves the recording, OpenBot sends the ag
 message with the steps in an attached text file: the host, path and title of each page, and the role and name of each control
 that the user clicked. The steps have no query, no typed text and no field value. A discarded
 recording is sent to nobody.
+When a request needs where the user is, an agent can ask for the user's location with a card in the
+chat. Nothing is sent until a person answers the card. An agent cannot ask in a channel or an external
+chat. On the mobile app, **Share once** reads the phone's location (latitude, longitude, accuracy and
+the time of the measurement) one time, only while the app is in use ("While Using the App"
+permission), and sends it to the server as the answer. **Always allow** does the same and saves on
+that phone that the agent may have it: later cards from that agent are answered on the phone without a
+tap while the app is in use and the chat is open, when this person's own message started the request,
+until the person taps **Ask every time**. Sign-out, session expiry and server removal delete this
+choice. On a computer, the person can type a place instead. The server gives the answer to the agent's
+provider as the result of the agent's request, so the provider gets it and can keep it in its session
+history. The server does not store the location or the typed place in the SQLite database: the card
+keeps only that the location was shared or not. The agent's reply, which can name the place, is stored
+like any other message. The phone does not store the location, follow it in the background, or send it
+to the account service or analytics.
 Channel history keeps its existing membership and task checks. Messaging history stays within its
 current link. The full conversation stays in local SQLite storage. No history text is sent to the
 account service or analytics by these tools.
@@ -468,7 +482,7 @@ The service stores:
   without the ID of the deleted account. For each image or video that OpenBot credits pay for, the
   service keeps a hold record: the job ID, the account or server that pays, the account that started
   it, the model, the credits held and charged, the result (completed, failed, canceled, refused or
-  expired), the job ID of the media generation processor, and the times. It keeps no prompt, picture
+  expired), the media generation processor and its job ID, and the times. It keeps no prompt, picture
   or result file. Deleting the account removes the hold records of its own balance. For the free
   monthly credits of a paid license, it keeps a grant record: the license, the account or server that
   has them, the credits given and left, and the start and end times. Deleting the account removes the
@@ -1200,6 +1214,11 @@ addresses on a private network, such as the Wi-Fi or a Tailscale tailnet. The de
 connection gets the same empty server list for each new stream, so it also uses only a direct path,
 which can be a public IPv6 address of the computer. Sign-in and Signal messages do not change.
 
+When an owner or an admin opens Server settings › General, the host sends a few `GET /health/ready`
+requests to each OpenBot Signal machine to measure its latency. The requests carry no account, server
+or chat data. When the owner or admin chooses a Signal machine, the host keeps the choice in a local
+file and sends only its name (such as `au`) with each Signal ticket request to the account service.
+
 The phone app shows a Remote Desktop in a web view that loads the host's viewer from a server on the
 phone's loopback address (`127.0.0.1`). That server takes only requests with a random token, serves
 one session, and stops when the screen closes. The viewer's files and its signaling go to the host
@@ -1232,6 +1251,59 @@ No response returns a key, and neither computer writes request bodies to its log
 another device, the host sends the provider's sign-in link, and for Codex, Grok, Cline and Kimi its
 one-time code, to that computer or browser, which shows them and opens the link only when the admin
 asks. The provider's CLI on the host receives the login; no token travels to the admin.
+
+## Browser extension
+
+The OpenBot browser extension (`apps/browser-extension`) signs in through openbot.run. It opens the
+web app in the browser's sign-in window; when you are signed in there and press **Allow**, the web
+app asks the account service for a one-time code and sends it only to the extension's own address,
+which the browser gives to that extension alone. The code lasts two minutes, works once, and works
+only with a secret that the extension kept, so a page that sees the code cannot use it. The extension
+can also sign in with an email code, as the phone app does. Either way, the session shows in your account's device list as "Chrome
+extension", and you can end it there or with **Sign out** in the extension. The extension keeps the
+session, a random id for this browser, the server you chose, the Team protocol of each server and
+the servers' public keys in the browser's extension storage, which only the extension can read.
+Sign-out removes the session and the chosen server. It keeps no chats, agents or files: it reads
+them from the server through the same encrypted connection as the web app each time the side panel
+opens, and they go when the panel closes.
+
+Dictation in the extension uses the microphone only while you record. The recording goes through the
+same encrypted connection to your server, and the server turns it into text with its own speech
+recognition (Settings → Voice on that server: a model on the server, or the voice service that its owner
+set up there). The server keeps no recording. The text goes into your draft, and nothing is sent until
+you press Send. The extension never sends the recording to OpenBot or to a speech service itself.
+
+On X (x.com and twitter.com), the extension runs a script on the page. It reads only the reply that
+you write. When the reply mentions @OpenBot_ and your server has the X agent, the reply button
+changes. When you click it, the script reads the post that you answer, the posts above it in the
+conversation and the rest of the author's thread (names, @handles, times, addresses, text and picture
+addresses), but not the replies of other people. X posts your reply at once, and the extension sends
+the post with your reply's words through the encrypted connection to your own server, as a message to X
+Desk. When your server does not answer, the extension keeps the post in the browser's extension storage
+on this computer, also over a browser restart, and tries again for up to 7 days (23 hours when an
+earlier attempt may have reached the server); then it deletes the post and tells you with a browser
+notification. Nothing goes to OpenBot,
+and nothing is sent when you do not click. To find the parts of the page, the extension
+asks openbot.run once an hour for the newest list of page selectors; that request carries only the hash
+of the list that it has. Except for shared tabs (below), the extension does not read your tabs or the
+pages you visit.
+
+Shared tabs are on while you are signed in, until you press **Stop sharing** in the side panel. Your
+open tabs are shared only with your own agents, and an agent uses them only for a message that you
+send from the side panel; for a message in the OpenBot app, it uses its own browser. The extension tells
+your server the address, title and active state of your open web tabs (at most 50, the tab that you
+look at first), through the same encrypted connection, when they change and every 30 seconds. When an
+agent works in a tab, the tab joins a Chrome tab group named "OpenBot", unless it is in another group. When an agent acts on a site for the
+first time, the side panel asks you (Allow once, Always for this site, Deny); the sites that you allow
+always stay in the browser's extension storage until you remove them in the panel. The extension
+always asks again before an agent types into a password or payment field, downloads a file, or acts
+on a page that signs in to an app or gives an app access. To read and use a tab, the extension uses
+Chrome's debugger on that tab, and Chrome shows its own bar while it does. What an agent reads goes
+to your server: the page text and the list of its buttons, links and fields (not the values of
+password or payment fields), screenshots of the visible page, and addresses. Text that an agent types
+goes from your server to the page. Nothing goes to OpenBot. **Stop sharing** ends the group and stops
+the reports; your server forgets the shared tabs at once, or at the latest 75 seconds after the
+extension stops. **Share tabs with agents** turns sharing on again.
 
 ## Other network connections
 
@@ -1568,7 +1640,8 @@ A step with an OpenBot model uses OpenBot credits. When the computer is signed i
 account, the credits of that account pay; a server pays with its own credits. The computer sends the
 prompt, the model, the size settings and the input pictures to the account service
 (`openbot.run`). The account service holds the credits, sends the same values to a media generation
-processor, and returns the result file to the computer, which keeps it. The account service passes
+processor, and returns the result file to the computer, which keeps it. A processor can keep the
+input pictures for up to three days so that it can read them. The account service passes
 the prompt, the pictures and the file through in transit only: it does not store or log them. It
 keeps only the hold record above. A failed or refused generation spends no credits. A stop does not
 cancel a generation that was sent: when the run stops or the app closes, the job continues, and the

@@ -182,6 +182,8 @@ export const messages = {
   "error.provider.stoppedBeforeStart": "{provider} stopte voordat dit bericht begon. Stuur het bericht opnieuw.",
   "error.provider.sessionStartTimedOut":
     "{provider} opende niet op tijd een nieuwe chat, dus dit bericht is niet begonnen. Open op de computer waarop OpenBot draait Aanbieders, kies {provider} en klik op Herstarten. Probeer het daarna opnieuw.",
+  "error.provider.sessionResumeTimedOut":
+    "{provider} opende deze chat niet op tijd, dus dit bericht is niet begonnen. Open op de computer waarop OpenBot draait Aanbieders, kies {provider} en klik op Herstarten. Probeer het daarna opnieuw.",
   "error.provider.serviceUnreachable":
     "{provider} kan geen verbinding maken met zijn service. Controleer je internetverbinding. OpenBot probeert het opnieuw.",
   "error.provider.serviceUnreachableRefresh":
@@ -278,6 +280,8 @@ export const messages = {
     "OpenCode kon de redenering van dit model bij dit denkniveau niet lezen. Kies een lager denkniveau of een ander model en stuur je bericht dan opnieuw.",
   "error.provider.opencodeModelNotServed":
     "De modelaanbieder biedt dit model nu niet aan je account aan. Kies een ander model en stuur je bericht daarna opnieuw.",
+  "error.provider.opencodeSafetyBlocked":
+    "De modelaanbieder heeft dit bericht geblokkeerd vanwege zijn veiligheidsregels. Stuur je verzoek opnieuw met andere woorden. Als hij ook je volgende berichten blokkeert, start dan een nieuwe chat of kies een ander model.",
   "error.provider.opencodeNetwork":
     "OpenCode kon geen verbinding maken met de modelaanbieder. Controleer de netwerkverbinding van de computer waarop OpenBot draait en probeer het opnieuw.\n{detail}",
   "error.provider.codexStateBusy":
@@ -288,6 +292,12 @@ export const messages = {
     "Linux heeft de provider gestopt, omdat OpenBot een realtime-CPU-limiet van 0 heeft. De limiet komt van je systeem. Installeer en start rtkit (`rtkit-daemon`), voer `systemctl --user restart xdg-desktop-portal` uit en start OpenBot daarna opnieuw. Alleen xdg-desktop-portal opnieuw starten helpt niet zolang rtkit ontbreekt.",
   "error.provider.cpuUnsupported":
     "De processor van deze computer kan deze aanbieder niet uitvoeren. Gebruik een andere aanbieder.",
+  "error.provider.largeMemoryPages":
+    "Deze aanbieder kan niet draaien op deze Linux-kernel, omdat de kernel geheugenpagina’s groter dan 4 KiB gebruikt, zoals op Raspberry Pi 5 of Asahi Linux. Gebruik een kernel met pagina’s van 4 KiB of een andere aanbieder.",
+  "error.provider.ipv6Missing":
+    "Deze aanbieder heeft IPv6 nodig, en IPv6 staat uit op deze computer. Zet IPv6 aan en probeer het opnieuw. Verwijder in WSL ipv6.disable=1 uit .wslconfig en voer wsl --shutdown uit.",
+  "error.provider.windowsBlocked":
+    "Windows-beveiligingsinstellingen, zoals Slim app-beheer, hebben het starten van deze provider verhinderd. Gebruik een andere provider.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode kon de database niet openen, omdat een nieuwere versie van OpenCode deze heeft gewijzigd. Werk OpenCode bij naar versie 2 of nieuwer en probeer het opnieuw.",
   "error.provider.grokDefaultModelNotAllowed":
@@ -303,6 +313,7 @@ export const messages = {
   "error.provider.acpRefusedNoReason": "{provider} stopte zonder antwoord. Stuur het bericht opnieuw.",
   "error.provider.channelNoAnswer":
     "{provider} beëindigde de beurt zonder antwoord. Klik in het kanaal op Doorgaan om de taak opnieuw uit te voeren, of op Opnieuw toewijzen om hem aan een ander lid te geven.",
+  "error.provider.acpProcessStopped": "{provider} stopte voordat het antwoordde. Stuur het bericht opnieuw.",
   "error.provider.chatgptPageFailed": "OpenBot kon de verbindingspagina van ChatGPT niet openen.",
   "error.provider.noneReady": "Er is geen agentaanbieder klaar.",
   "error.provider.claudeTurnActive": "Wacht op de actieve Claude-beurt voordat je de context vernieuwt.",
@@ -343,6 +354,8 @@ export const messages = {
     "{provider} heeft de vorige beurt niet afgerond en heeft dit bericht daarom niet aangenomen. OpenBot heeft een nieuwe {provider}-sessie gestart met de chatgeschiedenis. Stuur je bericht opnieuw.",
   "error.provider.antigravityLocationUnsupported":
     "Google staat Gemini niet toe vanaf de netwerklocatie van de computer waarop deze agent draait. Gebruik Gemini op een andere computer, of kies een andere aanbieder voor deze agent.\n{detail}",
+  "error.provider.antigravityTurnStopped":
+    "Gemini is gestopt door een fout. Stuur je bericht opnieuw. Stopt het weer, kies dan een ander model of een andere provider.",
   "error.provider.antigravityConnectionLost":
     "Gemini is de verbinding met zijn agent kwijtgeraakt en is gestopt. Stuur een bericht om verder te gaan.",
   "error.provider.grokServiceFailure":
@@ -393,6 +406,8 @@ export const messages = {
     "Hermes heeft tijdens dit bericht de verbinding verloren en weet dus niet of het werk klaar is. Controleer wat de agent heeft gedaan voordat je het bericht opnieuw stuurt.",
   "error.provider.copilotThinkingRejected":
     "GitHub Copilot kon dit model niet gebruiken: het model accepteerde de denkinstelling niet. Selecteer een ander model voor deze agent en verstuur je bericht opnieuw.",
+  "error.provider.copilotAnswerIncomplete":
+    "Het model stopte voordat het antwoord klaar was. Verstuur je bericht opnieuw of selecteer een ander model voor deze agent.",
   "error.provider.usageLimitReached": "Het account heeft de gebruikslimiet bereikt.",
   "error.provider.claudeContextFull":
     "Deze chat is te lang geworden voor Claude. OpenBot heeft een nieuwe Claude Code-sessie gestart met de chatgeschiedenis. Probeer het opnieuw.",
@@ -439,8 +454,12 @@ export const messages = {
   "error.provider.claudeSessionMissing":
     "Claude Code heeft de opgeslagen sessie van deze chat niet gevonden. OpenBot heeft een nieuwe Claude Code-sessie gestart met de chatgeschiedenis. Probeer het opnieuw.",
   "error.provider.grokSignIn": "Voer `grok login` uit of stel XAI_API_KEY in om Grok te gebruiken.",
+  "error.provider.acpSignInNoStart":
+    "De aanbieder is niet gestart, dus het inloggen kon niet beginnen. Probeer het opnieuw of start OpenBot opnieuw.",
   "error.provider.acpSignInTimedOut": "Het inloggen duurde te lang.",
   "error.provider.acpSignInStopped": "Het inloggen is gestopt voordat het klaar was.",
+  "error.provider.geminiNoBrowserUseCode":
+    "Deze computer heeft geen browser voor de Google-aanmelding. Kies ‘Inloggen met code’, open de link op een willekeurig apparaat en plak daarna de code.",
   "error.provider.geminiBrowserUnavailable":
     "Gemini kon de inlogpagina niet openen. Installeer een browser en xdg-utils en verbind vanuit een desktopsessie op deze host. Een server zonder desktop kan deze inlog niet afronden.",
   "error.provider.geminiBrowserOpenFailed":
@@ -543,6 +562,7 @@ export const messages = {
     "Deze instelling is niet beschikbaar in de huidige sessie van de aanbieder.",
   "error.provider.sessionSettingInvalid": "Deze waarde is niet beschikbaar voor de instelling.",
   "error.provider.sessionSettingsBusy": "Wacht tot de huidige beurt klaar is voordat je een sessie-instelling wijzigt.",
+  "error.provider.sessionSettingsTimedOut": "De sessie van de agent reageerde niet op tijd. Probeer het opnieuw.",
   "error.provider.piOutdated":
     "Pi {version} is te oud. Installeer Pi 1.1.0 of nieuwer voor native ondersteuning van RPC en MCP.",
   "error.provider.nativeMissing": "De {provider} CLI is niet geïnstalleerd. Download hem in Instellingen.",
@@ -596,6 +616,8 @@ export const messages = {
   "error.provider.museTurnFailed": "De Muse-beurt is mislukt.",
   "error.provider.museModelUnavailable":
     "Muse kan dit model niet gebruiken. Muse is mogelijk niet beschikbaar in het land waar deze agent draait, of dit account heeft geen toegang tot het model. Kies een ander model en probeer het opnieuw.\n{detail}",
+  "error.provider.museSavedKeyFailed":
+    "Muse kon dit verzoek niet voltooien. Muse gebruikt je opgeslagen Meta API-sleutel, niet je login. Vervang de sleutel, of verwijder hem in Instellingen om je login te gebruiken.\n{detail}",
   "error.provider.museProfileUnsupported":
     "Muse kan geen profiel maken zonder toegang tot externe tools. Gebruik een andere aanbieder om het profiel te maken en kies daarna Muse voor de agent.",
   "error.provider.museAuthUnverified":

@@ -140,7 +140,8 @@ export const messages = {
     "Эти модели не работают с режимом «Рабочее пространство» в Windows и Linux. Чтобы использовать их, измените «Доступ» в настройках агента.",
   "provider.picker.olderModels": "Старые модели",
   "provider.picker.olderModelsList": "Старые модели {name}",
-  "provider.picker.noModels": "У {name} нет доступных моделей.",
+  "provider.picker.noModels":
+    "Здесь нет моделей {name}. Если они выключены, администратор может включить их в разделе «Настройки сервера» > «Провайдеры» > «{name}» > «Модели».",
   "provider.picker.endpointModelsInCustom": "{name} запускает ваши эндпоинты. Их модели — на вкладке «Свой».",
   "provider.picker.showCustomModels": "Показать модели",
   "provider.picker.museNoModels":
@@ -160,6 +161,7 @@ export const messages = {
   "provider.picker.effort": "Усилие",
   "provider.picker.effortLabel": "Уровень усилий агента",
   "provider.picker.effortFixed": "{effort}, задаёт {provider}",
+  "provider.picker.effortLimited": "Настройки Claude или ваша организация ограничивают уровень до «{effort}».",
   "provider.picker.fast": "Быстро",
   "provider.picker.fastText": "Более быстрые ответы, больший расход",
   "provider.picker.speed": "Скорость",
@@ -289,6 +291,7 @@ export const messages = {
   "provider.settings.disconnectHost": "OpenBot выйдет из {provider} на сервере.",
   "provider.settings.geminiKeyReplacesAccount":
     "Вместо входа через Google используется сохранённый ключ Gemini API. Чтобы использовать тариф Google и его модели, удалите ключ.",
+  "provider.settings.museKeyInUse": "Muse использует этот ключ, а не ваш вход. Чтобы использовать вход, удалите ключ.",
   "provider.settings.versionInstalledByUser": "{version} · установлена вами",
   "provider.settings.versionDownloaded": "{version} · загружена OpenBot",
   "provider.settings.otherVersionInstalledByUser": "Не используется: {version} · установлена вами",

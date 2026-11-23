@@ -384,6 +384,7 @@ import type { HiddenAgentsSnapshot, SetAgentHiddenInput } from "./ipc-hidden-age
 import type { HostAnalytics, HostAnalyticsInput } from "./ipc-host-analytics";
 import type { HostPersonality } from "./ipc-host-personality";
 import type { HostReleaseStatus } from "./ipc-host-release";
+import type { HostSignalHomeSettings } from "./ipc-host-signal-home";
 import type { HostTimezoneSettings } from "./ipc-host-timezone";
 import type { HostTurnLimits, HostTurnLimitsInput } from "./ipc-host-turn-limits";
 import type {
@@ -460,6 +461,7 @@ import type {
   SetSlackEnabledInput,
   SetTelegramEnabledInput,
   SetWhatsAppOwnNumberInput,
+  SetWhatsAppSenderReadOnlyInput,
   SetWhatsAppStatusReactionsInput,
   SetWhatsAppWorkingMessageInput,
   SlackOverview,
@@ -637,6 +639,7 @@ import type {
   VoiceTranscriptionInput,
   VoiceTranscriptionResult,
 } from "./ipc-voice";
+import type { WorkflowFileSaveResult } from "./ipc-workflow-file";
 import type { WorkflowFolderAction, WorkflowFoldersSnapshot } from "./ipc-workflow-folders";
 import type {
   WorkflowGitHubCatalog,
@@ -652,6 +655,7 @@ import type {
   RetryWorkflowStepInput,
   RunWorkflowStepInput,
   SaveWorkflowGraphInput,
+  SetWorkflowPausedInput,
   StartWorkflowRunInput,
   WorkflowDetail,
   WorkflowGraph,
@@ -1151,6 +1155,9 @@ export const IPC_ENDPOINTS = {
     setWhatsAppStatusReactions: request<SetWhatsAppStatusReactionsInput, void>()(
       "messaging:set-whatsapp-status-reactions",
     ),
+    setWhatsAppSenderReadOnly: request<SetWhatsAppSenderReadOnlyInput, void>()(
+      "messaging:set-whatsapp-sender-read-only",
+    ),
     hostOverview: scopedRequest<HostMessagingPlatformInput, MessagingOverview, "required">()("messaging:host-overview"),
     hostConnect: scopedRequest<HostMessagingConnectInput, void, "required">()("messaging:host-connect"),
     hostDisconnect: scopedRequest<HostMessagingWorkspaceInput, void, "required">()("messaging:host-disconnect"),
@@ -1205,6 +1212,9 @@ export const IPC_ENDPOINTS = {
     hostSetWhatsAppStatusReactions: scopedRequest<SetWhatsAppStatusReactionsInput, void, "required">()(
       "messaging:host-set-whatsapp-status-reactions",
     ),
+    hostSetWhatsAppSenderReadOnly: scopedRequest<SetWhatsAppSenderReadOnlyInput, void, "required">()(
+      "messaging:host-set-whatsapp-sender-read-only",
+    ),
   },
   hostAdmin: {
     updateIdentity: scopedRequest<UpdateHostIdentityInput, ServerSummary, "required">()("host-admin:update-identity"),
@@ -1221,6 +1231,8 @@ export const IPC_ENDPOINTS = {
     ),
     getTimezone: scopedQuery<HostTimezoneSettings, "required">()("host-admin:get-timezone"),
     setTimezone: scopedRequest<string | null, HostTimezoneSettings, "required">()("host-admin:set-timezone"),
+    getSignalHome: scopedQuery<HostSignalHomeSettings, "required">()("host-admin:get-signal-home"),
+    setSignalHome: scopedRequest<string | null, HostSignalHomeSettings, "required">()("host-admin:set-signal-home"),
     getVoiceModel: scopedQuery<HostVoiceModel, "required">()("host-admin:get-voice-model"),
     changeVoiceModel: scopedRequest<HostVoiceModelChange, HostVoiceModel, "required">()(
       "host-admin:change-voice-model",
@@ -1659,6 +1671,8 @@ export const IPC_ENDPOINTS = {
     get: scopedRequest<string, WorkflowDetail>()("workflows:get"),
     create: scopedRequest<CreateWorkflowInput, WorkflowDetail>()("workflows:create"),
     rename: scopedRequest<RenameWorkflowInput, WorkflowSummary>()("workflows:rename"),
+    setPaused: scopedRequest<SetWorkflowPausedInput, WorkflowSummary>()("workflows:setPaused"),
+    exportFile: scopedRequest<string, WorkflowFileSaveResult>()("workflows:export-file"),
     delete: scopedRequest<string, void>()("workflows:delete"),
     saveGraph: scopedRequest<SaveWorkflowGraphInput, WorkflowSaveResult>()("workflows:save-graph"),
     versions: scopedRequest<string, WorkflowVersion[]>()("workflows:versions"),

@@ -100,14 +100,17 @@ export const messages = {
   "mobile.server.hosted.intro.description":
     "クラウドサーバーは、コンピューターの電源が切れていてもエージェントとルーティンを実行します。セットアップと運用は OpenBot が行います。",
   "mobile.server.hosted.planFacts": "{members} · {storage} · {sites} · {speed}",
-  "mobile.server.hosted.computer.title": "コンピューターで",
+  "mobile.server.hosted.steps.title": "コンピューターで追加",
+  "mobile.server.hosted.steps.open": "コンピューターで OpenBot を開きます。",
+  "mobile.server.hosted.steps.settings": "「設定」→「ホスト型サーバー」に移動します。",
+  "mobile.server.hosted.steps.add": "「サーバーを追加」を選択し、プランを選びます。",
+  "mobile.server.hosted.plansToggle": "各プランの内容",
   "mobile.server.hosted.computer.add": "クラウドサーバーを追加",
   "mobile.server.hosted.computer.addHint":
     "OpenBot で「設定」→「ホスト型サーバー」を開き、「サーバーを追加」を選択します。",
   "mobile.server.hosted.computer.change": "プランを変更",
   "mobile.server.hosted.computer.changeHint": "OpenBot で「設定」→「お支払い」を開きます。",
   "mobile.server.hosted.yourServers": "あなたのサーバー",
-  "mobile.server.hosted.plans": "プラン",
   "mobile.server.hosted.currentPlan": "ご利用中のプラン",
   "mobile.server.hosted.soldOut": "売り切れ",
   "mobile.server.hosted.serverPlan": "{plan} · {interval}",
@@ -330,6 +333,7 @@ export const messages = {
   "mobile.server.route.invite": "ユーザーを招待",
   "mobile.server.route.member": "メンバー",
   "mobile.server.route.timezone": "タイムゾーン",
+  "mobile.server.route.signalHome": "Signal サーバー",
   "mobile.server.route.personality": "エージェントの性格",
   "mobile.server.route.agents": "エージェント",
   "mobile.server.route.voiceModel": "音声認識",
@@ -458,6 +462,28 @@ export const messages = {
     "タイムゾーンを変更するには、オーナーまたは管理者としてこのサーバーに接続してください。",
   "mobile.server.settings.timezoneUnsupported":
     "ここでタイムゾーンを変更するには、このサーバーの OpenBot を更新してください。",
+  "mobile.server.settings.signalHomeAutomatic": "自動",
+  "mobile.server.settings.signalHomeNearest": "最寄りの Signal サーバー",
+  "mobile.server.settings.signalHomeInUse": "使用中: {name}",
+  "mobile.server.settings.signalHomeLoading": "Signal サーバーを測定しています…",
+  "mobile.server.settings.signalHomeSaveFailed": "Signal サーバーを変更できませんでした。もう一度お試しください。",
+  "mobile.server.settings.signalHomeUnavailable":
+    "Signal サーバーを変更するには、オーナーまたは管理者としてこのサーバーに接続してください。",
+  "mobile.server.settings.signalHomeUnsupported":
+    "ここで Signal サーバーを変更するには、このサーバーの OpenBot を更新してください。",
+  "mobile.server.settings.signalHomeDescription":
+    "メンバーはこの Signal サーバーを通じてこのサーバーに接続します。レイテンシの低い Signal サーバーほど接続が速くなります。",
+  "mobile.server.settings.signalHomeFallback":
+    "{chosen} が応答しません。{chosen} が再び応答するまで、サーバーは {name} を使います。",
+  "mobile.server.settings.signalHomeMoving": "サーバーは {name} に移動します。メンバーは数秒後に再接続します。",
+  "mobile.server.settings.signalHomeLoadFailed": "Signal サーバーを読み込めませんでした。",
+  "mobile.server.settings.signalHomeLatency": "{latency} ms",
+  "mobile.server.settings.signalHomeNoAnswer": "応答なし",
+  "mobile.server.settings.signalHomePlaceHelsinki1": "ヘルシンキ 1",
+  "mobile.server.settings.signalHomePlaceHelsinki2": "ヘルシンキ 2",
+  "mobile.server.settings.signalHomePlaceSanJose": "サンノゼ",
+  "mobile.server.settings.signalHomePlaceSydney": "シドニー",
+  "mobile.server.settings.signalHomePlaceSingapore": "シンガポール",
   "mobile.server.settings.voiceModelDescription":
     "このサーバーのエージェントは、字幕のない動画の音声をこのモデルで文字起こしします。",
   "mobile.server.settings.voiceModelLoading": "音声認識を読み込み中…",
@@ -889,7 +915,7 @@ export const messages = {
   "mobile.server.connectors.whatsapp.ownNumberNote":
     "あなたの「自分にメッセージ」チャットと、許可した人が OpenBot に連絡できます。",
   "mobile.server.connectors.whatsapp.dedicatedNote":
-    "許可した人が OpenBot に連絡できます。ほかの人には、あなたに伝えるためのコードが届きます。",
+    "あなたの「自分にメッセージ」チャットと、許可した人が OpenBot に連絡できます。ほかの人には、あなたに伝えるためのコードが届きます。",
   "mobile.server.connectors.whatsapp.helpLoggedOut":
     "WhatsApp がこのサーバーをリンク済みデバイスから削除しました。番号をもう一度リンクしてください。",
   "mobile.server.connectors.whatsapp.helpError":
@@ -968,6 +994,11 @@ export const messages = {
   "mobile.server.connectors.whatsapp.sendersLimit": "1 つの番号で許可できる連絡先とグループは最大 {count} 件です。",
   "mobile.server.connectors.whatsapp.senderGroup": "グループ",
   "mobile.server.connectors.whatsapp.removeSender": "削除",
+  "mobile.server.connectors.whatsapp.senderReadOnlyRow": "{kind} · 読み取り専用",
+  "mobile.server.connectors.whatsapp.makeReadOnly": "読み取り専用にする",
+  "mobile.server.connectors.whatsapp.allowWork": "仕事を頼めるようにする",
+  "mobile.server.connectors.whatsapp.readOnlyDetail":
+    "読み取り専用: エージェントはこのチャットを読めますが、OpenBot がここに書き込むことはありません。",
   "mobile.server.connectors.whatsapp.addContact": "連絡先を追加",
   "mobile.server.connectors.whatsapp.addGroup": "グループを追加",
   "mobile.server.connectors.whatsapp.contactTitle": "連絡先を追加",
@@ -1192,6 +1223,8 @@ export const messages = {
     "ChatGPT は ChatGPT のプランではなく、このキーを使います。OpenAI は各リクエストをキーに課金します。プランの使用量は表示されません。",
   "mobile.server.providers.codexKeyAlternative":
     "または OpenAI の API キーでログインします。OpenAI は各リクエストをキーに課金します。",
+  "mobile.server.providers.museKeyInUse":
+    "Muse はサインインではなく、このキーを使います。サインインを使うには、キーを削除してください。",
   "mobile.server.providers.sectionUse": "使用",
   "mobile.server.providers.unused": "使用しているエージェントはありません",
   "mobile.server.providers.usedByCount": { other: "{count} 個のエージェントが使用中" },
@@ -1363,7 +1396,7 @@ export const messages = {
   "mobile.server.update.waitingFor": "{reasons} を待っています。",
   "mobile.server.update.disabledTitle": "リモートアップデートはオフです",
   "mobile.server.update.disabledDescription":
-    "{name} のユーザーが、サーバーメンバーからのアップデートをオフにしました。OpenBot をアップデートするか、設定をオンにするよう依頼してください。",
+    "{name} のユーザーが、サーバーメンバーからのアップデートをオフにしました。OpenBot をアップデートするか、そのコンピューターで「設定」>「アップデート」を開いて「サーバーのメンバーからのアップデートを許可する」をオンにするよう依頼してください。",
   "mobile.server.update.managedTitle": "アップデートは Host Manager が管理しています",
   "mobile.server.update.managedDescription":
     "OpenBot Host Manager が {name} をアップデートします。ホストの管理者に連絡してください。",

@@ -34,6 +34,7 @@ import {
   mcpSignInEvent,
   type QueueHold,
   ROUTINE_QUIET_ANSWER_ITEM_TYPE,
+  settingLinkEvent,
   type UpdateChannelMemoryInput,
 } from "@openbot/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord, isString } from "@openbot/contracts/runtime-values";
@@ -2169,8 +2170,14 @@ export class ChannelService {
   ): Effect.fn.Return<void, ChannelOperationError> {
     if (this.#scope.state._tag === "Closed") this.#scope = Scope.makeUnsafe();
     this.#stopped = false;
-    for (const context of yield* channelSync(() => this.store.executionThreads()))
-      this.capture(yield* channelSync(() => this.store.database.readConversation(context.id, context.threadId)));
+    const channelAssignments = new Map<string, ChannelAssignment[]>();
+    for (const context of yield* channelSync(() => this.store.executionThreads())) {
+      const assignments =
+        channelAssignments.get(context.channelId) ??
+        (yield* channelSync(() => this.store.assignments(context.channelId)));
+      channelAssignments.set(context.channelId, assignments);
+      yield* channelSync(() => this.#captureAfterRestart(context, assignments));
+    }
     const archived = yield* channelSync(() => this.store.archivedIds());
     for (const channelId of yield* channelSync(() => this.store.ids())) {
       for (let assignment of (yield* channelSync(() => this.store.assignments(channelId))).filter(activeAssignment)) {
@@ -2589,6 +2596,18 @@ export class ChannelService {
     return task?.state === "completed" && task.revision === assignment.taskRevision ? assignment : undefined;
   }
 
+  #captureAfterRestart(context: { id: string; threadId: string }, assignments: ChannelAssignment[]): void {
+    const own = assignments.filter((assignment) => assignment.agentId === context.id);
+    if (own.some(activeAssignment)) {
+      this.capture(this.store.database.readConversation(context.id, context.threadId));
+      return;
+    }
+    const turnId = this.store.database.readLatestTurnId(
+      own.flatMap((assignment) => (assignment.turnId === null ? [] : [assignment.turnId])),
+    );
+    if (turnId) this.capture(this.store.database.readTurnConversation(context.id, context.threadId, turnId), turnId);
+  }
+
   private capture(snapshot: ConversationSnapshot, turnId?: string): boolean {
     const channelId = snapshot.threadId ? this.store.channelForThread(snapshot.threadId) : null;
     if (!channelId) return false;
@@ -2625,7 +2644,8 @@ export class ChannelService {
         message.author !== "assistant" &&
         !message.questionPrompt &&
         !(message.attachments?.length && message.author !== "user") &&
-        !mcpSignInEvent(message)
+        !mcpSignInEvent(message) &&
+        !settingLinkEvent(message)
       )
         continue;
       const lateId = message.turnId === undefined ? undefined : this.#lateTurns.get(message.turnId);

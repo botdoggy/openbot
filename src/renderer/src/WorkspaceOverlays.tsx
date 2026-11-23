@@ -911,6 +911,7 @@ function ServerSettings() {
           hostUpdate={{}}
           hostTimezone={{}}
           hostVoiceModel={{}}
+          hostSignalHome={{}}
           hostTurnLimits={{}}
           hostPersonality={{}}
           hostMemoryLimit={{}}
@@ -1014,7 +1015,12 @@ function AppSettings(props: AccountProps) {
     const choose = providerAccounts()?.setLiveVoiceAccount;
     const codex = agentStatus().providers?.find((row) => row.id === "codex");
     if (!choose || !codex?.accounts) return undefined;
-    return { accounts: codex.accounts, accountId: codex.liveVoiceAccount ?? null, choose };
+    return {
+      accounts: codex.accounts,
+      accountId: codex.liveVoiceAccount ?? null,
+      defaultUsesKey: codex.apiKeyInUse === true,
+      choose,
+    };
   };
   const {
     appSettingsOpen,

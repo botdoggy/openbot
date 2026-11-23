@@ -1,4 +1,6 @@
+import { LOCAL_SERVER_ID } from "@openbot/contracts/ipc";
 import { currentText } from "@openbot/ui/text";
+import { appendVoiceTranscript } from "@openbot/ui/voice-recording";
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { actionToast } from "../../action-toast";
 import { appPort } from "../../app-port";
@@ -6,9 +8,9 @@ import { useNavigation } from "../../navigation";
 import { usePlatform } from "../../platform";
 import { deviceSendShortcut } from "../../send-shortcut-preference";
 import { useTurns } from "../../turns";
-import { appendVoiceTranscript } from "../../voice-recording";
 import { useAgentTasks } from "../agent-tasks/agent-tasks-context";
 import { useAgentThreads } from "../agent-threads/agent-threads-context";
+import { remoteAgentError } from "../agents/agent-error-text";
 import { attentionKey } from "../agents/agent-runtime-snapshot";
 import { useAgents } from "../agents/agents-context";
 import { createAttachmentDownloads } from "../conversation/attachment-downloads";
@@ -60,6 +62,7 @@ export function TasksPanel(props: TasksPanelProps) {
     <TasksView
       {...props}
       source={desktopTasksSource()}
+      failureText={props.serverId === LOCAL_SERVER_ID ? undefined : remoteAgentError}
       agents={agentList()}
       voice={createTasksVoice}
       onOpenLink={(url) => void appPort().openUrl(url)}

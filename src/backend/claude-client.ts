@@ -64,6 +64,7 @@ import { USAGE_LIMIT_METHOD } from "./agent/usage-limit-gate";
 import {
   type AgentProvider,
   MissingClaudeSessionError,
+  ProviderModelLimitedError,
   ProviderTurnActiveError,
   RequestTimeoutError,
 } from "./agent-client";
@@ -287,6 +288,7 @@ const OPENBOT_CLAUDE_CLIENT = {
   CLAUDE_AGENT_SDK_CLIENT_APP: "openbot/0.1.0",
   CLAUDE_CODE_ARTIFACT: "0",
   CLAUDE_CODE_ENTRYPOINT: "openbot",
+  CLAUDE_CODE_SILENT_TURN_REMINDER: "0",
 };
 const CLAUDE_TERMINAL_CHANNEL_TOOLS: readonly string[] = [
   "mcp__openbot__channel_result",
@@ -337,6 +339,7 @@ interface ThreadConfig {
   additionalDirectories: string[];
   persistSession: boolean;
   profileGeneration: boolean;
+  outputSchema: DynamicRecord | null;
   computerUse: boolean;
   channelTools: boolean;
   workspaceOnly: boolean;
@@ -368,6 +371,7 @@ interface ActiveTurn {
   authenticationFailed: boolean;
   balanceSpent: boolean;
   billingFailed: boolean;
+  modelNotFound: boolean;
   retrying: boolean;
   sandboxBlockedWarned: boolean;
   unprompted: boolean;
@@ -477,6 +481,7 @@ interface ClaudeStreamMessage {
   context_usage?: unknown;
   total_cost_usd?: number;
   tool_use_result?: unknown;
+  structured_output?: unknown;
   is_error?: boolean;
   api_error_status?: number | null;
   error?: string;
@@ -595,6 +600,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
   readonly turnContext = true;
   readonly userInputNote = true;
   readonly imageInput = (): boolean => true;
+  readonly structuredOutput = true;
   #queryRestarts = 0;
   readonly provider: AgentProvider = "claude";
   readonly #cli: ClaudeCliInfo;
@@ -1365,7 +1371,18 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     const stateDirectory = this.#stateDirectory;
     const userSetup = !config.profileGeneration && this.#userSetup();
     const skillPlugin =
-      config.workspaceOnly && stateDirectory ? yield* claudeWorkspaceSkillPlugin(stateDirectory, config.cwd) : null;
+      config.workspaceOnly && stateDirectory
+        ? yield* claudeWorkspaceSkillPlugin(stateDirectory, config.cwd).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                queryLogger.warn("Claude starts without the skills in the workspace .claude/skills.", {
+                  error: error.cause,
+                });
+                return null;
+              }),
+            ),
+          )
+        : null;
     const configDirectory = this.#configDirectory();
     yield* clearClaudeNeedsAuthMarks(
       configDirectory,
@@ -1481,6 +1498,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
             ? config.developerInstructions
             : { type: "preset", preset: "claude_code", append: config.developerInstructions },
           ...(Object.keys(extraArgs).length ? { extraArgs } : {}),
+          ...(config.outputSchema ? { outputFormat: { type: "json_schema", schema: config.outputSchema } } : {}),
           ...(config.profileGeneration
             ? { tools: [] }
             : { disallowedTools: [...CLAUDE_NATIVE_SCHEDULING, ...CLAUDE_DUPLICATE_TOOLS, ...CLAUDE_HOST_TOOLS] }),
@@ -1600,7 +1618,12 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     const requestedModel = getString(params, "model");
     const modelChanged = Boolean(requestedModel && requestedModel !== runtime.config.model);
     if (requestedModel && modelChanged) {
-      yield* providerCall(() => runtime.query.setModel(this.#sdkModel(requestedModel)));
+      yield* providerCall(() => runtime.query.setModel(this.#sdkModel(requestedModel))).pipe(
+        Effect.mapError((failure) => {
+          const refusal = limitRefusal(failure.cause);
+          return refusal === null ? failure : providerFailure(new ProviderModelLimitedError(refusal));
+        }),
+      );
       runtime.config.model = requestedModel;
     }
     const requestedEffort = getString(params, "effort");
@@ -1697,6 +1720,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       authenticationFailed: false,
       balanceSpent: false,
       billingFailed: false,
+      modelNotFound: false,
       retrying: false,
       sandboxBlockedWarned: false,
       unprompted,
@@ -1769,10 +1793,10 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     params: unknown,
   ): Effect.fn.Return<{ turnId: string }, ProviderClientOperationError> {
     const threadId = yield* providerSync(() => requiredString(params, "threadId"));
-    const runtime = yield* providerSync(() => this.#requireThread(threadId));
     const expectedTurnId = yield* providerSync(() => requiredString(params, "expectedTurnId"));
-    if (!runtime.activeTurn || runtime.activeTurn.id !== expectedTurnId) {
-      return yield* providerFailure(new Error("The active Claude turn changed before steering was accepted."));
+    const runtime = this.#threads.get(threadId);
+    if (!runtime?.activeTurn || runtime.activeTurn.id !== expectedTurnId) {
+      return yield* providerFailure(new Error(sourceText("error.backend.steerTurnChanged")));
     }
     const clientId = getString(params, "clientUserMessageId");
     const messageId = promptUuid(runtime, clientId);
@@ -2095,6 +2119,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       }
       if (message.error === "authentication_failed") turn.authenticationFailed = true;
       if (message.error === "billing_error") turn.billingFailed = true;
+      if (message.error === "model_not_found") turn.modelNotFound = true;
       if (message.error && message.error !== "max_output_tokens") return;
       this.#closeBlockedReply(runtime);
       const thinking = messageThinking(message.message);
@@ -2294,7 +2319,12 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         return;
       }
       this.#reconcileText(runtime, [...turn.assistantMessages.values()].join(""));
-      if (!turn.seenText && fallback && fallback !== CLAUDE_NO_RESPONSE_TEXT && !apiError)
+      const structured =
+        runtime.config.outputSchema && message.subtype === "success" && message.structured_output !== undefined
+          ? JSON.stringify(message.structured_output)
+          : null;
+      if (structured !== null && !apiError) this.#bufferText(runtime, structured);
+      else if (!turn.seenText && fallback && fallback !== CLAUDE_NO_RESPONSE_TEXT && !apiError)
         this.#bufferText(runtime, fallback);
     }
     const status = interrupted ? "interrupted" : message.subtype === "success" && !apiError ? "completed" : "failed";
@@ -2615,11 +2645,13 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
               ? { causeCode: "authentication" }
               : billing
                 ? { causeCode: "billing" }
-                : turn.stalled
-                  ? { causeCode: "stalled" }
-                  : crashed
-                    ? { causeCode: "provider_exited" }
-                    : {}),
+                : turn.modelNotFound
+                  ? { causeCode: "model_not_found" }
+                  : turn.stalled
+                    ? { causeCode: "stalled" }
+                    : crashed
+                      ? { causeCode: "provider_exited" }
+                      : {}),
         },
       });
     }
@@ -2999,7 +3031,7 @@ function removeClaudeQueryFile(file: string | null): Effect.Effect<void> {
 const CLAUDE_SANDBOX_UNAVAILABLE = /Sandbox required but unavailable: (.+?)\.? Set sandbox\.failIfUnavailable=false/s;
 
 const CLAUDE_SANDBOX_BLOCKED =
-  /^(?:apply-seccomp: (?:unshare\(|write \/proc\/self\/(?:setgroups|uid_map|gid_map)\b)|bwrap: (?:Failed to make \/ slave|setting up uid map|No permissions to creat(?:e a new|ing new) namespace|Creating new namespace failed|pivot_root\b|loopback: Failed RTM_NEW(?:ADDR|LINK)))/mu;
+  /^(?:apply-seccomp: (?:unshare\(|write \/proc\/self\/(?:setgroups|uid_map|gid_map)\b)|bwrap: (?:Failed to make \/ slave|setting up uid map|No permissions to creat(?:e a new|ing new) namespace|Creating new namespace failed|pivot_root\b|loopback: Failed RTM_NEW(?:ADDR|LINK)|Can't mount proc on (?:\/newroot)?\/proc: (?:Operation not permitted|Permission denied|Invalid argument)))/mu;
 
 const CLAUDE_API_CREDIT_EMPTY = /\bcredit balance (?:is )?too low\b/iu;
 
@@ -3037,6 +3069,12 @@ function claudeTurnError(error: unknown, apiKey: boolean, claudeAccount: boolean
   if (!apiKey && CLAUDE_NOT_LOGGED_IN.test(text))
     return sourceText("error.provider.signInExpired", { provider: agentProviderName("claude") });
   return CLAUDE_SANDBOX_UNAVAILABLE.test(text) ? sourceText("error.agent.claudeNoSandbox") : text;
+}
+
+function limitRefusal(cause: unknown): string | null {
+  const text = cause instanceof Error ? cause.message : String(cause);
+  const reason = classifyFailure(text);
+  return (reason === "rate_limit" || reason === "usage_limit") && !isPlanLimitDiagnostic(text) ? text : null;
 }
 
 function claudeProcessExited(error: unknown): boolean {
@@ -3268,6 +3306,10 @@ function readThreadConfig(params: unknown): ThreadConfig {
     additionalDirectories: [...new Set([cwd, ...roots])],
     persistSession: !isRecord(params) || params.persistSession !== false,
     profileGeneration: isRecord(params) && params.profileGeneration === true,
+    outputSchema:
+      isRecord(params) && params.profileGeneration === true && isDynamicRecord(params.outputSchema)
+        ? params.outputSchema
+        : null,
     computerUse: computerUseParam(params),
     channelTools: isRecord(params) && params.channelTools === true,
     workspaceOnly: isRecord(params) && params.workspaceOnly === true,

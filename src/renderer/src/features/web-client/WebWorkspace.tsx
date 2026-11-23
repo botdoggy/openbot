@@ -24,6 +24,7 @@ import {
   decodeAgentNewChatSettings,
   decodeAgentPlanCardSettings,
   decodeAgentSpeedSettings,
+  decodeHostSignalHomeSettings,
   decodeHostTurnLimits,
   decodeHostVoiceModel,
   LEGACY_RESPONSE_STYLE,
@@ -74,6 +75,7 @@ import { DISCORD_ACCESS_CAPABILITY } from "@openbot/contracts/team-protocol/disc
 import { EVENTS_CAPABILITY } from "@openbot/contracts/team-protocol/events-v1";
 import { HOST_PERSONALITY_CAPABILITY } from "@openbot/contracts/team-protocol/host-personality-v1";
 import { HOST_RELEASE_CAPABILITY } from "@openbot/contracts/team-protocol/host-release-v1";
+import { HOST_SIGNAL_HOME_ROUTES } from "@openbot/contracts/team-protocol/host-signal-home-v1";
 import { HOST_TURN_LIMITS_ROUTES } from "@openbot/contracts/team-protocol/host-turn-limits-v1";
 import { HOST_VOICE_MODEL_ROUTES } from "@openbot/contracts/team-protocol/host-voice-model-v1";
 import { HOSTED_SITES_CAPABILITY } from "@openbot/contracts/team-protocol/hosted-sites-v1";
@@ -212,6 +214,7 @@ import { queuedDeliveriesInOrder } from "../../queue-reconciliation";
 import { backgroundWorkKey } from "../conversation/background-work-key";
 import "katex/contrib/copy-tex";
 import "../../selection-copy";
+import type { CreationPreference } from "@openbot/ui/features/agents/agent-creation-model";
 import { actionToast } from "../../action-toast";
 import { desktopAnalytics } from "../../analytics";
 import { collectThreadMessageMatches, formatMessageTime, toAgentMessage } from "../../app-message-projection";
@@ -242,8 +245,13 @@ import {
 import { createUsageRefreshPoll } from "../account/usage-refresh-poll";
 import { conversationThreads } from "../agent-threads/conversation-threads";
 import { sidebarAgentThreads } from "../agent-threads/sidebar-agent-threads";
-import type { CreationPreference } from "../agents/agent-creation-model";
-import { agentErrorDetails, claimErrorToast, createRetryNotices, readableAgentError } from "../agents/agent-error-text";
+import {
+  agentErrorDetails,
+  claimErrorToast,
+  createTurnErrorBanners,
+  readableAgentError,
+  remoteAgentError,
+} from "../agents/agent-error-text";
 import { agentTakeoverTabIds } from "../agents/agent-thread-attention";
 import { withHostAccountUsage, withHostProfileAccount } from "../agents/host-provider-accounts";
 import { createRemoteAgentAdmin, updateRemoteAgent } from "../agents/remote-agent-admin";
@@ -294,6 +302,7 @@ import type { OwnerTransferCalls } from "../servers/ServerOwnerTransferSection";
 import { ServerPlanReminder } from "../servers/ServerPlanReminder";
 import type { HostAgentAccessCalls } from "../servers/ServerRolesSection";
 import type { ServerHostedSitesOptions, ServerSettingsSection } from "../servers/ServerSettingsModal";
+import type { HostSignalHomeCalls } from "../servers/ServerSignalHomeSetting";
 import type { HostSkillLearningCalls } from "../servers/ServerSkillLearningSetting";
 import type { HostTimezoneCalls } from "../servers/ServerTimezoneSetting";
 import type { HostTurnLimitsCalls } from "../servers/ServerTurnLimitsSetting";
@@ -974,7 +983,12 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     const choose = providerSettings()?.accountActions?.setLiveVoiceAccount;
     const codex = providerAdmin.status().providers?.find((row) => row.id === "codex");
     if (!choose || !codex?.accounts) return undefined;
-    return { accounts: codex.accounts, accountId: codex.liveVoiceAccount ?? null, choose };
+    return {
+      accounts: codex.accounts,
+      accountId: codex.liveVoiceAccount ?? null,
+      defaultUsesKey: codex.apiKeyInUse === true,
+      choose,
+    };
   };
   const accountUsage = () => withHostAccountUsage(usageReading.accountUsage(), providerAdmin.hostAccounts.limits());
   const agentAccountChoice = createMemo(
@@ -1303,6 +1317,8 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     githubConnector: githubPort,
     attachmentMedia: runtime.attachmentMedia,
     previewMedia: workflowPreviews,
+    download: (attachmentId) => workspace.runtime.download(attachmentId),
+    saveFile: createWebFileSaver(),
   });
   const mediaCredits = createWorkflowMediaCredits(
     () => (page() === "workflows" && workspace.state.status === "online" ? (server()?.id ?? null) : null),
@@ -1673,6 +1689,12 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
     changeVoiceModel: async ({ action, modelId }, serverId) =>
       hostRequest(serverId)("POST", HOST_VOICE_MODEL_ROUTES.change, decodeHostVoiceModel, { action, modelId }),
   };
+  const hostSignalHomeCalls: HostSignalHomeCalls = {
+    getSignalHome: async (serverId) =>
+      hostRequest(serverId)("POST", HOST_SIGNAL_HOME_ROUTES.settings, decodeHostSignalHomeSettings, {}),
+    setSignalHome: async (home, serverId) =>
+      hostRequest(serverId)("POST", HOST_SIGNAL_HOME_ROUTES.update, decodeHostSignalHomeSettings, { home }),
+  };
   const hostTurnLimitsCalls: HostTurnLimitsCalls = {
     getTurnLimits: async (serverId) =>
       hostRequest(serverId)("POST", HOST_TURN_LIMITS_ROUTES.settings, decodeHostTurnLimits, {}),
@@ -2018,21 +2040,33 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
       applyAgentLevels(hostId, levels);
     }),
   );
-  const retryNotices = createRetryNotices();
+  const errorBanners = createTurnErrorBanners();
+  const isMainThread = (agentId: string, threadId: string) =>
+    workspace.state.agents.some((agent) => agent.id === agentId && agent.threadId === threadId);
   onCleanup(
     workspace.onHostEvent((event) => {
       const serverId = server()?.id;
+      if (event.type === "turn-started") {
+        if (serverId && isMainThread(event.agentId, event.threadId))
+          errorBanners.noteTurnStarted(composerDraftKey({ agentId: event.agentId, serverId }));
+        return;
+      }
       if (event.type === "turn-completed") {
         if (!serverId) return;
         const key = composerDraftKey({ agentId: event.agentId, serverId });
-        retryNotices.clearAtTurnEnd(key, controller.setConversationErrors, controller.setConversationErrorRuns);
+        errorBanners.clearAtTurnEnd(
+          key,
+          event.status === "completed" && !event.quiet && isMainThread(event.agentId, event.threadId),
+          controller.setConversationErrors,
+          controller.setConversationErrorRuns,
+        );
         return;
       }
       if (event.type !== "error") return;
       if (event.agentId && serverId) {
         const key = composerDraftKey({ agentId: event.agentId, serverId });
-        const message = readableAgentError(event.message);
-        retryNotices.noteError(key, event.message, message);
+        const message = readableAgentError(remoteAgentError(event.message));
+        errorBanners.noteError(key, event.message, message);
         controller.setConversationErrors((current) => ({ ...current, [key]: message }));
         const details = agentErrorDetails(event.message, message);
         controller.setConversationErrorRuns((current) => {
@@ -2043,7 +2077,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
         });
         return;
       }
-      const description = readableAgentError(event.message);
+      const description = readableAgentError(remoteAgentError(event.message));
       if (!claimErrorToast(description)) return;
       if (event.code === "mcp_server_not_started") {
         toast.error(t("agent.error.mcpNotStarted"), {
@@ -2769,10 +2803,15 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
   const unavailable = async (): Promise<never> => {
     throw new Error(t("webClient.error.desktopOnly"));
   };
-  const connectionDetail = () =>
-    workspace.state.hostedSleep !== "sleeping" && !workspace.state.hostedIssue && !hostUpdating()
-      ? (workspace.state.connectionError ?? null)
-      : null;
+  const connectionDetail = () => {
+    if (workspace.state.hostedSleep === "sleeping" || workspace.state.hostedIssue || hostUpdating()) return null;
+    if (workspace.state.hostOffline && workspace.state.host && workspace.state.host.hosted !== true)
+      return {
+        message: t("server.connection.computerOffline", { name: workspace.state.host.name }),
+        reference: workspace.state.connectionError?.reference ?? null,
+      };
+    return workspace.state.connectionError ?? null;
+  };
   const frameConnecting = () =>
     connectionShown() &&
     !fullWindowLoading() &&
@@ -3501,6 +3540,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                         hostUpdate={{ calls: hostUpdateCalls }}
                         hostTimezone={{ calls: hostTimezoneCalls }}
                         hostVoiceModel={{ calls: hostVoiceModelCalls }}
+                        hostSignalHome={{ calls: hostSignalHomeCalls }}
                         hostTurnLimits={{ calls: hostTurnLimitsCalls }}
                         hostPersonality={{ calls: hostPersonalityCalls }}
                         hostMemoryLimit={{ calls: hostMemoryLimitCalls }}
@@ -3626,6 +3666,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                       hostName={target().name}
                       onBack={closeHostPage}
                       source={tasksSource}
+                      failureText={remoteAgentError}
                       responseStyle={responseStyle()}
                       mediaSource={runtime.attachmentMedia}
                       files={{

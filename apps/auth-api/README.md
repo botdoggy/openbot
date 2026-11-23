@@ -267,6 +267,22 @@ of each archive in `hosted_server_archives`; with another value, no archive can 
 key reads the `openbot-pool-archive-eu` bucket and nothing else. The encrypted `.env.production` has
 all three, and GitHub Actions reads them from the `cloudflare-production` Environment. When you
 change one, change it in both places and deploy the Worker.
+`BROWSER_EXTENSION_IDS` lists the ids of the published OpenBot browser extensions, separated by
+commas (a Chrome id is 32 letters from `a` to `p`). Only they get a sign-in from the web app: the
+extension opens `/app?extension=<id>&challenge=<c>&state=<s>` in its sign-in window, the person
+allows it, `/api/browser/extension/code` gives a one-time code, and the extension spends it with its
+verifier at `/v1/mobile-auth/company/exchange` (`platform: "unknown"`), as the phone does after a company sign-in. The extension first asks with no window (`&silent=1`,
+`launchWebAuthFlow` not interactive): the web app gives the code at once when this account allowed this
+extension in this browser before (`openbot.web.extension-allowed.v1` in local storage), and else answers
+`login_required` or `consent_required`, and the extension opens the window. Without the variable, production gives no extension a
+code; a development API (`AUTH_EXPOSE_DEVELOPMENT_CODE`) accepts any extension id, because an
+unpacked extension gets its id from its folder. It is not a secret: set it in `wrangler.jsonc` `vars`
+when the store gives the extension its id.
+
+`GET /v1/browser-extension/x-rules?hash=<hex>` answers the CSS selectors that the extension uses on
+X (`server/browser-extension-x-rules.ts`) as `{ hash, rules }`, with `rules: null` when the extension
+already has that hash. When X changes its page, put new selectors in that file and deploy: extensions
+take them within an hour, with no store review. It holds selectors only, never code.
 
 `SERVER_CLAIMS_ADMIN_TOKEN` lets an operator sign a new server in for a user without an email code: see
 [server claims](../../docs/self-hosted-server.md#sign-in-with-a-server-claim). Without it, the endpoint answers 401.
@@ -387,7 +403,11 @@ ticket names `REMOTE_SIGNAL_URL`, as before.
   `remote_hosts.signal_home` keeps, and a ticket with the `signal` claim. The host keeps its home
   until it sends that home's URL as `failedSignalUrl`. Session tickets of the host name the same
   home. Other host tickets (ingress, the webhook relay, released hosts) and hosts with no home use
-  `REMOTE_SIGNAL_URL`, which stays the entry Signal.
+  `REMOTE_SIGNAL_URL`, which stays the entry Signal. A host ticket request with `signalHome: true` can
+  also send `preferredSignalHome`, the ID of the home that an owner or admin chose. The host gets that
+  home when it is not the `failedSignalUrl` and its `/health/ready` answers in 2 seconds; otherwise the
+  rules below choose. An ID that is not a home is ignored. `POST /v2/remote/hosts/:hostId/signal-homes`
+  with the machine token lists the homes (`{ homes: [{ id, url }] }`).
 - `REMOTE_SIGNAL_HOME_LOCATIONS`: the place of each home, as `id=latitude:longitude,...`, for example
   `a=60.17:24.94,us=37.34:-121.89`. Empty means no places. Otherwise it must name each home of
   `REMOTE_SIGNAL_HOMES` one time, or each ticket request fails with `503 remote_not_configured`. With

@@ -20,8 +20,9 @@ changes, and respect the `STOP` conditions.
 | 010 | Branch a conversation from a message | P1 | L | — | IN PROGRESS |
 | 011 | Upgrades, migrations and team protocol stay safe for the long term | P1 | L | — | IN PROGRESS |
 | 012 | A pool server whose plan ended goes to an archive in B2 | P2 | L | — | IN PROGRESS |
-| 013 | Custom ACP agents steer a running turn | P2 | M | — | DONE |
-| 014 | Custom ACP steer speaks the agreed `_session/steering` wire protocol | P2 | S | 013 | DONE |
+| 013 | Workflows are typed, portable and future proof | P1 | L | — | DONE |
+| 014 | Custom ACP agents steer a running turn | P2 | M | — | DONE |
+| 015 | Custom ACP steer speaks the agreed `_session/steering` wire protocol | P2 | S | 014 | DONE |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

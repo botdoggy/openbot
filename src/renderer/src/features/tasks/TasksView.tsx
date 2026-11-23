@@ -27,6 +27,7 @@ import { AgentThreadView, type AgentThreadVoice } from "@openbot/ui/features/con
 import { TaskAnswerCard, TaskPanel } from "@openbot/ui/features/tasks/TaskPanel";
 import { TASKS_SIDE_DEFAULT, TASKS_SIDE_MIN, TasksPage, type TasksVoice } from "@openbot/ui/features/tasks/TasksPage";
 import { currentText } from "@openbot/ui/text";
+import { appendVoiceTranscript } from "@openbot/ui/voice-recording";
 import {
   createEffect,
   createMemo,
@@ -44,7 +45,6 @@ import { toAgentMessages } from "../../app-message-projection";
 import { useChatBubbleStyle } from "../../chat-bubble-style-preference";
 import { readPanelWidth, savePanelWidth } from "../../components/panel-width-storage";
 import { usePlatform } from "../../platform";
-import { appendVoiceTranscript } from "../../voice-recording";
 import { readAgentSelection, writeAgentSelection } from "../agents/agent-selection";
 import { insertAtSelection, insertPastedText, rowAttachments } from "../conversation/composer-draft";
 import { latestVisibleAgentMessageId } from "../conversation/conversation-read-state";
@@ -88,6 +88,7 @@ export type TasksVoiceAdapter = TasksVoice & {
 interface TasksViewProps {
   serverId: string;
   hostName: string;
+  failureText?: ((error: string) => string) | undefined;
   onBack?: (() => void) | undefined;
   source: TasksSource;
   agents: AgentProfile[];
@@ -800,6 +801,7 @@ export function TasksView(props: TasksViewProps) {
               draft={state.drafts[taskId] ?? ""}
               draftAttachments={filesOf(taskId)}
               rowAttachments={rowFilesOf(taskId)}
+              failureText={props.failureText}
               pendingImages={pendingImagesOf(taskId)}
               onRemoveAttachment={filesAccepted() ? (attachment) => removeFile(taskId, attachment) : undefined}
               onPasteFiles={

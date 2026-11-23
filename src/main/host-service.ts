@@ -148,6 +148,8 @@ interface HostServiceOptions {
   machine?: ForwardedApiOptions["machine"];
   backgroundProcesses?: ForwardedApiOptions["backgroundProcesses"];
   liveVoice?: ForwardedApiOptions["liveVoice"];
+  voiceTranscription?: ForwardedApiOptions["voiceTranscription"];
+  clientBrowser?: ForwardedApiOptions["clientBrowser"];
   hostedSites?: ForwardedApiOptions["hostedSites"];
   events?: ForwardedApiOptions["events"];
   agentImport?: ForwardedApiOptions["agentImport"];
@@ -210,6 +212,8 @@ interface HostServiceOptions {
   teamWebRtcBridge?: TeamWebRtcBridge;
   peerMemberChanged?: (peerId: string, membershipId: string | null) => void;
   privateNetwork?: () => boolean;
+  preferredSignalHome?: () => string | null;
+  signalHomeAnswers?: (home: string) => Effect.Effect<boolean>;
   registerRemoteHost?: (input: {
     hostId: string;
     name: string;
@@ -485,6 +489,8 @@ export class HostService extends EventEmitter<HostEvents> {
       ...(options.machine === undefined ? {} : { machine: options.machine }),
       ...(options.backgroundProcesses === undefined ? {} : { backgroundProcesses: options.backgroundProcesses }),
       ...(options.liveVoice === undefined ? {} : { liveVoice: options.liveVoice }),
+      ...(options.voiceTranscription === undefined ? {} : { voiceTranscription: options.voiceTranscription }),
+      ...(options.clientBrowser === undefined ? {} : { clientBrowser: options.clientBrowser }),
       ...(options.hostedSites === undefined ? {} : { hostedSites: options.hostedSites }),
       ...(options.events === undefined ? {} : { events: options.events }),
       ...(options.agentImport === undefined ? {} : { agentImport: options.agentImport }),
@@ -592,6 +598,8 @@ export class HostService extends EventEmitter<HostEvents> {
           ...(options.peerMemberChanged ? { peerMemberChanged: options.peerMemberChanged } : {}),
           ...(options.verifyRemoteSessionTicket ? { verifyClientTicket: options.verifyRemoteSessionTicket } : {}),
           ...(options.privateNetwork ? { privateNetwork: options.privateNetwork } : {}),
+          ...(options.preferredSignalHome ? { preferredSignalHome: options.preferredSignalHome } : {}),
+          ...(options.signalHomeAnswers ? { signalHomeAnswers: options.signalHomeAnswers } : {}),
         })
       : null;
   }
@@ -600,12 +608,23 @@ export class HostService extends EventEmitter<HostEvents> {
     if (this.#webrtcGateway) yield* this.#webrtcGateway.applyNetworkRoute();
   }).bind(this);
 
+  signalHome(): string | null {
+    return this.#webRtcOnline ? (this.#webrtcGateway?.signalHome() ?? null) : null;
+  }
+
+  followSignalHome(): Effect.Effect<void> {
+    return Effect.sync(() => {
+      if (this.#webRtcOnline) this.#webrtcGateway?.scheduleSignalHomeFollow();
+    });
+  }
+
   getStatus(): HostStatus {
     const capabilities = this.#remoteScreen.capabilities();
     return {
       ...this.#status,
       remoteDesktopReady: capabilities.ready,
       remoteDesktopScreenRecordingDenied: this.#remoteScreen.screenRecordingDenied(),
+      remoteDesktopNeedsX11Session: this.#remoteScreen.needsX11Session(),
       remoteDesktopUnattended: capabilities.unattended,
       remoteDesktopActiveSessions: capabilities.activeSessions,
       remoteDesktopMaxSessions: capabilities.maxSessions,
@@ -2097,6 +2116,7 @@ function initialHostStatus(identity: TeamIdentity | null, unattended: boolean): 
     apiOnline: false,
     remoteDesktopReady: false,
     remoteDesktopScreenRecordingDenied: false,
+    remoteDesktopNeedsX11Session: false,
     remoteDesktopUnattended: unattended,
     remoteDesktopActiveSessions: 0,
     remoteDesktopMaxSessions: 4,
